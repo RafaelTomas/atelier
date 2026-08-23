@@ -1,0 +1,47 @@
+appId: dev.atelier.app
+productName: Atelier
+copyright: GPL-3.0
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+
+extraResources:
+  # O CLI atelier precisa existir em disco para ser copiado ao bin do usuário
+  - from: resources/atelier.cjs
+    to: atelier.cjs
+
+# node-pty é módulo nativo: recompilado por plataforma, nunca empacotado no asar
+asarUnpack:
+  - '**/node_modules/node-pty/**'
+
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.developer-tools
+  # Sem Developer ID a distribuição sai ad-hoc, igual ao app nativo hoje
+  identity: null
+  hardenedRuntime: false
+
+win:
+  target:
+    - nsis
+  # Sem certificado OV/EV o SmartScreen bloqueia até ganhar reputação
+  signAndEditExecutable: true
+
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+publish: null

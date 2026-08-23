@@ -1,0 +1,382 @@
+<h1 align="center">Atelier</h1>
+
+<p align="center">
+  <strong>Seu ateliê de agentes de IA</strong>
+  <br>
+  Um canvas infinito onde agentes de IA trabalham lado a lado — e conversam entre si sem você no meio.
+</p>
+
+<p align="center">
+  <a href="#o-problema">O problema</a> ·
+  <a href="#instalação">Instalação</a> ·
+  <a href="#primeiros-passos">Primeiros passos</a> ·
+  <a href="#como-funciona">Como funciona</a> ·
+  <a href="#o-cli-atelier">CLI</a> ·
+  <a href="#estado-do-projeto">Estado</a> ·
+  <a href="#arquitetura">Arquitetura</a> ·
+  <a href="#testes">Testes</a> ·
+  <a href="#dados-em-disco">Dados</a> ·
+  <a href="#solução-de-problemas">Problemas</a>
+</p>
+
+<p align="center">
+  <code>macOS</code> · <code>Windows</code> · <code>Linux</code> ·
+  <code>Electron</code> · <code>TypeScript</code> · <code>React</code> · <code>GPL-3.0</code>
+</p>
+
+---
+
+## O problema
+
+Rodar três agentes de IA ao mesmo tempo hoje significa três janelas de terminal e
+você no meio, copiando contexto de uma para outra. Você vira o roteador humano:
+lê a saída do agente A, resume, cola no agente B, espera, traz de volta. O
+trabalho de coordenação cresce mais rápido que o trabalho em si.
+
+O Atelier tira você desse caminho. Os agentes ficam num canvas espacial, você
+liga um no outro com um cabo, e eles passam a se falar direto.
+
+```mermaid
+flowchart LR
+    Claude["🤖 <b>Claude</b><br/><code>$ implementa</code>"]
+    Codex["🤖 <b>Codex</b><br/><code>$ revisa</code>"]
+    Spec["📝 <b>Spec.md</b><br/><code># Requisitos</code>"]
+
+    Claude <== o cabo ==> Codex
+    Claude <-.-> Spec
+    Codex <-.-> Spec
+
+    classDef term stroke:#58a6ff,stroke-width:2px
+    classDef note stroke:#f0883e,stroke-width:2px,stroke-dasharray:5 3
+    class Claude,Codex term
+    class Spec note
+```
+
+```console
+Claude $ atelier ask "Codex" "revisa o diff em src/auth"
+Codex  $ atelier note read "Spec"
+```
+
+Cada nó é um processo de verdade: terminais são PTYs, notas são arquivos `.md` em
+disco. Nada é simulado.
+
+---
+
+## Instalação
+
+**Requisitos:** Node 22+ e, no macOS, as Command Line Tools
+(`xcode-select --install`).
+
+```bash
+git clone <url-do-repo> atelier
+cd atelier
+npm install
+npm run dev
+```
+
+O `npm install` compila o `node-pty` para a sua plataforma e, no `postinstall`,
+conserta dois problemas conhecidos de dependência nativa — os dois estão
+documentados em [Solução de problemas](#solução-de-problemas).
+
+`npm run dev` isola os dados em `~/.atelier-dev`, então rodar o projeto não
+encosta em nenhum workspace real seu.
+
+### Empacotar
+
+```bash
+npm run pack:mac      # .dmg + .zip
+npm run pack:win      # instalador NSIS
+npm run pack:linux    # AppImage + .deb
+```
+
+> Sem certificado de assinatura, o macOS pede botão direito → **Abrir** na
+> primeira execução, e o SmartScreen do Windows avisa até o binário ganhar
+> reputação.
+
+---
+
+## Primeiros passos
+
+Um passo a passo de dois minutos, do canvas vazio até dois agentes conversando.
+
+1. **Crie dois terminais.** Botão direito no vazio → novo nó. Em um, rode
+   `claude`; no outro, `codex` (ou qualquer CLI de agente que você use).
+2. **Ligue um no outro.** Clique no `⇄` no cabeçalho do primeiro nó e depois no
+   segundo. Um cabo aparece entre eles.
+3. **Crie uma nota** com botão direito no vazio, escreva os requisitos, e ligue-a
+   nos dois terminais.
+4. **Peça ao primeiro agente para falar com o segundo:**
+
+   ```
+   Leia a nota "Spec" e peça ao Codex para revisar o que você implementou.
+   ```
+
+   Ele vai usar `atelier note read "Spec"` e `atelier ask "Codex" "..."` sozinho —
+   o CLI já está no `PATH` dele e a skill de uso é injetada quando o cabo é criado.
+
+A partir daqui, o cabo é o que define o alcance: um agente só enxerga aquilo em
+que está ligado.
+
+---
+
+## Como funciona
+
+### O canvas
+
+| Ação | Como |
+|---|---|
+| Pan | Scroll |
+| Zoom | ⌘/Ctrl + scroll |
+| Voltar a 100% | `⌘0` |
+| Mover nó | Arrastar pelo cabeçalho |
+| Redimensionar | Alça inferior direita |
+| Seleção em área | Arrastar no vazio |
+| Apagar | `Delete` |
+| Criar nota | Botão direito no vazio |
+
+Só o que está na tela (mais 200px de margem) existe no DOM — o canvas aguenta
+centenas de nós sem engasgar.
+
+### Os nós
+
+| Nó | O que é |
+|---|---|
+| **Terminal** | Um PTY de verdade, com xterm.js. Rode `claude`, `codex`, ou qualquer shell |
+| **Nota** | Um arquivo `.md` em disco, editável no canvas e legível pelos agentes |
+| **Texto** | Rótulo solto no canvas, para organizar visualmente |
+
+### Os cabos
+
+Clique no `⇄` no cabeçalho de um nó e depois no nó de destino. O cabo tem física
+de verdade — integração de Verlet com 21 pontos, gravidade e amortecimento — e
+adormece quando para de se mexer, para não queimar CPU à toa.
+
+O cabo não é decoração: **ele é a permissão**. Um agente só enxerga e conversa
+com aquilo em que está ligado.
+
+---
+
+## O CLI `atelier`
+
+Quando um terminal é conectado, o CLI `atelier` entra no `PATH` dele
+automaticamente. É por ele que os agentes se falam.
+
+```bash
+atelier list                              # o que estou conectado?
+atelier ask "Codex" "revisa o diff"       # manda e espera a resposta
+atelier check "Codex" 40                  # últimas 40 linhas da saída dele
+atelier note read "Spec"                  # lê uma nota conectada
+atelier note write "Spec" "conteúdo"      # reescreve
+atelier note create "rascunho"            # cria já conectada a mim
+atelier debug                             # diagnóstico
+```
+
+`ask` bloqueia até o outro agente ficar ocioso. **Se estourar o tempo, use
+`check` em vez de reenviar o prompt** — reenviar interrompe quem ainda está
+trabalhando.
+
+Comandos do app nativo que ainda não foram portados (`portal`, `recruit`,
+`dismiss`, `connect`, `role`, `preset`) respondem com uma mensagem explícita de
+"não implementado" em vez de falhar em silêncio.
+
+### Como isso funciona por baixo
+
+```
+Terminal do agente
+   │  atelier ask "Codex" "revisa o diff"
+   ▼
+Unix socket  (macOS/Linux)  ~/.atelier/run/agent.sock
+named pipe   (Windows)      \\.\pipe\atelier
+   ▼
+Servidor IPC     POST /cli · header X-Terminal-ID
+   ▼
+Roteador → handler → escreve no PTY do destinatário
+   ▼
+resposta em texto puro, impressa no terminal de origem
+```
+
+Tudo fica em `127.0.0.1`. Nada sai da máquina.
+
+O `X-Terminal-ID` é o que define o escopo: o servidor resolve quem é o chamador,
+descobre em que ele está ligado, e recusa qualquer coisa fora disso.
+
+---
+
+## Estado do projeto
+
+O núcleo está completo e utilizável no dia a dia; alguns tipos de nó ainda não
+têm interface.
+
+| Área | Estado |
+|---|---|
+| Canvas: pan, zoom, seleção, arrasto, resize, virtualização | ✅ |
+| Cabos com física (Verlet, 21 pontos, auto-sleep) | ✅ |
+| Nós Terminal (xterm.js + node-pty) | ✅ |
+| Nós Nota (`.md` em disco) e Texto | ✅ |
+| Persistência atômica, autosave, recuperação de crash | ✅ |
+| Servidor IPC + CLI (`list`, `ask`, `check`, `note`, `debug`) | ✅ |
+| Múltiplos workspaces | ✅ |
+| Nós Portal (navegador embutido) | ⚠️ placeholder |
+| Nós File Tree, Shape, Stroke, Freehand | ⚠️ placeholder |
+| Floors (git worktree), Routines, Git, SSH, Settings | ❌ |
+
+**Nós em placeholder não são perdidos.** O codec lê e regrava todos os oito tipos
+sem perda, então um workspace pode passar por aqui e voltar intacto.
+
+### Por que Portal ainda não existe
+
+Não é falta de tempo — é um problema arquitetural do Electron. As views nativas
+(`WebContentsView`) são compostas *por cima* da página: ignoram `transform`,
+`z-index` e recorte. Num canvas com pan e zoom, um navegador embutido ficaria
+sempre por cima, no tamanho errado. A saída provável é `<webview>` para o portal
+em foco e snapshot estático para os demais, mas isso precisa de medição antes de
+virar código.
+
+---
+
+## Arquitetura
+
+```
+src/
+├── main/                    processo principal (Node)
+│   ├── core/
+│   │   ├── models/          codec do formato em disco
+│   │   ├── persistence/     escrita atômica, migrações, importação
+│   │   ├── state/           AppState + WorkspaceManager (isDirty/autosave)
+│   │   ├── terminal/        node-pty
+│   │   ├── connection/      cabos + injeção de skill
+│   │   └── interagent/      servidor IPC + roteador + handlers
+│   ├── ipc/                 ponte para o renderer
+│   ├── window.ts
+│   └── index.ts             ordem de boot
+├── preload/                 contextBridge tipado
+├── renderer/                UI (React)
+│   ├── canvas/              viewport, fundo, cabos, interação
+│   ├── nodes/               um componente por tipo de nó
+│   └── state/               store com useSyncExternalStore
+└── shared/                  tipos comuns
+```
+
+### Três invariantes
+
+**1. A ordem de boot é fixa.** O servidor IPC sobe antes de qualquer terminal
+existir. Se um PTY nascer antes, ele recebe porta zero e o CLI dentro dele nunca
+encontra o app.
+
+**2. Toda I/O de arquivo passa pelo `PersistenceManager`.** Ele faz escrita
+atômica: grava um `.tmp`, dá `fsync`, e só então renomeia. Um crash no meio de um
+save deixa o arquivo anterior íntegro em vez de um JSON pela metade.
+
+**3. Pan, zoom e arrasto ficam fora do React.** Escrevem direto em
+`style.transform`. Se entrarem no estado reativo, a árvore re-renderiza a cada
+`mousemove` e os terminais entram em tempestade de refresh.
+
+### O núcleo não importa `electron`
+
+Nenhum módulo do `core/` importa `electron` no topo — os poucos usos são
+`import()` dinâmico. Por isso o núcleo inteiro roda headless, e é isso que
+permite testar boot, persistência e o protocolo do CLI sem abrir janela nenhuma.
+
+---
+
+## Testes
+
+```bash
+npm test              # 30 asserções, nenhuma precisa de display
+npm run test:codec    # compatibilidade do formato em disco
+npm run test:smoke    # boot, canvas, persistência e CLI de ponta a ponta
+```
+
+O smoke test não usa mock: ele sobe o servidor IPC de verdade e conversa com ele
+por socket, com exatamente o mesmo HTTP que o CLI fala.
+
+O teste de codec é o mais importante do projeto. Ele valida contra
+`fixtures/full-workspace.json`, que cobre os oito tipos de nó e os seis tipos de
+conexão, e exige que `encode(decode(x)) == x`.
+
+### O formato em disco
+
+O formato segue as convenções de codificação do Swift `Codable`, com quatro
+regras que precisam ser respeitadas ao pé da letra — todas verificadas
+empiricamente contra `swiftc`:
+
+| Origem em Swift | Como fica no JSON |
+|---|---|
+| `UUID` | string **MAIÚSCULA** |
+| `Date` com `.iso8601` | `"2026-08-23T17:12:00Z"` — **sem** milissegundos |
+| `CGPoint` | `[x, y]` |
+| `CGRect` | `[[x, y], [w, h]]` |
+| `enum` com valor associado | `{ "<caso>": { "_0": … } }` |
+
+Nada disso sai de graça de um `JSON.stringify` — daí o codec escrito à mão e o
+teste que o guarda.
+
+---
+
+## Dados em disco
+
+```
+~/.atelier/
+├── manifest.json                   índice de workspaces
+├── preferences.json
+├── app-state.json                  workspace ativo + flag de shutdown limpo
+├── bin/atelier                     o CLI injetado nos terminais
+├── run/agent.sock                  socket IPC (recriado a cada boot)
+└── workspaces/{UUID}/
+    ├── workspace.json              nós e cabos
+    ├── notes/*.md                  as notas, como arquivos de verdade
+    └── terminals/*.scrollback
+```
+
+As notas são arquivos comuns: dá para editá-las fora do app, versioná-las em git
+ou apontar outro editor para elas.
+
+### Desenvolvimento não toca nos seus dados
+
+`npm run dev` aponta `ATELIER_HOME` para `~/.atelier-dev`. Para abrir os dados
+reais durante o desenvolvimento, use `npm run dev:realdata` — e faça backup antes.
+
+---
+
+## Solução de problemas
+
+O `postinstall` roda `scripts/fix-native-deps.mjs`, que conserta dois problemas
+reproduzidos aqui. Ambos dão erros opacos, então ficam registrados:
+
+| Sintoma | Causa | Correção |
+|---|---|---|
+| `posix_spawnp failed.` ao abrir qualquer terminal | o `spawn-helper` do node-pty chega em `prebuilds/` sem bit de execução (0644) | `chmod +x` no helper |
+| `exited with signal SIGKILL`, sem mais nada | a Apple revogou a notarização de algumas versões do Electron; o Gatekeeper mata o processo (`spctl -a -vv` diz "revoked") | re-assinatura ad-hoc do `Electron.app` local |
+
+Se algum voltar, rode `node scripts/fix-native-deps.mjs` — é idempotente.
+
+**Rodando dentro do VS Code:** o terminal integrado exporta
+`ELECTRON_RUN_AS_NODE=1`, o que faz o Electron subir em modo Node e falhar com
+`Cannot read properties of undefined (reading 'requestSingleInstanceLock')`. Use
+`env -u ELECTRON_RUN_AS_NODE npm run dev`, ou um terminal fora do editor.
+
+**`atelier: command not found` dentro de um terminal do canvas:** o CLI só entra
+no `PATH` de terminais **conectados**. Ligue um cabo e abra um terminal novo.
+
+**`atelier ask` estourou o tempo:** o destinatário ainda está trabalhando. Use
+`atelier check "<nome>"` para ver a saída dele — reenviar o `ask` interrompe o
+trabalho em andamento.
+
+---
+
+## Comandos
+
+| Comando | O que faz |
+|---|---|
+| `npm run dev` | Dev com hot reload, dados isolados em `~/.atelier-dev` |
+| `npm run dev:realdata` | Dev apontando para `~/.atelier` |
+| `npm run build` | Typecheck + build de produção |
+| `npm run typecheck` | Só a checagem de tipos (main + renderer) |
+| `npm test` | Codec + smoke |
+| `npm run pack:mac\|win\|linux` | Instaladores |
+
+---
+
+## Licença
+
+GPL-3.0.

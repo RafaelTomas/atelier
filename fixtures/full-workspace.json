@@ -1,0 +1,217 @@
+{
+  "schemaVersion": 2,
+  "type": "workspace",
+  "payload": {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "name": "Golden Workspace",
+    "icon": "folder",
+    "isPinned": false,
+    "locationType": "local",
+    "workingDirectory": "/tmp/test",
+    "preferredIDE": "cursor",
+    "syncConfigFiles": false,
+    "canvasOrigin": [9800, 8500],
+    "canvasZoom": 1,
+    "nodes": [
+      {
+        "id": "AAAAAAAA-0000-0000-0000-000000000001",
+        "frame": [[9900, 8600], [560, 360]],
+        "zIndex": 1,
+        "isLocked": false,
+        "createdAt": "2026-05-16T00:00:00Z",
+        "lastModifiedAt": "2026-05-16T00:00:00Z",
+        "content": {
+          "terminal": {
+            "_0": {
+              "agentType": "claude_code",
+              "command": "claude",
+              "name": "Agent A",
+              "icon": "terminal",
+              "color": "#007AFF",
+              "id": "BBBBBBBB-0000-0000-0000-000000000001",
+              "shellPath": "/bin/zsh",
+              "workingDirectory": "/tmp/test",
+              "status": "idle",
+              "isManager": false,
+              "monitorWithOmbro": false,
+              "autoScrollLocked": false,
+              "shortcutMode": { "kind": "automatic" },
+              "scrollbackLineCount": 0
+            }
+          }
+        }
+      },
+      {
+        "id": "AAAAAAAA-0000-0000-0000-000000000002",
+        "frame": [[10500, 8600], [260, 150]],
+        "zIndex": 2,
+        "isLocked": false,
+        "createdAt": "2026-05-16T00:00:00Z",
+        "lastModifiedAt": "2026-05-16T00:00:00Z",
+        "content": {
+          "stickyNote": {
+            "_0": {
+              "color": "#FEFDE8",
+              "fileName": "Spec.md",
+              "fontSize": 14,
+              "hasCustomName": true,
+              "isPreviewing": false,
+              "storageMode": { "managed": {} }
+            }
+          }
+        }
+      },
+      {
+        "id": "AAAAAAAA-0000-0000-0000-000000000003",
+        "frame": [[9900, 9100], [640, 440]],
+        "zIndex": 3,
+        "isLocked": false,
+        "createdAt": "2026-05-16T00:00:00Z",
+        "lastModifiedAt": "2026-05-16T00:00:00Z",
+        "content": {
+          "portal": {
+            "_0": {
+              "id": "CCCCCCCC-0000-0000-0000-000000000001",
+              "name": "Docs",
+              "currentURL": "https://example.com",
+              "source": { "url": { "_0": "https://example.com" } },
+              "status": "idle",
+              "chromeHidden": false,
+              "storageScope": "isolated"
+            }
+          }
+        }
+      },
+      {
+        "id": "AAAAAAAA-0000-0000-0000-000000000004",
+        "frame": [[10700, 9100], [300, 420]],
+        "zIndex": 4,
+        "isLocked": false,
+        "createdAt": "2026-05-16T00:00:00Z",
+        "lastModifiedAt": "2026-05-16T00:00:00Z",
+        "content": {
+          "fileTree": { "_0": { "name": "Files", "rootPath": "/tmp/test", "viewMode": "list" } }
+        }
+      },
+      {
+        "id": "AAAAAAAA-0000-0000-0000-000000000005",
+        "frame": [[9800, 8500], [240, 48]],
+        "zIndex": 5,
+        "isLocked": false,
+        "createdAt": "2026-05-16T00:00:00Z",
+        "lastModifiedAt": "2026-05-16T00:00:00Z",
+        "content": {
+          "text": {
+            "_0": {
+              "text": "Sprint 12",
+              "fontSize": 18,
+              "fontWeight": "bold",
+              "color": "#1a1a1a",
+              "alignment": "left",
+              "fontFamily": "sans"
+            }
+          }
+        }
+      },
+      {
+        "id": "AAAAAAAA-0000-0000-0000-000000000006",
+        "frame": [[11200, 8500], [200, 160]],
+        "zIndex": 6,
+        "isLocked": false,
+        "createdAt": "2026-05-16T00:00:00Z",
+        "lastModifiedAt": "2026-05-16T00:00:00Z",
+        "content": {
+          "shape": {
+            "_0": {
+              "shapeType": "ellipse",
+              "fillColor": "blue",
+              "strokeColor": "blue",
+              "strokeWidth": 2,
+              "strokeStyle": "dashed",
+              "fillStyle": "hatched",
+              "text": "",
+              "fontSize": 16,
+              "rotation": 0
+            }
+          }
+        }
+      },
+      {
+        "id": "AAAAAAAA-0000-0000-0000-000000000007",
+        "frame": [[11200, 8800], [220, 40]],
+        "zIndex": 7,
+        "isLocked": false,
+        "createdAt": "2026-05-16T00:00:00Z",
+        "lastModifiedAt": "2026-05-16T00:00:00Z",
+        "content": {
+          "stroke": {
+            "_0": {
+              "strokeType": "arrow",
+              "startPoint": [0, 0.5],
+              "endPoint": [1, 0.5],
+              "controlPoint": [0.5, 0.5],
+              "strokeColor": "blue",
+              "strokeWidth": 2,
+              "strokeStyle": "solid"
+            }
+          }
+        }
+      },
+      {
+        "id": "AAAAAAAA-0000-0000-0000-000000000008",
+        "frame": [[11200, 9000], [180, 120]],
+        "zIndex": 8,
+        "isLocked": false,
+        "createdAt": "2026-05-16T00:00:00Z",
+        "lastModifiedAt": "2026-05-16T00:00:00Z",
+        "content": {
+          "freehand": {
+            "_0": {
+              "freehandType": "highlighter",
+              "points": [[0, 0], [0.5, 0.4], [1, 1]],
+              "strokeColor": "blue",
+              "strokeWidth": 12,
+              "opacity": 0.4,
+              "rotation": 0
+            }
+          }
+        }
+      }
+    ],
+    "connections": [
+      {
+        "id": "DDDDDDDD-0000-0000-0000-000000000001",
+        "createdAt": "2026-05-16T00:00:00Z",
+        "terminalIdA": "AAAAAAAA-0000-0000-0000-000000000001",
+        "terminalIdB": "AAAAAAAA-0000-0000-0000-000000000001",
+        "ropePoints": [[1, 2], [3, 4]]
+      }
+    ],
+    "noteConnections": [
+      {
+        "id": "DDDDDDDD-0000-0000-0000-000000000002",
+        "createdAt": "2026-05-16T00:00:00Z",
+        "terminalId": "AAAAAAAA-0000-0000-0000-000000000001",
+        "noteNodeId": "AAAAAAAA-0000-0000-0000-000000000002",
+        "ropePoints": []
+      }
+    ],
+    "portalConnections": [
+      {
+        "id": "DDDDDDDD-0000-0000-0000-000000000003",
+        "createdAt": "2026-05-16T00:00:00Z",
+        "terminalId": "AAAAAAAA-0000-0000-0000-000000000001",
+        "portalNodeId": "AAAAAAAA-0000-0000-0000-000000000003",
+        "ropePoints": []
+      }
+    ],
+    "portalToPortalConnections": [],
+    "noteToNoteConnections": [],
+    "crossFloorConnections": [],
+    "floors": [],
+    "drawings": [],
+    "createdAt": "2026-05-16T00:00:00Z",
+    "lastOpenedAt": null,
+    "lastModifiedAt": "2026-05-16T00:00:00Z"
+  }
+}

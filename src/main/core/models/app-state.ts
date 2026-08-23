@@ -1,0 +1,117 @@
+/** Codecs de manifest.json, app-state.json e preferences.json. */
+import type { AppStateData, Preferences, WorkspaceEntry, WorkspaceManifest } from '@shared/types'
+import { asRecord, bool, decodeDate, decodeOptionalDate, normalizeUUID, num, str } from '../coding'
+import { nowISO, uuid } from '../coding'
+
+// ─── manifest.json ────────────────────────────────────────────────────────────
+
+export function makeWorkspaceEntry(name: string, workingDirectory: string, id = uuid()): WorkspaceEntry {
+  return {
+    id,
+    name,
+    workingDirectory,
+    icon: 'folder',
+    color: 'blue',
+    isPinned: false,
+    locationType: 'local',
+    createdAt: nowISO(),
+    lastOpenedAt: null
+  }
+}
+
+function decodeWorkspaceEntry(value: unknown): WorkspaceEntry {
+  const o = asRecord(value)
+  return {
+    id: normalizeUUID(o.id),
+    name: str(o.name, 'Workspace'),
+    workingDirectory: str(o.workingDirectory),
+    icon: str(o.icon, 'folder'),
+    color: str(o.color, 'blue'), // ausente em arquivos antigos
+    isPinned: bool(o.isPinned),
+    locationType: str(o.locationType, 'local'),
+    createdAt: decodeDate(o.createdAt),
+    lastOpenedAt: decodeOptionalDate(o.lastOpenedAt)
+  }
+}
+
+export function makeManifest(): WorkspaceManifest {
+  return {
+    schemaVersion: 1,
+    type: 'appState', // sim, "appState" — herança do formato Maestri
+    app: 'atelier',
+    appVersion: '1.0.0',
+    dataFormat: 2,
+    workspaces: [],
+    files: {}
+  }
+}
+
+export function decodeManifest(value: unknown): WorkspaceManifest {
+  const o = asRecord(value)
+  const base = makeManifest()
+  return {
+    schemaVersion: num(o.schemaVersion, base.schemaVersion),
+    type: str(o.type, base.type),
+    app: str(o.app, base.app),
+    appVersion: str(o.appVersion, base.appVersion),
+    dataFormat: num(o.dataFormat, base.dataFormat),
+    workspaces: Array.isArray(o.workspaces) ? o.workspaces.map(decodeWorkspaceEntry) : [],
+    files: (o.files && typeof o.files === 'object' ? o.files : {}) as Record<string, string>
+  }
+}
+
+// ─── app-state.json ───────────────────────────────────────────────────────────
+
+export function makeAppStateData(): AppStateData {
+  return {
+    schemaVersion: 1,
+    type: 'appState',
+    activeWorkspaceId: null,
+    hasCompletedOnboarding: false,
+    hasSeenFloorOnboarding: false,
+    cleanShutdown: true,
+    lastOpenedAt: null,
+    recentWorkspaceIds: []
+  }
+}
+
+export function decodeAppStateData(value: unknown): AppStateData {
+  const o = asRecord(value)
+  const base = makeAppStateData()
+  return {
+    schemaVersion: num(o.schemaVersion, base.schemaVersion),
+    type: str(o.type, base.type),
+    activeWorkspaceId: o.activeWorkspaceId ? normalizeUUID(o.activeWorkspaceId) : null,
+    hasCompletedOnboarding: bool(o.hasCompletedOnboarding),
+    hasSeenFloorOnboarding: bool(o.hasSeenFloorOnboarding),
+    cleanShutdown: bool(o.cleanShutdown, true),
+    lastOpenedAt: decodeOptionalDate(o.lastOpenedAt),
+    recentWorkspaceIds: Array.isArray(o.recentWorkspaceIds)
+      ? o.recentWorkspaceIds.filter((x): x is string => typeof x === 'string').map((x) => x.toUpperCase())
+      : []
+  }
+}
+
+// ─── preferences.json ─────────────────────────────────────────────────────────
+
+export function makePreferences(): Preferences {
+  return {
+    canvasBackground: 'grid',
+    language: 'system',
+    fontSize: 13,
+    fontFamily: 'system',
+    theme: 'system'
+  }
+}
+
+export function decodePreferences(value: unknown): Preferences {
+  const o = asRecord(value)
+  const base = makePreferences()
+  return {
+    canvasBackground: str(o.canvasBackground, base.canvasBackground),
+    language: str(o.language, base.language),
+    fontSize: num(o.fontSize, base.fontSize),
+    fontFamily: str(o.fontFamily, base.fontFamily),
+    theme: str(o.theme, base.theme)
+  }
+}

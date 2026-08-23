@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # Módulo nativo (node-pty) precisa de um runner por sistema: não dá cross-compile
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Os dois rodam headless: nenhum precisa de display
+      - name: Compatibilidade de formato
+        run: npm run test:codec
+
+      - name: Smoke do núcleo (IPC, persistência, protocolo do CLI)
+        run: npm run test:smoke
+
+      - name: Build
+        run: npx electron-vite build

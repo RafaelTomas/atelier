@@ -9,9 +9,16 @@
  * MoveFileEx com MOVEFILE_REPLACE_EXISTING — substitui sem erro.
  */
 import { constants } from 'node:fs'
-import { access, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { AppStateData, Preferences, UUID, WorkspaceManifest, WorkspacePayload } from '@shared/types'
+import type {
+  AgentRole,
+  AppStateData,
+  Preferences,
+  UUID,
+  WorkspaceManifest,
+  WorkspacePayload
+} from '@shared/types'
 import { log } from '../logger'
 import {
   decodeAppStateData,
@@ -21,6 +28,7 @@ import {
   makeManifest,
   makePreferences
 } from '../models/app-state'
+import { decodeAgentRole, encodeAgentRole } from '../models/role'
 import { decodeWorkspaceDocument, encodeWorkspaceDocument } from '../models/workspace'
 import { migrateWorkspaceDocument } from './migrations'
 import { paths } from './paths'
@@ -145,6 +153,35 @@ class PersistenceManager {
 
   async deleteWorkspace(id: UUID): Promise<void> {
     await rm(paths.workspaceDir(id), { recursive: true, force: true })
+  }
+
+  // ─── Responsabilidades (roles/*.json) ───────────────────────────────────────
+  // Um arquivo por responsabilidade: criar, editar ou apagar uma não reescreve
+  // as outras, e dá para versionar ou editar à mão fora do app.
+
+  async loadRoles(): Promise<AgentRole[]> {
+    let files: string[]
+    try {
+      files = await readdir(paths.rolesDir())
+    } catch {
+      return []
+    }
+
+    const roles: AgentRole[] = []
+    for (const file of files.filter((f) => f.endsWith('.json'))) {
+      const raw = await this.readJSON(join(paths.rolesDir(), file))
+      if (raw) roles.push(decodeAgentRole(raw))
+    }
+    return roles
+  }
+
+  async saveRole(role: AgentRole): Promise<void> {
+    await mkdir(paths.rolesDir(), { recursive: true })
+    await this.atomicWrite(paths.roleFile(role.id), this.stringify(encodeAgentRole(role)))
+  }
+
+  async deleteRole(id: UUID): Promise<void> {
+    await rm(paths.roleFile(id), { force: true })
   }
 
   // ─── Notas (.md) ────────────────────────────────────────────────────────────

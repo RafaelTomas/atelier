@@ -1,6 +1,7 @@
 /** `atelier list` — agentes, notas e portais conectados ao chamador. */
 import type { UUID } from '@shared/types'
 import { nodeDisplayName } from '../../models/node-content'
+import { roles } from '../../state/role-store'
 import { terminals } from '../../terminal/terminal-manager'
 import { connectedNodes, requireTerminalId } from './context'
 
@@ -21,7 +22,10 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
     for (const node of agents) {
       const session = terminals.get(node.id)
       const status = session ? (session.exited ? 'exited' : terminals.isIdle(node.id) ? 'idle' : 'working') : 'not started'
-      lines.push(`  ${nodeDisplayName(node.content)}  [${status}]  (${node.id.slice(0, 8)})`)
+      // A responsabilidade entra aqui para o chamador saber a quem pedir o quê
+      const role = node.content.type === 'terminal' ? roles.get(node.content.value.assignedRoleId) : null
+      const suffix = role ? `  role: ${role.name}` : ''
+      lines.push(`  ${nodeDisplayName(node.content)}  [${status}]  (${node.id.slice(0, 8)})${suffix}`)
     }
   }
 

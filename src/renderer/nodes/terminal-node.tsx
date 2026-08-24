@@ -10,9 +10,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
-import type { CanvasNode, TerminalContent, UUID } from '@shared/types'
+import type { CanvasNode, TerminalContent, TerminalTheme, UUID } from '@shared/types'
 import { viewport } from '../canvas/viewport'
 import { useStore } from '../state/store'
+import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, resolveTheme } from '../terminal-presets'
 import '@xterm/xterm/css/xterm.css'
 
 const FREEZE_ZOOM = 0.45
@@ -21,21 +22,16 @@ interface Props {
   node: CanvasNode
   content: TerminalContent
   workspaceId: UUID
+  /** Temas personalizados do usuário; os embutidos são resolvidos sozinhos. */
+  customThemes?: TerminalTheme[]
 }
 
-/**
- * O xterm precisa das cores em JS — não enxerga as custom properties. Lemos os
- * tokens do CSS para o terminal seguir o tema junto com o resto da UI.
- */
-function terminalTheme(): { background: string; foreground: string } {
-  const css = getComputedStyle(document.documentElement)
-  return {
-    background: css.getPropertyValue('--term-bg').trim() || '#101014',
-    foreground: css.getPropertyValue('--term-fg').trim() || '#e6e6e6'
-  }
-}
-
-export function TerminalNode({ node, content, workspaceId }: Props): JSX.Element {
+export function TerminalNode({
+  node,
+  content,
+  workspaceId,
+  customThemes = []
+}: Props): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const [frozen, setFrozen] = useState(viewport.zoom < FREEZE_ZOOM)
@@ -46,25 +42,37 @@ export function TerminalNode({ node, content, workspaceId }: Props): JSX.Element
   // Troca de tema com o terminal já montado: repinta sem recriar o PTY.
   // No modo 'system' o valor da store não muda quando o SO alterna, então o
   // media query é ouvido também — senão o terminal ficaria com a cor antiga.
+  // Terminal com tema próprio não se mexe: resolveTheme devolve a cor fixa.
   useEffect(() => {
     const repaint = (): void => {
-      if (termRef.current) termRef.current.options.theme = terminalTheme()
+      if (!termRef.current) return
+      const next = resolveTheme(content.themeId, customThemes)
+      termRef.current.options.theme = {
+        background: next.background,
+        foreground: next.foreground,
+        cursor: next.foreground
+      }
     }
     repaint()
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     mq.addEventListener('change', repaint)
     return () => mq.removeEventListener('change', repaint)
-  }, [theme])
+  }, [theme, content.themeId, customThemes])
 
   useEffect(() => {
     if (frozen || !hostRef.current || termRef.current) return
 
+    const palette = resolveTheme(content.themeId, customThemes)
     const term = new Terminal({
-      fontFamily: content.fontFamily ?? 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      fontSize: content.fontSize ?? 12,
+      fontFamily: content.fontFamily ?? DEFAULT_FONT_FAMILY,
+      fontSize: content.fontSize ?? DEFAULT_FONT_SIZE,
       cursorBlink: true,
       allowProposedApi: true,
-      theme: terminalTheme(),
+      theme: {
+        background: palette.background,
+        foreground: palette.foreground,
+        cursor: palette.foreground
+      },
       scrollback: 5000
     })
     const fit = new FitAddon()
@@ -135,14 +143,27 @@ export function TerminalNode({ node, content, workspaceId }: Props): JSX.Element
     }
   }, [frozen, node.id, workspaceId])
 
+  const palette = resolveTheme(content.themeId, customThemes)
+
   if (frozen) {
     return (
-      <div className="terminal-frozen" data-node-interactive={false}>
+      <div
+        className="terminal-frozen"
+        data-node-interactive={false}
+        style={{ background: palette.background }}
+      >
         <span>{content.name}</span>
         <small>aproxime o zoom para interagir</small>
       </div>
     )
   }
 
-  return <div ref={hostRef} className="terminal-host" data-node-interactive />
+  return (
+    <div
+      ref={hostRef}
+      className="terminal-host"
+      data-node-interactive
+      style={{ background: palette.background }}
+    />
+  )
 }

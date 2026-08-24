@@ -4,8 +4,8 @@
  * O renderer NUNCA toca em disco, em PTY ou em socket: tudo passa por aqui,
  * o que preserva a regra do app nativo de que toda I/O é centralizada.
  */
-import { ipcMain, shell } from 'electron'
-import type { CanvasNode, NodeContent, Point, Rect, UUID } from '@shared/types'
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import type { AgentRole, CanvasNode, NodeContent, Point, Rect, UUID } from '@shared/types'
 import { Constants } from '../core/constants'
 import { log } from '../core/logger'
 import {
@@ -19,6 +19,7 @@ import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir } from '../core/persistence/paths'
 import { appState } from '../core/state/app-state'
+import { roles } from '../core/state/role-store'
 import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manager'
 import { interAgentServer } from '../core/interagent/server'
 import { onConnectionCreated, restoreConnections } from '../core/connection/connection-manager'
@@ -35,7 +36,20 @@ function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeConte
         value: makeTerminalContent(String(opts.name ?? 'Terminal'), {
           agentType: String(opts.agentType ?? 'generic_shell'),
           command: String(opts.command ?? ''),
-          workingDirectory: String(opts.workingDirectory ?? '')
+          workingDirectory: String(opts.workingDirectory ?? ''),
+          icon: String(opts.icon ?? 'terminal'),
+          color: String(opts.color ?? '#007AFF'),
+          isManager: opts.isManager === true,
+          monitorWithOmbro: opts.monitorWithOmbro === true,
+          themeId: typeof opts.themeId === 'string' ? opts.themeId : null,
+          fontFamily: typeof opts.fontFamily === 'string' ? opts.fontFamily : null,
+          fontSize: typeof opts.fontSize === 'number' ? opts.fontSize : null,
+          // Só aceita responsabilidade que existe de fato — um id órfão vindo
+          // do renderer deixaria o terminal apontando para o nada
+          assignedRoleId:
+            typeof opts.assignedRoleId === 'string' && roles.has(opts.assignedRoleId as UUID)
+              ? (opts.assignedRoleId as UUID)
+              : null
         })
       }
     case 'note':
@@ -184,6 +198,47 @@ export function registerIPC(): void {
     }
   )
 
+  // ─── Responsabilidades (agentes) ────────────────────────────────────────────
+
+  ipcMain.handle('role:list', () => roles.all)
+
+  ipcMain.handle('role:save', async (_e, patch: Partial<AgentRole> & { name: string }) => {
+    const role = await roles.save(patch)
+    log.debug('roles', `responsabilidade "${role.name}" gravada`)
+    return role
+  })
+
+  ipcMain.handle('role:delete', async (_e, id: UUID) => {
+    await roles.remove(id)
+
+    // Terminais que apontavam para ela ficariam com um id órfão: limpa em todos
+    // os workspaces carregados para o canvas não mostrar um agente fantasma.
+    for (const ws of appState.workspaces.values()) {
+      for (const node of ws.nodes) {
+        if (node.content.type === 'terminal' && node.content.value.assignedRoleId === id) {
+          ws.updateContent(node.id, (n) => {
+            if (n.content.type === 'terminal') n.content.value.assignedRoleId = null
+          })
+        }
+      }
+    }
+    return roles.all
+  })
+
+  // ─── Diálogos nativos ───────────────────────────────────────────────────────
+
+  ipcMain.handle('dialog:choose-directory', async (e, current?: string) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const options: Electron.OpenDialogOptions = {
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: current && current.length > 0 ? current : undefined
+    }
+    const result = win
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options)
+    return result.canceled ? null : result.filePaths[0] ?? null
+  })
+
   // ─── Conexões ───────────────────────────────────────────────────────────────
 
   ipcMain.handle('connection:add', (_e, workspaceId: UUID, idA: UUID, idB: UUID) => {
@@ -210,6 +265,7 @@ export function registerIPC(): void {
       }
 
       const tc = node.content.value
+      const role = roles.get(tc.assignedRoleId)
       const session = await terminals.spawn({
         nodeId,
         workspaceId,
@@ -217,7 +273,8 @@ export function registerIPC(): void {
         command: tc.command,
         workingDirectory: tc.workingDirectory || ws.payload.workingDirectory,
         cols,
-        rows
+        rows,
+        role: role ? { id: role.id, name: role.name } : null
       })
       if (!session) return { error: ptyUnavailableReason() ?? 'não foi possível abrir o PTY' }
 

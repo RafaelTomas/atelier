@@ -24,7 +24,13 @@ export interface Rect {
 
 // ─── Conteúdo de nó ───────────────────────────────────────────────────────────
 
-export type AgentType = 'claude_code' | 'codex' | 'gemini_cli' | 'open_code' | 'generic_shell'
+export type AgentType =
+  | 'claude_code'
+  | 'codex'
+  | 'antigravity'
+  | 'gemini_cli'
+  | 'open_code'
+  | 'generic_shell'
 
 export interface TerminalContent {
   agentType: string
@@ -275,6 +281,56 @@ export interface Preferences {
   fontFamily: string
   theme: string
   sidebarCollapsed: boolean
+  /** Temas de terminal criados pelo usuário (os embutidos não ficam aqui). */
+  terminalThemes: TerminalTheme[]
+}
+
+/**
+ * Tema de terminal. Os três embutidos ('system', 'dark', 'light') são
+ * resolvidos no renderer; só os personalizados vão para preferences.json.
+ */
+export interface TerminalTheme {
+  id: string
+  name: string
+  background: string
+  foreground: string
+}
+
+// ─── Responsabilidades (agentes) ──────────────────────────────────────────────
+
+/**
+ * Uma responsabilidade atribuível a um terminal — o que a UI chama de "agente".
+ *
+ * Vive em ~/.atelier/roles/{UUID}.json, um arquivo por responsabilidade, no
+ * mesmo dialeto Codable do resto (UUID maiúsculo, data ISO8601 sem ms).
+ * `workspaceId` null = global, visível em todos os workspaces.
+ */
+export interface AgentRole {
+  id: UUID
+  name: string
+  icon: string
+  color: string
+  /** O texto que define o foco do agente — lido por ele via `atelier role`. */
+  instructions: string
+  workspaceId: UUID | null
+  createdAt: string
+  lastModifiedAt: string
+}
+
+/** O que o diálogo de novo terminal entrega ao main. */
+export interface TerminalDraft {
+  name: string
+  command: string
+  agentType: string
+  workingDirectory: string
+  icon: string
+  color: string
+  monitorWithOmbro: boolean
+  isManager: boolean
+  themeId: string | null
+  fontFamily: string | null
+  fontSize: number | null
+  assignedRoleId: UUID | null
 }
 
 // ─── Ponte renderer ⇄ main ────────────────────────────────────────────────────
@@ -287,6 +343,8 @@ export interface TerminalSpawnOptions {
   workingDirectory?: string
   cols?: number
   rows?: number
+  /** Responsabilidade atribuída — vira ATELIER_ROLE_* no ambiente do PTY. */
+  role?: { id: UUID; name: string } | null
 }
 
 export interface BootInfo {

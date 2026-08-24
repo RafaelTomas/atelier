@@ -32,12 +32,14 @@ Commands:
   ask "Agent" "prompt"              Send prompt to connected agent
   check "Agent" [lines]             View agent's recent output
   note <read|write|create>          Read/write connected notes
+  role [list]                       Your assigned responsibility
   debug                             Diagnose connection issues
 
 Environment:
   ATELIER_SOCKET       Socket path / named pipe (set by Atelier)
   ATELIER_TERMINAL_ID  Terminal UUID (set by Atelier)
   ATELIER_CLI          Path to this CLI
+  ATELIER_ROLE         Name of the assigned responsibility, when there is one
 `
 
 function fail(msg) {

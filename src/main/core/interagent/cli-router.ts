@@ -9,9 +9,10 @@ import { handleAsk } from './handlers/ask'
 import { handleCheck } from './handlers/check'
 import { handleList } from './handlers/list'
 import { handleNote } from './handlers/note'
+import { handleRole } from './handlers/role'
 import { interAgentServer } from './server'
 
-const COMMANDS = 'list ask check note debug'
+const COMMANDS = 'list ask check note role debug'
 
 export async function routeCLI(args: string[], terminalId: UUID | null): Promise<string> {
   const command = args[0]
@@ -26,6 +27,8 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
       return handleCheck(args, terminalId)
     case 'note':
       return handleNote(args, terminalId)
+    case 'role':
+      return handleRole(args, terminalId)
     case 'debug':
       return buildDebugInfo(terminalId)
 
@@ -34,7 +37,6 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
     case 'recruit':
     case 'dismiss':
     case 'connect':
-    case 'role':
     case 'preset':
       return `error: '${command}' ainda não implementado neste porte Electron. Disponíveis: ${COMMANDS}`
 

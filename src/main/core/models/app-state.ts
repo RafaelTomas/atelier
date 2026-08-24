@@ -1,5 +1,11 @@
 /** Codecs de manifest.json, app-state.json e preferences.json. */
-import type { AppStateData, Preferences, WorkspaceEntry, WorkspaceManifest } from '@shared/types'
+import type {
+  AppStateData,
+  Preferences,
+  TerminalTheme,
+  WorkspaceEntry,
+  WorkspaceManifest
+} from '@shared/types'
 import { asRecord, bool, decodeDate, decodeOptionalDate, normalizeUUID, num, str } from '../coding'
 import { nowISO, uuid } from '../coding'
 
@@ -101,7 +107,18 @@ export function makePreferences(): Preferences {
     fontSize: 13,
     fontFamily: 'system',
     theme: 'system',
-    sidebarCollapsed: false
+    sidebarCollapsed: false,
+    terminalThemes: []
+  }
+}
+
+function decodeTerminalTheme(value: unknown): TerminalTheme {
+  const o = asRecord(value)
+  return {
+    id: str(o.id, 'custom'),
+    name: str(o.name, 'Personalizado'),
+    background: str(o.background, '#101014'),
+    foreground: str(o.foreground, '#e6e6e6')
   }
 }
 
@@ -114,6 +131,10 @@ export function decodePreferences(value: unknown): Preferences {
     fontSize: num(o.fontSize, base.fontSize),
     fontFamily: str(o.fontFamily, base.fontFamily),
     theme: str(o.theme, base.theme),
-    sidebarCollapsed: bool(o.sidebarCollapsed, base.sidebarCollapsed)
+    sidebarCollapsed: bool(o.sidebarCollapsed, base.sidebarCollapsed),
+    // Ausente em preferences.json escrito antes dos temas de terminal
+    terminalThemes: Array.isArray(o.terminalThemes)
+      ? o.terminalThemes.map(decodeTerminalTheme)
+      : []
   }
 }

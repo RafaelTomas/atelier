@@ -9,10 +9,13 @@
  */
 import { useSyncExternalStore } from 'react'
 import type {
+  AgentRole,
   CanvasNode,
   Connection,
   Drawing,
+  Preferences,
   Rect,
+  TerminalDraft,
   UUID,
   WorkspaceEntry,
   WorkspacePayload
@@ -52,6 +55,12 @@ export interface AppSnapshot {
   /** Ferramenta ativa (caneta, marca-texto, borracha ou seleção). */
   tool: Tool
   pen: PenSettings
+  /** Responsabilidades disponíveis (globais + as deste workspace). */
+  roles: AgentRole[]
+  /** Diálogo "Novo Terminal" aberto — a dock dispara, o App renderiza. */
+  newTerminalOpen: boolean
+  /** Espelho de preferences.json — hoje lido para os temas de terminal. */
+  prefs: Preferences | null
   loading: boolean
   bootError: string | null
 }
@@ -66,6 +75,9 @@ const initial: AppSnapshot = {
   theme: 'system',
   tool: 'select',
   pen: { color: '#e0245e', lineWidth: 3 },
+  roles: [],
+  newTerminalOpen: false,
+  prefs: null,
   loading: true,
   bootError: null
 }
@@ -90,9 +102,10 @@ class Store {
 
   async load(): Promise<void> {
     try {
-      const [{ entries, activeId }, prefs] = await Promise.all([
+      const [{ entries, activeId }, prefs, roles] = await Promise.all([
         window.atelier.workspace.list(),
-        window.atelier.prefs.get()
+        window.atelier.prefs.get(),
+        window.atelier.role.list()
       ])
       const id = activeId ?? entries[0]?.id ?? null
       const workspace = id ? await window.atelier.workspace.open(id) : null
@@ -102,6 +115,8 @@ class Store {
         entries,
         activeId: id,
         workspace,
+        roles,
+        prefs,
         sidebarCollapsed: prefs.sidebarCollapsed,
         theme,
         loading: false
@@ -246,6 +261,51 @@ class Store {
     })
   }
 
+  /**
+   * O diálogo mora no topo da árvore (App), não na dock: `.dock` tem transform
+   * e backdrop-filter, e os dois viram bloco contedor de `position: fixed` —
+   * o overlay ficaria preso dentro da pill.
+   */
+  openNewTerminal(): void {
+    this.set({ newTerminalOpen: true })
+  }
+
+  closeNewTerminal(): void {
+    this.set({ newTerminalOpen: false })
+  }
+
+  /**
+   * Cria o terminal já com tudo que o diálogo coletou. Passa por node.add como
+   * qualquer outro nó — o main é que valida a responsabilidade e monta o
+   * TerminalContent.
+   */
+  async createTerminal(draft: TerminalDraft, position: { x: number; y: number }): Promise<CanvasNode | null> {
+    return this.addNode('terminal', position, { ...draft })
+  }
+
+  // ─── Responsabilidades (agentes) ────────────────────────────────────────────
+
+  async saveRole(patch: Partial<AgentRole> & { name: string }): Promise<AgentRole> {
+    const saved = await window.atelier.role.save(patch)
+    const roles = await window.atelier.role.list()
+    this.set({ roles })
+    return saved
+  }
+
+  async removeRole(id: UUID): Promise<void> {
+    const roles = await window.atelier.role.remove(id)
+    this.set({ roles })
+    // O main limpou o assignedRoleId dos terminais que apontavam para ela
+    await this.reload()
+  }
+
+  // ─── Preferências ───────────────────────────────────────────────────────────
+
+  async patchPrefs(patch: Partial<Preferences>): Promise<void> {
+    const prefs = await window.atelier.prefs.set(patch)
+    this.set({ prefs })
+  }
+
   // ─── Conexões ───────────────────────────────────────────────────────────────
 
   async addConnection(idA: UUID, idB: UUID): Promise<Connection | null> {
@@ -286,13 +346,21 @@ class Store {
   toggleSidebar(): void {
     const collapsed = !this.state.sidebarCollapsed
     this.set({ sidebarCollapsed: collapsed })
+    this.mirrorPrefs({ sidebarCollapsed: collapsed })
     void window.atelier.prefs.set({ sidebarCollapsed: collapsed })
   }
 
   setTheme(theme: ThemeMode): void {
     applyTheme(theme)
     this.set({ theme })
+    this.mirrorPrefs({ theme })
     void window.atelier.prefs.set({ theme })
+  }
+
+  /** Espelho local de preferences.json — sem isto `prefs` envelhece na store. */
+  private mirrorPrefs(patch: Partial<Preferences>): void {
+    const prefs = this.state.prefs
+    if (prefs) this.set({ prefs: { ...prefs, ...patch } })
   }
 
   startConnecting(from: UUID | null): void {

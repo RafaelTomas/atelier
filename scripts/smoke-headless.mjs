@@ -42,14 +42,14 @@ const outfile = join(outdir, 'core.mjs')
 await esbuild.build({
   stdin: {
     contents: `
-      export { appState } from '${ROOT}/src/main/core/state/app-state.ts'
-      export { interAgentServer } from '${ROOT}/src/main/core/interagent/server.ts'
-      export { persistence } from '${ROOT}/src/main/core/persistence/persistence-manager.ts'
-      export { ipcSocketPath, paths } from '${ROOT}/src/main/core/persistence/paths.ts'
-      export { makeCanvasNode } from '${ROOT}/src/main/core/models/workspace.ts'
-      export { makeTerminalContent, makeStickyNoteContent } from '${ROOT}/src/main/core/models/node-content.ts'
-      export { roles } from '${ROOT}/src/main/core/state/role-store.ts'
-      export { importLegacyDataIfNeeded } from '${ROOT}/src/main/core/persistence/import-legacy.ts'
+      export { appState } from './src/main/core/state/app-state.ts'
+      export { interAgentServer } from './src/main/core/interagent/server.ts'
+      export { persistence } from './src/main/core/persistence/persistence-manager.ts'
+      export { ipcSocketPath, paths } from './src/main/core/persistence/paths.ts'
+      export { makeCanvasNode } from './src/main/core/models/workspace.ts'
+      export { makeTerminalContent, makeStickyNoteContent } from './src/main/core/models/node-content.ts'
+      export { roles } from './src/main/core/state/role-store.ts'
+      export { importLegacyDataIfNeeded } from './src/main/core/persistence/import-legacy.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -103,7 +103,20 @@ console.log('\nsmoke headless do núcleo\n')
 await test('servidor IPC sobe em socket + TCP', async () => {
   await interAgentServer.start()
   assert.ok(interAgentServer.port > 0, 'porta TCP não foi atribuída')
-  assert.ok(existsSync(ipcSocketPath()), 'socket não foi criado')
+  // No Windows o endereço é um named pipe, que não aparece no sistema de
+  // arquivos: a prova de que subiu é conseguir abrir uma conexão nele.
+  if (process.platform === 'win32') {
+    await new Promise((ok, fail) => {
+      const probe = net.createConnection(ipcSocketPath())
+      probe.on('connect', () => {
+        probe.end()
+        ok()
+      })
+      probe.on('error', fail)
+    })
+  } else {
+    assert.ok(existsSync(ipcSocketPath()), 'socket não foi criado')
+  }
 })
 
 await test('cold start cria manifest, preferences e workspace inicial', async () => {

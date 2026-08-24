@@ -12,6 +12,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import type { CanvasNode, TerminalContent, UUID } from '@shared/types'
 import { viewport } from '../canvas/viewport'
+import { useStore } from '../state/store'
 import '@xterm/xterm/css/xterm.css'
 
 const FREEZE_ZOOM = 0.45
@@ -22,12 +23,38 @@ interface Props {
   workspaceId: UUID
 }
 
+/**
+ * O xterm precisa das cores em JS — não enxerga as custom properties. Lemos os
+ * tokens do CSS para o terminal seguir o tema junto com o resto da UI.
+ */
+function terminalTheme(): { background: string; foreground: string } {
+  const css = getComputedStyle(document.documentElement)
+  return {
+    background: css.getPropertyValue('--term-bg').trim() || '#101014',
+    foreground: css.getPropertyValue('--term-fg').trim() || '#e6e6e6'
+  }
+}
+
 export function TerminalNode({ node, content, workspaceId }: Props): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const [frozen, setFrozen] = useState(viewport.zoom < FREEZE_ZOOM)
+  const { theme } = useStore()
 
   useEffect(() => viewport.subscribe((v) => setFrozen(v.zoom < FREEZE_ZOOM)), [])
+
+  // Troca de tema com o terminal já montado: repinta sem recriar o PTY.
+  // No modo 'system' o valor da store não muda quando o SO alterna, então o
+  // media query é ouvido também — senão o terminal ficaria com a cor antiga.
+  useEffect(() => {
+    const repaint = (): void => {
+      if (termRef.current) termRef.current.options.theme = terminalTheme()
+    }
+    repaint()
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    mq.addEventListener('change', repaint)
+    return () => mq.removeEventListener('change', repaint)
+  }, [theme])
 
   useEffect(() => {
     if (frozen || !hostRef.current || termRef.current) return
@@ -37,7 +64,7 @@ export function TerminalNode({ node, content, workspaceId }: Props): JSX.Element
       fontSize: content.fontSize ?? 12,
       cursorBlink: true,
       allowProposedApi: true,
-      theme: { background: '#101014', foreground: '#e6e6e6' },
+      theme: terminalTheme(),
       scrollback: 5000
     })
     const fit = new FitAddon()

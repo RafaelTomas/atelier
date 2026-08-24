@@ -6,12 +6,17 @@ import { store, useStore } from './state/store'
 import { Toolbar } from './toolbar'
 
 export function App(): JSX.Element {
-  const { loading, bootError, workspace } = useStore()
+  const { loading, bootError, workspace, sidebarCollapsed } = useStore()
   const [boot, setBoot] = useState<BootInfo | null>(null)
 
   useEffect(() => {
     void store.load()
-    void window.atelier.bootInfo().then(setBoot)
+    void window.atelier.bootInfo().then((info) => {
+      setBoot(info)
+      // Os semáforos do macOS ficam à esquerda e a toolbar precisa reservar
+      // espaço para eles; no Windows/Linux os controles ficam à direita.
+      document.documentElement.dataset.platform = info.platform
+    })
 
     // O CLI pode alterar o canvas por fora (atelier note create, por exemplo)
     const offWorkspace = window.atelier.events.onWorkspaceChanged(() => void store.reload())
@@ -29,7 +34,7 @@ export function App(): JSX.Element {
 
   return (
     <div className="app-shell">
-      <Sidebar />
+      {!sidebarCollapsed && <Sidebar />}
       <main className="main-pane">
         <Toolbar />
         {workspace ? <CanvasView /> : <div className="boot-screen">nenhum workspace aberto</div>}

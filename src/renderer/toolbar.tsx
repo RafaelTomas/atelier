@@ -1,35 +1,81 @@
+import { useEffect, useState } from 'react'
 import { viewport } from './canvas/viewport'
 import { store, useStore } from './state/store'
+import type { ThemeMode } from './theme'
 
-/** Cria o nó no centro da viewport atual. */
-function centerOfViewport(): { x: number; y: number } {
-  return viewport.toCanvas({ x: viewport.width / 2, y: viewport.height / 2 })
-}
+const THEMES: { id: ThemeMode; icon: string; label: string }[] = [
+  { id: 'system', icon: '◑', label: 'Sistema' },
+  { id: 'light', icon: '☀', label: 'Claro' },
+  { id: 'dark', icon: '☾', label: 'Escuro' }
+]
 
 export function Toolbar(): JSX.Element {
-  const { workspace, connectingFrom } = useStore()
+  const { workspace, connectingFrom, sidebarCollapsed, theme } = useStore()
+  const [themeMenu, setThemeMenu] = useState(false)
 
-  const add = (kind: 'terminal' | 'note' | 'text'): void => {
-    const c = centerOfViewport()
-    void store.addNode(kind, { x: c.x - 120, y: c.y - 80 })
-  }
+  useEffect(() => {
+    if (!themeMenu) return
+    const close = (): void => setThemeMenu(false)
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setThemeMenu(false)
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [themeMenu])
 
   return (
-    <header className="toolbar">
+    <header className={sidebarCollapsed ? 'toolbar has-window-controls' : 'toolbar'}>
+      {sidebarCollapsed && (
+        <button
+          type="button"
+          className="ghost-btn toolbar-reveal"
+          onClick={() => store.toggleSidebar()}
+          title="Mostrar workspaces"
+        >
+          ☰
+        </button>
+      )}
       <div className="toolbar-title">{workspace?.name ?? '—'}</div>
 
+      {/* Criar nós e desenhar mudaram para a dock (renderer/dock.tsx). Aqui
+          fica só o que é da JANELA: zoom, tema e gravação. */}
       <div className="toolbar-actions">
-        <button type="button" onClick={() => add('terminal')}>+ Terminal</button>
-        <button type="button" onClick={() => add('note')}>+ Nota</button>
-        <button type="button" onClick={() => add('text')}>+ Texto</button>
-
-        <span className="toolbar-sep" />
-
         <button type="button" onClick={() => viewport.setZoom(viewport.zoom - 0.25)}>−</button>
         <button type="button" onClick={() => viewport.setZoom(1)}>100%</button>
         <button type="button" onClick={() => viewport.setZoom(viewport.zoom + 0.25)}>+</button>
 
         <span className="toolbar-sep" />
+
+        <div className="theme-picker" onMouseDown={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            title={`Tema: ${THEMES.find((t) => t.id === theme)?.label ?? 'Sistema'}`}
+            onClick={() => setThemeMenu((v) => !v)}
+          >
+            {THEMES.find((t) => t.id === theme)?.icon ?? '◑'}
+          </button>
+          {themeMenu && (
+            <div className="context-menu theme-menu">
+              {THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    store.setTheme(t.id)
+                    setThemeMenu(false)
+                  }}
+                >
+                  <span className="theme-check">{theme === t.id ? '✓' : ''}</span>
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         <button type="button" onClick={() => void window.atelier.workspace.saveNow()}>Salvar</button>
       </div>

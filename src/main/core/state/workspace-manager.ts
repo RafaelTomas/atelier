@@ -4,7 +4,15 @@
  * Um por workspace. Guarda o payload em memória e a flag `isDirty` — só workspace
  * sujo é gravado no ciclo de autosave, exatamente como no app nativo.
  */
-import type { CanvasNode, Connection, ConnectionKind, Rect, UUID, WorkspacePayload } from '@shared/types'
+import type {
+  CanvasNode,
+  Connection,
+  ConnectionKind,
+  Drawing,
+  Rect,
+  UUID,
+  WorkspacePayload
+} from '@shared/types'
 import { nowISO } from '../coding'
 import { makeConnection } from '../models/workspace'
 
@@ -26,6 +34,11 @@ export class WorkspaceManager {
 
   get connections(): Connection[] {
     return this.payload.connections
+  }
+
+  setName(name: string): void {
+    this.payload.name = name
+    this.markDirty()
   }
 
   markDirty(): void {
@@ -138,6 +151,31 @@ export class WorkspaceManager {
 
   connectedNodeIds(nodeId: UUID): UUID[] {
     return this.connectionsFor(nodeId).map((c) => (c.nodeIdA === nodeId ? c.nodeIdB : c.nodeIdA))
+  }
+
+  // ─── Desenhos ───────────────────────────────────────────────────────────────
+  // Traço livre solto no canvas (não é nó): vive em payload.drawings, que o
+  // codec já lia e regravava desde o início.
+
+  get drawings(): Drawing[] {
+    return this.payload.drawings
+  }
+
+  addDrawing(drawing: Drawing): void {
+    this.payload.drawings.push(drawing)
+    this.markDirty()
+  }
+
+  removeDrawing(id: UUID): void {
+    const before = this.payload.drawings.length
+    this.payload.drawings = this.payload.drawings.filter((d) => d.id !== id)
+    if (this.payload.drawings.length !== before) this.markDirty()
+  }
+
+  clearDrawings(): void {
+    if (this.payload.drawings.length === 0) return
+    this.payload.drawings = []
+    this.markDirty()
   }
 
   // ─── Viewport ───────────────────────────────────────────────────────────────

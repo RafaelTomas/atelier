@@ -144,6 +144,7 @@ centenas de nós sem engasgar.
 | **Terminal** | Um PTY de verdade, com xterm.js. Rode `claude`, `codex`, ou qualquer shell |
 | **Nota** | Um arquivo `.md` em disco, editável no canvas e legível pelos agentes |
 | **Texto** | Rótulo solto no canvas, para organizar visualmente |
+| **Portal** | Um navegador embutido (`<webview>`), com barra de endereço e sessão isolada por nó |
 
 ### Os cabos
 
@@ -216,21 +217,60 @@ têm interface.
 | Persistência atômica, autosave, recuperação de crash | ✅ |
 | Servidor IPC + CLI (`list`, `ask`, `check`, `note`, `debug`) | ✅ |
 | Múltiplos workspaces | ✅ |
-| Nós Portal (navegador embutido) | ⚠️ placeholder |
+| Nós Portal (navegador embutido) | ✅ |
+| Desenho à mão livre (caneta, marca-texto, borracha) | ✅ |
 | Nós File Tree, Shape, Stroke, Freehand | ⚠️ placeholder |
 | Floors (git worktree), Routines, Git, SSH, Settings | ❌ |
 
 **Nós em placeholder não são perdidos.** O codec lê e regrava todos os oito tipos
 sem perda, então um workspace pode passar por aqui e voltar intacto.
 
-### Por que Portal ainda não existe
+### Como o Portal resolve o problema de composição
 
-Não é falta de tempo — é um problema arquitetural do Electron. As views nativas
-(`WebContentsView`) são compostas *por cima* da página: ignoram `transform`,
-`z-index` e recorte. Num canvas com pan e zoom, um navegador embutido ficaria
-sempre por cima, no tamanho errado. A saída provável é `<webview>` para o portal
-em foco e snapshot estático para os demais, mas isso precisa de medição antes de
-virar código.
+O obstáculo era arquitetural: as views nativas (`WebContentsView`) são compostas
+*por cima* da página — ignoram `transform`, `z-index` e recorte. Num canvas com
+pan e zoom, um navegador embutido ficaria sempre por cima, no tamanho errado.
+
+A saída foi `<webview>` (habilitado por `webviewTag` em `window.ts`): é um
+elemento do DOM de verdade, então herda o `transform` da camada de nós, é
+recortado pelo `overflow` do nó e entra no mesmo empilhamento por `z-index` dos
+outros nós. Pan, zoom e arrasto funcionam sem nenhum caso especial.
+
+Sobre custo: cada portal é um processo de renderização. A mitigação é a mesma do
+Terminal — abaixo de 40% de zoom o `<webview>` é desmontado e dá lugar a um
+cartão estático (o host aparece no lugar), e portal fora da viewport nem monta,
+porque a virtualização do canvas cuida disso.
+
+O que já funciona: barra de endereço com busca (URL, `dominio.com`,
+`localhost:3000` → `http://`, resto vira busca no Google), voltar/avançar,
+recarregar/parar, página inicial, abrir no navegador do sistema, e sessão
+isolada por nó via `partition` (`storageScope: 'shared'` compartilha cookies
+entre portais). A URL é persistida a cada navegação concluída, então o nó reabre
+onde parou. Popups (`target=_blank`) vão para o navegador do sistema, não abrem
+janela solta dentro do app.
+
+Ainda não portado: o comando `atelier portal` do CLI, que segue respondendo
+"não implementado".
+
+### Desenho no canvas
+
+Caneta (`P`), marca-texto (`M`) e borracha (`E`) — `V` volta para a seleção,
+`Esc` também. Com uma ferramenta de desenho ativa o arrasto vira traço em vez de
+seleção ou pan, e a paleta e a espessura aparecem na barra.
+
+Os traços ficam em `payload.drawings` — que o codec já lia e regravava desde o
+início — e não são nós: não entram no z-index, não aceitam conexão, e são
+desenhados na camada 2, entre a grade e os nós (desenhar por cima esconderia
+terminal e portal).
+
+Dois detalhes de implementação:
+
+- **`<canvas>` não transformado**, como a grade: os pontos vivem em coordenadas
+  de canvas e são projetados a cada frame. Escalar o canvas por CSS borraria o
+  traço — o mesmo problema que o xterm tem.
+- **O marca-texto é gravado com `lineWidth` negativo.** O `Drawing` do formato
+  Maestri não tem campo de tipo, e o sinal sobrevive ao round-trip sem quebrar o
+  app nativo, que lê o valor absoluto como espessura.
 
 ---
 

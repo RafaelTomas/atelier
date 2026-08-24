@@ -1,5 +1,5 @@
 /**
- * Tipos de nó ainda não portados (portal, fileTree, shape, stroke, freehand).
+ * Tipos de nó ainda não portados (fileTree, shape, stroke, freehand).
  *
  * Renderizam um placeholder honesto em vez de sumir do canvas: o arquivo é lido
  * e regravado sem perda, então abrir um workspace do app nativo aqui e voltar

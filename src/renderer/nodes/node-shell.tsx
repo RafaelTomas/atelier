@@ -9,6 +9,7 @@ import { store } from '../state/store'
 import { NoteNode } from './note-node'
 import { TerminalNode } from './terminal-node'
 import { TextNode } from './text-node'
+import { PortalNode, portalLabel } from './portal-node'
 import { PlaceholderNode } from './placeholder-node'
 
 interface Props {
@@ -24,7 +25,8 @@ function title(node: CanvasNode): string {
     case 'stickyNote':
       return node.content.value.fileName?.replace(/\.md$/, '') ?? 'Note'
     case 'portal':
-      return node.content.value.name
+      // O host, não o nome: vários portais abertos ficariam todos "Portal".
+      return portalLabel(node.content.value)
     case 'fileTree':
       return node.content.value.name
     default:
@@ -48,6 +50,8 @@ export function NodeShell({ node, selected, workspaceId }: Props): JSX.Element {
         return <NoteNode node={node} content={node.content.value} workspaceId={workspaceId} />
       case 'text':
         return <TextNode node={node} content={node.content.value} />
+      case 'portal':
+        return <PortalNode node={node} content={node.content.value} workspaceId={workspaceId} />
       default:
         return <PlaceholderNode type={node.content.type} />
     }

@@ -125,6 +125,105 @@ test('as 6 listas de conexão são reconstruídas com seus nomes de campo', () =
   }
 })
 
+test('nó legado de texto ganha defaults de formatação sem perder o que já tinha', () => {
+  // A fixture não tem os campos novos (isItalic, backgroundColor, …): é
+  // exatamente um arquivo escrito pelo app nativo antes da barra de formatação.
+  const text = payload.nodes.find((n) => n.content.type === 'text').content.value
+  assert.equal(text.text, 'Sprint 12')
+  assert.equal(text.fontWeight, 'bold')
+  assert.equal(text.isItalic, false)
+  assert.equal(text.isUnderlined, false)
+  assert.equal(text.isStrikethrough, false)
+  assert.equal(text.backgroundColor, null)
+  assert.equal(text.lineHeight, 1.3)
+  assert.equal(text.letterSpacing, 0)
+})
+
+test('nota legada tem fonte mono e cor de texto automática', () => {
+  // 'mono' e textColor null reproduzem a aparência anterior da nota, quando o
+  // editor era mono e a cor vinha fixa do CSS.
+  const note = payload.nodes.find((n) => n.content.type === 'stickyNote').content.value
+  assert.equal(note.fontFamily, 'mono')
+  assert.equal(note.textColor, null)
+  assert.equal(note.alignment, 'left')
+})
+
+test('campos de formatação sobrevivem ao round-trip', () => {
+  const encoded = reencoded.payload.nodes.find((n) => n.content.text).content.text._0
+  const back = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      nodes: [
+        {
+          ...raw.payload.nodes.find((n) => n.content.text),
+          content: {
+            text: {
+              _0: {
+                ...encoded,
+                isItalic: true,
+                isUnderlined: true,
+                isStrikethrough: true,
+                backgroundColor: '#E6F0FF',
+                lineHeight: 1.8,
+                letterSpacing: 2,
+                fontFamily: 'serif',
+                fontWeight: 'semibold',
+                alignment: 'center'
+              }
+            }
+          }
+        }
+      ]
+    }
+  })
+  const value = back.payload.nodes[0].content.value
+  assert.equal(value.isItalic, true)
+  assert.equal(value.isUnderlined, true)
+  assert.equal(value.isStrikethrough, true)
+  assert.equal(value.backgroundColor, '#E6F0FF')
+  assert.equal(value.lineHeight, 1.8)
+  assert.equal(value.letterSpacing, 2)
+  assert.equal(value.fontFamily, 'serif')
+  assert.equal(value.fontWeight, 'semibold')
+  assert.equal(value.alignment, 'center')
+
+  // E voltam ao disco dentro do embrulho da variante, sem virar objeto solto.
+  const out = encodeWorkspaceDocument(back.payload).payload.nodes[0].content.text._0
+  assert.equal(out.isItalic, true)
+  assert.equal(out.backgroundColor, '#E6F0FF')
+  assert.equal(out.fontFamily, 'serif')
+})
+
+test('valor inválido de enum tipográfico cai no default em vez de ir para o CSS', () => {
+  const node = raw.payload.nodes.find((n) => n.content.text)
+  const back = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      nodes: [
+        {
+          ...node,
+          content: {
+            text: {
+              _0: {
+                ...node.content.text._0,
+                fontFamily: 'comic-sans-do-mal',
+                fontWeight: 'ultra',
+                alignment: 'justify'
+              }
+            }
+          }
+        }
+      ]
+    }
+  })
+  const value = back.payload.nodes[0].content.value
+  assert.equal(value.fontFamily, 'sans')
+  assert.equal(value.fontWeight, 'regular')
+  assert.equal(value.alignment, 'left')
+})
+
 test('UUIDs saem em maiúsculas', () => {
   for (const node of reencoded.payload.nodes) {
     assert.equal(node.id, node.id.toUpperCase(), `${node.id} não está em maiúsculas`)

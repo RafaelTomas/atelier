@@ -4,7 +4,7 @@
  * O renderer NUNCA toca em disco, em PTY ou em socket: tudo passa por aqui,
  * o que preserva a regra do app nativo de que toda I/O é centralizada.
  */
-import { ipcMain } from 'electron'
+import { ipcMain, shell } from 'electron'
 import type { CanvasNode, NodeContent, Point, Rect, UUID } from '@shared/types'
 import { Constants } from '../core/constants'
 import { log } from '../core/logger'
@@ -15,7 +15,7 @@ import {
   makeTerminalContent,
   makeTextContent
 } from '../core/models/node-content'
-import { makeCanvasNode } from '../core/models/workspace'
+import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir } from '../core/persistence/paths'
 import { appState } from '../core/state/app-state'
@@ -106,6 +106,11 @@ export function registerIPC(): void {
   ipcMain.handle('workspace:create', async (_e, name: string, workingDirectory: string) => {
     const ws = await appState.createWorkspace(name, workingDirectory)
     return { entries: appState.manifest.workspaces, workspace: ws.snapshot() }
+  })
+
+  ipcMain.handle('workspace:rename', async (_e, id: UUID, name: string) => {
+    await appState.renameWorkspace(id, name)
+    return appState.manifest.workspaces
   })
 
   ipcMain.handle('workspace:delete', async (_e, id: UUID) => {
@@ -235,6 +240,45 @@ export function registerIPC(): void {
   })
 
   ipcMain.handle('terminal:buffer', (_e, nodeId: UUID) => terminals.get(nodeId)?.buffer ?? '')
+
+  // ─── Desenhos ───────────────────────────────────────────────────────────────
+
+  ipcMain.handle(
+    'drawing:add',
+    (_e, workspaceId: UUID, points: number[][], color: string, lineWidth: number) => {
+      const ws = appState.workspaces.get(workspaceId)
+      // Um ponto só não é traço — evita sujar o arquivo com cliques acidentais.
+      if (!ws || !Array.isArray(points) || points.length < 2) return null
+      const drawing = makeDrawing(points, color, lineWidth)
+      ws.addDrawing(drawing)
+      return drawing
+    }
+  )
+
+  ipcMain.handle('drawing:remove', (_e, workspaceId: UUID, drawingId: UUID) => {
+    appState.workspaces.get(workspaceId)?.removeDrawing(drawingId)
+  })
+
+  ipcMain.handle('drawing:clear', (_e, workspaceId: UUID) => {
+    appState.workspaces.get(workspaceId)?.clearDrawings()
+  })
+
+  // ─── Portais ────────────────────────────────────────────────────────────────
+
+  /**
+   * Abre a URL no navegador do sistema. Só http(s): sem isso um `file://` ou
+   * um esquema custom vindo da página embutida viraria execução arbitrária.
+   */
+  ipcMain.handle('portal:open-external', async (_e, url: string) => {
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+      await shell.openExternal(parsed.toString())
+      return true
+    } catch {
+      return false
+    }
+  })
 
   // ─── Notas ──────────────────────────────────────────────────────────────────
 

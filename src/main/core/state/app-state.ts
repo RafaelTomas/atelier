@@ -122,6 +122,32 @@ class AppState {
     return manager
   }
 
+  /** Renomeia em memória, no manifest e no payload — os dois guardam o nome. */
+  async renameWorkspace(id: UUID, name: string): Promise<boolean> {
+    const trimmed = name.trim()
+    if (!trimmed) return false
+
+    const entry = this.manifest.workspaces.find((w) => w.id === id)
+    if (!entry) return false
+    entry.name = trimmed
+    await persistence.saveManifest(this.manifest)
+
+    const manager = this.workspaces.get(id)
+    if (manager) {
+      manager.setName(trimmed)
+      return true
+    }
+
+    // Workspace não carregado: grava direto no arquivo para o nome não divergir.
+    const payload = await persistence.loadWorkspace(id)
+    if (payload) {
+      payload.name = trimmed
+      payload.lastModifiedAt = nowISO()
+      await persistence.saveWorkspace(payload)
+    }
+    return true
+  }
+
   async deleteWorkspace(id: UUID): Promise<void> {
     this.workspaces.delete(id)
     this.manifest.workspaces = this.manifest.workspaces.filter((w) => w.id !== id)

@@ -1,6 +1,7 @@
 /** Nó Note — editor de Markdown com gravação debounced no arquivo .md. */
 import { useEffect, useRef, useState } from 'react'
 import type { CanvasNode, StickyNoteContent, UUID } from '@shared/types'
+import { noteEditorStyle } from './typography'
 
 interface Props {
   node: CanvasNode
@@ -48,7 +49,7 @@ export function NoteNode({ node, content, workspaceId }: Props): JSX.Element {
       data-node-interactive
       spellCheck={false}
       value={text}
-      style={{ backgroundColor: content.color, fontSize: content.fontSize }}
+      style={noteEditorStyle(content)}
       placeholder="Markdown…"
       onChange={(e) => onChange(e.target.value)}
     />

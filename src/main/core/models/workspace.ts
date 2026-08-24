@@ -181,6 +181,17 @@ export function makeConnection(kind: ConnectionKind, nodeIdA: UUID, nodeIdB: UUI
   }
 }
 
+/** Traço livre. `points` são pares [x,y] em coordenadas de canvas. */
+export function makeDrawing(points: number[][], color: string, lineWidth: number): Drawing {
+  return {
+    id: uuid(),
+    points: points.map((p) => [p[0], p[1]]),
+    color,
+    lineWidth,
+    createdAt: nowISO()
+  }
+}
+
 // ─── Floors e drawings ────────────────────────────────────────────────────────
 
 function decodeFloors(value: unknown): FloorEntry[] {

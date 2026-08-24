@@ -20,7 +20,10 @@ import type {
   StorageMode,
   StrokeContent,
   TerminalContent,
-  TextContent
+  TextAlignment,
+  TextContent,
+  FontFamily,
+  FontWeight
 } from '@shared/types'
 import {
   asRecord,
@@ -115,7 +118,12 @@ function decodeStickyNote(raw: Record<string, unknown>): StickyNoteContent {
     fontSize: num(raw.fontSize, 14),
     hasCustomName: bool(raw.hasCustomName),
     isPreviewing: bool(raw.isPreviewing),
-    storageMode: decodeStorageMode(raw.storageMode)
+    storageMode: decodeStorageMode(raw.storageMode),
+    // Campos de formatação novos: notas gravadas pelo app nativo não os têm,
+    // então o default tem de reproduzir a aparência antiga.
+    textColor: optStr(raw.textColor),
+    fontFamily: fontFamily(raw.fontFamily, 'mono'),
+    alignment: alignment(raw.alignment)
   }
 }
 
@@ -139,14 +147,43 @@ function decodeFileTree(raw: Record<string, unknown>): FileTreeContent {
   }
 }
 
+// ─── Enums de tipografia ──────────────────────────────────────────────────────
+// Validamos em vez de fazer cast: um valor estranho vindo do disco (ou de uma
+// versão futura do app nativo) cairia direto no CSS e quebraria o layout.
+
+const FONT_FAMILIES: FontFamily[] = ['sans', 'serif', 'mono', 'rounded']
+const FONT_WEIGHTS: FontWeight[] = ['light', 'regular', 'medium', 'semibold', 'bold']
+const ALIGNMENTS: TextAlignment[] = ['left', 'center', 'right']
+
+function fontFamily(value: unknown, fallback: FontFamily): FontFamily {
+  const v = str(value, fallback)
+  return FONT_FAMILIES.includes(v as FontFamily) ? (v as FontFamily) : fallback
+}
+
+function fontWeight(value: unknown): FontWeight {
+  const v = str(value, 'regular')
+  return FONT_WEIGHTS.includes(v as FontWeight) ? (v as FontWeight) : 'regular'
+}
+
+function alignment(value: unknown): TextAlignment {
+  const v = str(value, 'left')
+  return ALIGNMENTS.includes(v as TextAlignment) ? (v as TextAlignment) : 'left'
+}
+
 function decodeText(raw: Record<string, unknown>): TextContent {
   return {
     text: str(raw.text),
     fontSize: num(raw.fontSize, 18),
-    fontWeight: str(raw.fontWeight, 'regular'),
+    fontWeight: fontWeight(raw.fontWeight),
     color: str(raw.color, '#1a1a1a'),
-    alignment: str(raw.alignment, 'left'),
-    fontFamily: str(raw.fontFamily, 'sans')
+    alignment: alignment(raw.alignment),
+    fontFamily: fontFamily(raw.fontFamily, 'sans'),
+    isItalic: bool(raw.isItalic),
+    isUnderlined: bool(raw.isUnderlined),
+    isStrikethrough: bool(raw.isStrikethrough),
+    backgroundColor: optStr(raw.backgroundColor),
+    lineHeight: num(raw.lineHeight, 1.3),
+    letterSpacing: num(raw.letterSpacing, 0)
   }
 }
 
@@ -288,7 +325,10 @@ export function makeStickyNoteContent(name: string): StickyNoteContent {
     fontSize: 14,
     hasCustomName: false,
     isPreviewing: false,
-    storageMode: { kind: 'managed' }
+    storageMode: { kind: 'managed' },
+    textColor: null,
+    fontFamily: 'mono',
+    alignment: 'left'
   }
 }
 
@@ -299,7 +339,13 @@ export function makeTextContent(text = ''): TextContent {
     fontWeight: 'regular',
     color: '#1a1a1a',
     alignment: 'left',
-    fontFamily: 'sans'
+    fontFamily: 'sans',
+    isItalic: false,
+    isUnderlined: false,
+    isStrikethrough: false,
+    backgroundColor: null,
+    lineHeight: 1.3,
+    letterSpacing: 0
   }
 }
 
@@ -326,8 +372,17 @@ export function nodeDisplayName(content: NodeContent): string {
       return content.value.name
     case 'stickyNote':
       return content.value.fileName?.replace(/\.md$/, '') ?? 'Note'
-    case 'portal':
-      return content.value.name
+    case 'portal': {
+      // Mesmo critério do header no renderer: host em vez de "Portal" repetido.
+      const { name, currentURL } = content.value
+      if (name && name !== 'Portal') return name
+      if (!currentURL) return 'Portal'
+      try {
+        return new URL(currentURL).host.replace(/^www\./, '')
+      } catch {
+        return currentURL
+      }
+    }
     case 'fileTree':
       return content.value.name
     case 'text':

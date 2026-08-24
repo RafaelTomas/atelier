@@ -58,6 +58,10 @@ export interface StickyNoteContent {
   hasCustomName: boolean
   isPreviewing: boolean
   storageMode: StorageMode
+  /** Cor do texto. null = derivada do fundo (ver textColorFor). */
+  textColor: string | null
+  fontFamily: FontFamily
+  alignment: TextAlignment
 }
 
 export type PortalSource = { kind: 'none' } | { kind: 'url'; url: string }
@@ -78,13 +82,24 @@ export interface FileTreeContent {
   viewMode: string
 }
 
+export type FontFamily = 'sans' | 'serif' | 'mono' | 'rounded'
+export type FontWeight = 'light' | 'regular' | 'medium' | 'semibold' | 'bold'
+export type TextAlignment = 'left' | 'center' | 'right'
+
 export interface TextContent {
   text: string
   fontSize: number
-  fontWeight: string
+  fontWeight: FontWeight
   color: string
-  alignment: string
-  fontFamily: string
+  alignment: TextAlignment
+  fontFamily: FontFamily
+  isItalic: boolean
+  isUnderlined: boolean
+  isStrikethrough: boolean
+  /** Fundo do rótulo. null = transparente (o padrão, sem chrome). */
+  backgroundColor: string | null
+  lineHeight: number
+  letterSpacing: number
 }
 
 export interface ShapeContent {
@@ -259,6 +274,7 @@ export interface Preferences {
   fontSize: number
   fontFamily: string
   theme: string
+  sidebarCollapsed: boolean
 }
 
 // ─── Ponte renderer ⇄ main ────────────────────────────────────────────────────

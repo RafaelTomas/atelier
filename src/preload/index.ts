@@ -9,6 +9,7 @@ import type {
   BootInfo,
   CanvasNode,
   Connection,
+  Drawing,
   Point,
   Preferences,
   Rect,
@@ -40,6 +41,8 @@ const api = {
     open: (id: UUID): Promise<WorkspacePayload | null> => ipcRenderer.invoke('workspace:open', id),
     create: (name: string, dir: string): Promise<{ entries: WorkspaceEntry[]; workspace: WorkspacePayload }> =>
       ipcRenderer.invoke('workspace:create', name, dir),
+    rename: (id: UUID, name: string): Promise<WorkspaceEntry[]> =>
+      ipcRenderer.invoke('workspace:rename', id, name),
     remove: (id: UUID): Promise<WorkspaceEntry[]> => ipcRenderer.invoke('workspace:delete', id),
     saveNow: (): Promise<number> => ipcRenderer.invoke('workspace:save-now'),
     setViewport: (id: UUID, origin: Point, zoom: number): Promise<void> =>
@@ -91,6 +94,24 @@ const api = {
     buffer: (nodeId: UUID): Promise<string> => ipcRenderer.invoke('terminal:buffer', nodeId),
     onData: (cb: (p: { id: UUID; data: string }) => void): Unsubscribe => on('terminal:data', cb),
     onExit: (cb: (p: { id: UUID; code: number }) => void): Unsubscribe => on('terminal:exit', cb)
+  },
+
+  drawing: {
+    add: (
+      workspaceId: UUID,
+      points: number[][],
+      color: string,
+      lineWidth: number
+    ): Promise<Drawing | null> =>
+      ipcRenderer.invoke('drawing:add', workspaceId, points, color, lineWidth),
+    remove: (workspaceId: UUID, drawingId: UUID): Promise<void> =>
+      ipcRenderer.invoke('drawing:remove', workspaceId, drawingId),
+    clear: (workspaceId: UUID): Promise<void> => ipcRenderer.invoke('drawing:clear', workspaceId)
+  },
+
+  portal: {
+    openExternal: (url: string): Promise<boolean> =>
+      ipcRenderer.invoke('portal:open-external', url)
   },
 
   note: {

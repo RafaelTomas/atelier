@@ -100,7 +100,8 @@ export function makePreferences(): Preferences {
     language: 'system',
     fontSize: 13,
     fontFamily: 'system',
-    theme: 'system'
+    theme: 'system',
+    sidebarCollapsed: false
   }
 }
 
@@ -112,6 +113,7 @@ export function decodePreferences(value: unknown): Preferences {
     language: str(o.language, base.language),
     fontSize: num(o.fontSize, base.fontSize),
     fontFamily: str(o.fontFamily, base.fontFamily),
-    theme: str(o.theme, base.theme)
+    theme: str(o.theme, base.theme),
+    sidebarCollapsed: bool(o.sidebarCollapsed, base.sidebarCollapsed)
   }
 }

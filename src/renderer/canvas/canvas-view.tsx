@@ -2,7 +2,7 @@
  * Camada de canvas — porte de CanvasViewportView.
  *
  * Empilhamento (mesma ordem do app nativo):
- *   1 fundo/grade   2 (desenho — pendente)   3 nós   4 conexões   5 guias
+ *   1 fundo/grade   2 desenho   3 nós   4 conexões   5 guias
  *
  * As três regras de performance de docs/migracao-electron.md §5 estão aqui:
  *   • virtualização por viewport (+200px), só o set visível vai para o React
@@ -13,7 +13,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CanvasNode, Point, Rect, UUID } from '@shared/types'
 import { store, useStore } from '../state/store'
 import { NodeShell } from '../nodes/node-shell'
+import { FormatBar } from '../nodes/format-bar'
+import { Dock } from '../dock'
 import { CanvasBackground } from './background'
+import { DrawingsLayer, type LiveStroke } from './drawings-layer'
+import { DrawMenu, type DrawMenuState } from './draw-menu'
 import { ConnectionsLayer } from './connections-layer'
 import { CULL_MARGIN, rectsIntersect, viewport } from './viewport'
 
@@ -25,22 +29,30 @@ type Interaction =
   | { kind: 'resizing'; id: UUID; start: Point; frame: Rect }
   | { kind: 'marquee'; start: Point; current: Point }
   | { kind: 'connecting'; from: UUID; current: Point }
+  | { kind: 'drawing' }
 
 const DRAG_THRESHOLD = 3 // px de tela antes de virar arrasto de verdade
 
 export function CanvasView(): JSX.Element {
-  const { workspace, selection, connectingFrom } = useStore()
+  const { workspace, selection, connectingFrom, tool, pen } = useStore()
   const hostRef = useRef<HTMLDivElement>(null)
   const nodesRef = useRef<HTMLDivElement>(null)
   const interaction = useRef<Interaction>({ kind: 'idle' })
 
   /** Centro ao vivo dos nós em arrasto — lido pela camada de cordas a 60fps. */
   const liveFrames = useRef(new Map<UUID, Point>())
+  /** Traço em andamento — escrito a 60fps, fora do estado do React. */
+  const liveStroke = useRef<LiveStroke | null>(null)
+  const strokeTick = useRef(0)
   const [visibleIds, setVisibleIds] = useState<Set<UUID>>(new Set())
   const [marquee, setMarquee] = useState<Rect | null>(null)
+  /** Menu do modo desenho, ancorado no ponto clicado. null = fechado. */
+  const [drawMenu, setDrawMenu] = useState<DrawMenuState | null>(null)
 
   const nodes = workspace?.nodes ?? []
   const connections = workspace?.connections ?? []
+  const drawings = workspace?.drawings ?? []
+  const isDrawingTool = tool === 'pen' || tool === 'highlighter'
 
   /** Cache de z-index: ascendente para render, descendente para hit testing. */
   const { renderOrder, hitOrder } = useMemo(() => {
@@ -115,6 +127,30 @@ export function CanvasView(): JSX.Element {
     [hitOrder]
   )
 
+  /**
+   * Traço sob o cursor, para a borracha. Testa distância ponto→segmento; a
+   * tolerância acompanha o zoom para a borracha não ficar impossível de acertar
+   * com o canvas afastado.
+   */
+  const hitDrawing = useCallback(
+    (cp: Point): UUID | null => {
+      const tolerance = Math.max(6, 10 / viewport.zoom)
+      // De trás para frente: o traço mais recente está por cima.
+      for (let i = drawings.length - 1; i >= 0; i--) {
+        const d = drawings[i]
+        const half = Math.max(Math.abs(d.lineWidth) / 2, 1)
+        const reach = tolerance + half
+        for (let j = 0; j < d.points.length - 1; j++) {
+          const [x1, y1] = d.points[j]
+          const [x2, y2] = d.points[j + 1]
+          if (pointSegmentDistance(cp, x1, y1, x2, y2) <= reach) return d.id
+        }
+      }
+      return null
+    },
+    [drawings]
+  )
+
   const screenPoint = (e: React.MouseEvent | MouseEvent): Point => {
     const rect = hostRef.current?.getBoundingClientRect()
     return { x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) }
@@ -130,11 +166,41 @@ export function CanvasView(): JSX.Element {
     if (e.button !== 0) return
 
     const target = e.target as HTMLElement
-    // Cliques dentro do conteúdo do nó (terminal, editor) são do nó, não do canvas
-    if (target.closest('[data-node-interactive]')) return
-
     const sp = screenPoint(e)
     const cp = viewport.toCanvas(sp)
+
+    // Modo desenho: o clique não desenha, PERGUNTA. Abre o menu no ponto e
+    // deixa a interação idle — quem escolher a ferramenta lá desenha no
+    // arrasto seguinte.
+    if (tool === 'draw') {
+      setDrawMenu({ screen: { x: e.clientX, y: e.clientY }, canvas: cp })
+      interaction.current = { kind: 'idle' }
+      return
+    }
+
+    // Ferramentas de desenho vêm ANTES de tudo: com a caneta ativa o arrasto é
+    // traço, não seleção nem pan, e nem o conteúdo do nó captura o clique.
+    if (isDrawingTool) {
+      liveStroke.current = {
+        points: [cp],
+        color: pen.color,
+        lineWidth: tool === 'highlighter' ? pen.lineWidth * 4 : pen.lineWidth,
+        translucent: tool === 'highlighter'
+      }
+      strokeTick.current++
+      interaction.current = { kind: 'drawing' }
+      return
+    }
+
+    if (tool === 'eraser') {
+      const hit = hitDrawing(cp)
+      if (hit) void store.removeDrawing(hit)
+      interaction.current = { kind: 'drawing' } // segue apagando no arrasto
+      return
+    }
+
+    // Cliques dentro do conteúdo do nó (terminal, editor) são do nó, não do canvas
+    if (target.closest('[data-node-interactive]')) return
 
     const handle = target.closest('[data-resize-handle]')
     const nodeEl = target.closest('[data-node-id]') as HTMLElement | null
@@ -210,6 +276,23 @@ export function CanvasView(): JSX.Element {
           interaction.current = { ...state, current: cp }
           break
         }
+        case 'drawing': {
+          const stroke = liveStroke.current
+          if (stroke) {
+            // Descarta micro-movimentos: sem isso um traço lento gera centenas
+            // de pontos quase idênticos e engorda o arquivo à toa.
+            const last = stroke.points[stroke.points.length - 1]
+            const minStep = 1.5 / viewport.zoom
+            if (Math.hypot(cp.x - last.x, cp.y - last.y) >= minStep) {
+              stroke.points.push(cp)
+              strokeTick.current++
+            }
+          } else if (tool === 'eraser') {
+            const hit = hitDrawing(cp)
+            if (hit) void store.removeDrawing(hit)
+          }
+          break
+        }
       }
     }
 
@@ -247,6 +330,23 @@ export function CanvasView(): JSX.Element {
           setMarquee(null)
           break
         }
+        case 'drawing': {
+          const stroke = liveStroke.current
+          liveStroke.current = null
+          strokeTick.current++
+          if (stroke && stroke.points.length > 1) {
+            // Marca-texto vai com lineWidth NEGATIVO: o Drawing do formato em
+            // disco não tem campo de tipo, e o sinal sobrevive ao round-trip
+            // sem quebrar o app nativo (que lê o valor absoluto como espessura).
+            const width = stroke.translucent ? -stroke.lineWidth : stroke.lineWidth
+            void store.addDrawing(
+              stroke.points.map((p) => [p.x, p.y]),
+              stroke.color,
+              width
+            )
+          }
+          break
+        }
       }
     }
 
@@ -256,7 +356,9 @@ export function CanvasView(): JSX.Element {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [nodes])
+    // tool/hitDrawing entram aqui: sem eles a borracha apagaria contra uma
+    // lista de traços velha (closure obsoleta).
+  }, [nodes, tool, hitDrawing])
 
   // ─── Roda: pan por padrão, zoom com ⌘/Ctrl (convenção de trackpad) ──────────
 
@@ -279,7 +381,21 @@ export function CanvasView(): JSX.Element {
         e.preventDefault()
         for (const id of selection) void store.removeNode(id)
       }
-      if (e.key === 'Escape') store.startConnecting(null)
+      if (e.key === 'Escape') {
+        store.startConnecting(null)
+        setDrawMenu(null)
+        store.setTool('select')
+      }
+
+      // Atalhos das ferramentas, no padrão de editor de canvas
+      if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+        const key = e.key.toLowerCase()
+        if (key === 'v') store.setTool('select')
+        if (key === 'd') store.setTool('draw')
+        if (key === 'p') store.setTool('pen')
+        if (key === 'm') store.setTool('highlighter')
+        if (key === 'e') store.setTool('eraser')
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === '0') {
         e.preventDefault()
         viewport.setZoom(1)
@@ -297,15 +413,36 @@ export function CanvasView(): JSX.Element {
 
   const visibleNodes = renderOrder.filter((n) => visibleIds.has(n.id))
 
+  /**
+   * Nó formatável selecionado — só com seleção única: com vários nós a barra
+   * não teria um valor único para mostrar nos controles.
+   */
+  const formatTarget =
+    selection.length === 1
+      ? nodes.find(
+          (n) =>
+            n.id === selection[0] &&
+            (n.content.type === 'text' || n.content.type === 'stickyNote')
+        ) ?? null
+      : null
+
   return (
     <div
       ref={hostRef}
-      className={`canvas-host ${connectingFrom ? 'is-connecting' : ''}`}
+      className={[
+        'canvas-host',
+        connectingFrom ? 'is-connecting' : '',
+        tool !== 'select' ? `tool-${tool}` : ''
+      ]
+        .filter(Boolean)
+        .join(' ')}
       onMouseDown={onMouseDown}
       onWheel={onWheel}
       onContextMenu={onContextMenu}
     >
       <CanvasBackground mode="grid" />
+
+      <DrawingsLayer drawings={drawings} live={liveStroke} tick={strokeTick} />
 
       <ConnectionsLayer nodes={nodes} connections={connections} liveFrames={liveFrames} />
 
@@ -332,11 +469,35 @@ export function CanvasView(): JSX.Element {
         />
       )}
 
+      {formatTarget && <FormatBar key={formatTarget.id} node={formatTarget} />}
+
+      {drawMenu && (
+        <DrawMenu
+          state={drawMenu}
+          color={pen.color}
+          lineWidth={pen.lineWidth}
+          onClose={() => setDrawMenu(null)}
+        />
+      )}
+
+      <Dock />
+
       <div className="canvas-hud">
         {visibleNodes.length}/{nodes.length} nós · {Math.round(viewport.zoom * 100)}%
       </div>
     </div>
   )
+}
+
+/** Distância de um ponto ao segmento (x1,y1)-(x2,y2). */
+function pointSegmentDistance(p: Point, x1: number, y1: number, x2: number, y2: number): number {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const lenSq = dx * dx + dy * dy
+  if (lenSq === 0) return Math.hypot(p.x - x1, p.y - y1)
+  // t = projeção normalizada do ponto no segmento, presa em [0,1]
+  const t = Math.max(0, Math.min(1, ((p.x - x1) * dx + (p.y - y1) * dy) / lenSq))
+  return Math.hypot(p.x - (x1 + t * dx), p.y - (y1 + t * dy))
 }
 
 function normalizeRect(a: Point, b: Point): Rect {

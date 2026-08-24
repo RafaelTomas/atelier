@@ -11,11 +11,32 @@ import { useSyncExternalStore } from 'react'
 import type {
   CanvasNode,
   Connection,
+  Drawing,
   Rect,
   UUID,
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
+import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
+
+/**
+ * Ferramenta ativa do canvas. 'select' é o comportamento de sempre (arrastar
+ * nó, marquee, pan); as outras capturam o arrasto para desenhar/apagar.
+ *
+ * 'draw' é o MODO desenho da dock: não desenha sozinho — o clique no canvas
+ * abre o menu que escolhe o que fazer naquele ponto (ver DrawMenu). É esse
+ * passo intermediário que separa 'draw' de 'pen'/'highlighter'/'eraser', que
+ * já são a ferramenta concreta e agem direto no arrasto.
+ */
+export type Tool = 'select' | 'draw' | 'pen' | 'highlighter' | 'eraser'
+
+/** Ferramentas que o menu de desenho oferece — subconjunto acionável de Tool. */
+export type DrawTool = Extract<Tool, 'pen' | 'highlighter' | 'eraser'>
+
+export interface PenSettings {
+  color: string
+  lineWidth: number
+}
 
 export interface AppSnapshot {
   entries: WorkspaceEntry[]
@@ -24,6 +45,13 @@ export interface AppSnapshot {
   selection: UUID[]
   /** Nó de origem enquanto o usuário arrasta uma conexão nova. */
   connectingFrom: UUID | null
+  /** Sidebar recolhida — espelha preferences.sidebarCollapsed. */
+  sidebarCollapsed: boolean
+  /** Tema escolhido — espelha preferences.theme. */
+  theme: ThemeMode
+  /** Ferramenta ativa (caneta, marca-texto, borracha ou seleção). */
+  tool: Tool
+  pen: PenSettings
   loading: boolean
   bootError: string | null
 }
@@ -34,6 +62,10 @@ const initial: AppSnapshot = {
   workspace: null,
   selection: [],
   connectingFrom: null,
+  sidebarCollapsed: false,
+  theme: 'system',
+  tool: 'select',
+  pen: { color: '#e0245e', lineWidth: 3 },
   loading: true,
   bootError: null
 }
@@ -58,10 +90,22 @@ class Store {
 
   async load(): Promise<void> {
     try {
-      const { entries, activeId } = await window.atelier.workspace.list()
+      const [{ entries, activeId }, prefs] = await Promise.all([
+        window.atelier.workspace.list(),
+        window.atelier.prefs.get()
+      ])
       const id = activeId ?? entries[0]?.id ?? null
       const workspace = id ? await window.atelier.workspace.open(id) : null
-      this.set({ entries, activeId: id, workspace, loading: false })
+      const theme = isThemeMode(prefs.theme) ? prefs.theme : 'system'
+      applyTheme(theme)
+      this.set({
+        entries,
+        activeId: id,
+        workspace,
+        sidebarCollapsed: prefs.sidebarCollapsed,
+        theme,
+        loading: false
+      })
     } catch (err) {
       this.set({ loading: false, bootError: (err as Error).message })
     }
@@ -77,6 +121,18 @@ class Store {
     this.set({ entries, workspace, activeId: workspace.id, selection: [] })
   }
 
+  async renameWorkspace(id: UUID, name: string): Promise<void> {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    const entries = await window.atelier.workspace.rename(id, trimmed)
+    // O payload aberto também guarda o nome — é ele que alimenta a toolbar.
+    const ws = this.state.workspace
+    this.set({
+      entries,
+      workspace: ws && ws.id === id ? { ...ws, name: trimmed } : ws
+    })
+  }
+
   // ─── Nós ────────────────────────────────────────────────────────────────────
 
   get workspaceId(): UUID | null {
@@ -86,7 +142,12 @@ class Store {
   private mutateWorkspace(fn: (ws: WorkspacePayload) => void): void {
     const ws = this.state.workspace
     if (!ws) return
-    const next = { ...ws, nodes: [...ws.nodes], connections: [...ws.connections] }
+    const next = {
+      ...ws,
+      nodes: [...ws.nodes],
+      connections: [...ws.connections],
+      drawings: [...ws.drawings]
+    }
     fn(next)
     this.set({ workspace: next })
   }
@@ -147,6 +208,44 @@ class Store {
     })
   }
 
+  // ─── Ferramentas e desenhos ─────────────────────────────────────────────────
+
+  setTool(tool: Tool): void {
+    // Trocar de ferramenta limpa a seleção: com a caneta ativa a alça de resize
+    // e a borda de seleção só atrapalham.
+    this.set({ tool, selection: tool === 'select' ? this.state.selection : [] })
+  }
+
+  setPen(patch: Partial<PenSettings>): void {
+    this.set({ pen: { ...this.state.pen, ...patch } })
+  }
+
+  /** Traço concluído: persiste e insere no payload em memória. */
+  async addDrawing(points: number[][], color: string, lineWidth: number): Promise<void> {
+    const id = this.workspaceId
+    if (!id || points.length < 2) return
+    const drawing = await window.atelier.drawing.add(id, points, color, lineWidth)
+    if (drawing) this.mutateWorkspace((ws) => ws.drawings.push(drawing))
+  }
+
+  async removeDrawing(drawingId: UUID): Promise<void> {
+    const id = this.workspaceId
+    if (!id) return
+    await window.atelier.drawing.remove(id, drawingId)
+    this.mutateWorkspace((ws) => {
+      ws.drawings = ws.drawings.filter((d) => d.id !== drawingId)
+    })
+  }
+
+  async clearDrawings(): Promise<void> {
+    const id = this.workspaceId
+    if (!id) return
+    await window.atelier.drawing.clear(id)
+    this.mutateWorkspace((ws) => {
+      ws.drawings = []
+    })
+  }
+
   // ─── Conexões ───────────────────────────────────────────────────────────────
 
   async addConnection(idA: UUID, idB: UUID): Promise<Connection | null> {
@@ -181,6 +280,19 @@ class Store {
   toggleSelect(id: UUID): void {
     const sel = this.state.selection
     this.set({ selection: sel.includes(id) ? sel.filter((s) => s !== id) : [...sel, id] })
+  }
+
+  /** Otimista: a UI reage na hora, o preferences.json é gravado em seguida. */
+  toggleSidebar(): void {
+    const collapsed = !this.state.sidebarCollapsed
+    this.set({ sidebarCollapsed: collapsed })
+    void window.atelier.prefs.set({ sidebarCollapsed: collapsed })
+  }
+
+  setTheme(theme: ThemeMode): void {
+    applyTheme(theme)
+    this.set({ theme })
+    void window.atelier.prefs.set({ theme })
   }
 
   startConnecting(from: UUID | null): void {

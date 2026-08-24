@@ -16,6 +16,7 @@
     "pack:mac": "npm run build && electron-builder --mac",
     "pack:win": "npm run build && electron-builder --win",
     "pack:linux": "npm run build && electron-builder --linux",
+    "icon": "node scripts/make-icon.cjs",
     "test:codec": "node scripts/test-codec.mjs",
     "test:smoke": "node scripts/smoke-headless.mjs",
     "test": "npm run test:codec && npm run test:smoke"

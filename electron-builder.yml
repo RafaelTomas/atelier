@@ -4,6 +4,8 @@ copyright: GPL-3.0
 
 directories:
   output: dist
+  # build/icon.png (1024×1024) é a fonte: o electron-builder gera .icns e .ico
+  # a partir dele. Quem desenha é build/icon.svg — ver scripts/make-icon.cjs.
   buildResources: build
 
 files:
@@ -20,6 +22,7 @@ asarUnpack:
   - '**/node_modules/node-pty/**'
 
 mac:
+  icon: build/icon.png
   target:
     - dmg
     - zip
@@ -29,12 +32,14 @@ mac:
   hardenedRuntime: false
 
 win:
+  icon: build/icon.png
   target:
     - nsis
   # Sem certificado OV/EV o SmartScreen bloqueia até ganhar reputação
   signAndEditExecutable: true
 
 linux:
+  icon: build/icon.png
   target:
     - AppImage
     - deb

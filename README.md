@@ -93,6 +93,23 @@ npm run pack:linux    # AppImage + .deb
 > primeira execução, e o SmartScreen do Windows avisa até o binário ganhar
 > reputação.
 
+### Nome e ícone
+
+O ícone é `build/icon.svg`; `npm run icon` o renderiza (pelo próprio Electron,
+sem ferramenta externa) para `build/icon.png`, de onde o electron-builder gera
+`.icns` e `.ico` sozinho.
+
+Em desenvolvimento o app roda dentro do `Electron.app` do `node_modules`, então
+o Dock mostraria o nome e o ícone **dele**. O `postinstall` renomeia esse bundle
+local para `Atelier.app` — a pasta, o executável, as chaves do `Info.plist` e o
+ícone — e re-assina em seguida (editar o bundle invalida a assinatura). O nome
+da **pasta** é o que mais importa: fora da App Store o Dock tira o rótulo do
+nome do arquivo, então trocar só o `Info.plist` não muda nada.
+
+É cosmético e vale só na sua máquina; o app empacotado tira nome e ícone do
+`electron-builder.yml`. Se o Dock insistir no nome antigo, é cache dele:
+`killall Dock` resolve (não fecha nada).
+
 ---
 
 ## Primeiros passos
@@ -415,7 +432,7 @@ reproduzidos aqui. Ambos dão erros opacos, então ficam registrados:
 | Sintoma | Causa | Correção |
 |---|---|---|
 | `posix_spawnp failed.` ao abrir qualquer terminal | o `spawn-helper` do node-pty chega em `prebuilds/` sem bit de execução (0644) | `chmod +x` no helper |
-| `exited with signal SIGKILL`, sem mais nada | a Apple revogou a notarização de algumas versões do Electron; o Gatekeeper mata o processo (`spctl -a -vv` diz "revoked") | re-assinatura ad-hoc do `Electron.app` local |
+| `exited with signal SIGKILL`, sem mais nada | a Apple revogou a notarização de algumas versões do Electron; o Gatekeeper mata o processo (`spctl -a -vv` diz "revoked") | re-assinatura ad-hoc do bundle local do Electron |
 
 Se algum voltar, rode `node scripts/fix-native-deps.mjs` — é idempotente.
 
@@ -442,6 +459,7 @@ trabalho em andamento.
 | `npm run build` | Typecheck + build de produção |
 | `npm run typecheck` | Só a checagem de tipos (main + renderer) |
 | `npm test` | Codec + smoke |
+| `npm run icon` | Regera `build/icon.png` a partir de `build/icon.svg` |
 | `npm run pack:mac\|win\|linux` | Instaladores |
 
 ---

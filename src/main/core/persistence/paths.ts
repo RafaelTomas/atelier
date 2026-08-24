@@ -24,6 +24,7 @@ export const paths = {
   routines: () => join(dataDir(), 'routines.json'),
   workspacesDir: () => join(dataDir(), 'workspaces'),
   rolesDir: () => join(dataDir(), 'roles'),
+  roleFile: (id: UUID) => join(dataDir(), 'roles', `${id}.json`),
   runDir: () => join(dataDir(), 'run'),
   workspaceDir: (id: UUID) => join(dataDir(), 'workspaces', id),
   workspaceFile: (id: UUID) => join(dataDir(), 'workspaces', id, 'workspace.json'),

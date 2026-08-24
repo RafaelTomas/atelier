@@ -48,6 +48,7 @@ await esbuild.build({
       export { ipcSocketPath, paths } from '${ROOT}/src/main/core/persistence/paths.ts'
       export { makeCanvasNode } from '${ROOT}/src/main/core/models/workspace.ts'
       export { makeTerminalContent, makeStickyNoteContent } from '${ROOT}/src/main/core/models/node-content.ts'
+      export { roles } from '${ROOT}/src/main/core/state/role-store.ts'
       export { importLegacyDataIfNeeded } from '${ROOT}/src/main/core/persistence/import-legacy.ts'
     `,
     resolveDir: ROOT,
@@ -65,6 +66,7 @@ await esbuild.build({
 const core = await import(pathToFileURL(outfile).href)
 const { appState, interAgentServer, persistence, ipcSocketPath, paths } = core
 const { makeCanvasNode, makeTerminalContent, makeStickyNoteContent } = core
+const { roles } = core
 const { importLegacyDataIfNeeded } = core
 
 /** Fala o protocolo real do atelier por socket. */
@@ -219,6 +221,76 @@ await test('comando desconhecido não derruba o servidor', async () => {
 await test('comando não portado responde de forma honesta', async () => {
   const out = await cli(['portal', 'info', 'x'], terminalId)
   assert.match(out, /ainda não implementado/)
+})
+
+// ─── Responsabilidades (agentes) ──────────────────────────────────────────────
+
+let roleId
+
+await test('responsabilidade nasce como arquivo próprio em roles/', async () => {
+  const role = await roles.save({
+    name: 'Frontend',
+    icon: 'paintbrush',
+    color: '#AF52DE',
+    instructions: 'Você cuida do frontend. Revise acessibilidade antes de aprovar UI.',
+    workspaceId: null
+  })
+  roleId = role.id
+  assert.ok(existsSync(paths.roleFile(role.id)), 'arquivo da responsabilidade não foi criado')
+  assert.equal(role.id, role.id.toUpperCase(), 'UUID precisa ser maiúsculo')
+  assert.match(role.createdAt, /^\d{4}-\d{2}-\d{2}T[\d:]+Z$/, 'data precisa ser ISO8601 sem ms')
+})
+
+await test('responsabilidade relê do disco sem perder nada', async () => {
+  const [reloaded] = await persistence.loadRoles()
+  assert.equal(reloaded.name, 'Frontend')
+  assert.equal(reloaded.icon, 'paintbrush')
+  assert.equal(reloaded.workspaceId, null)
+  assert.match(reloaded.instructions, /acessibilidade/)
+})
+
+await test('atelier role responde "nenhuma" antes de atribuir', async () => {
+  const out = await cli(['role'], terminalId)
+  assert.match(out, /No role assigned/)
+})
+
+await test('atelier role devolve as instruções do terminal', async () => {
+  ws.updateContent(terminalId, (node) => {
+    node.content.value.assignedRoleId = roleId
+  })
+  const out = await cli(['role'], terminalId)
+  assert.match(out, /Responsabilidade: Frontend/)
+  assert.match(out, /acessibilidade/)
+})
+
+await test('atelier role list mostra as globais', async () => {
+  const out = await cli(['role', 'list'], terminalId)
+  assert.match(out, /Frontend/)
+  assert.match(out, /\[global\]/)
+})
+
+await test('responsabilidade de outro workspace não vaza no list', async () => {
+  const other = await appState.createWorkspace('Outro', '')
+  await roles.save({ name: 'Só do Outro', workspaceId: other.id })
+  const out = await cli(['role', 'list'], terminalId)
+  assert.ok(!out.includes('Só do Outro'), 'responsabilidade de outro workspace apareceu')
+})
+
+await test('subcomando desconhecido de role não derruba o servidor', async () => {
+  assert.match(await cli(['role', 'naoexiste'], terminalId), /unknown subcommand/)
+  assert.match(await cli(['debug'], terminalId), /debug/)
+})
+
+await test('apagar responsabilidade remove o arquivo', async () => {
+  await roles.remove(roleId)
+  assert.ok(!existsSync(paths.roleFile(roleId)), 'arquivo não foi apagado')
+  assert.equal(roles.has(roleId), false)
+})
+
+await test('terminal com responsabilidade apagada não quebra o CLI', async () => {
+  // O nó ainda aponta para o id órfão (quem limpa é o bridge, no processo main)
+  const out = await cli(['role'], terminalId)
+  assert.match(out, /No role assigned/)
 })
 
 // ─── Importação dos dados do app nativo ───────────────────────────────────────

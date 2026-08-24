@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import type { BootInfo } from '@shared/types'
+import type { BootInfo, TerminalDraft } from '@shared/types'
 import { CanvasView } from './canvas/canvas-view'
+import { viewport } from './canvas/viewport'
+import { NewTerminalDialog } from './dialogs/new-terminal-dialog'
 import { Sidebar } from './sidebar'
 import { store, useStore } from './state/store'
 import { Toolbar } from './toolbar'
 
 export function App(): JSX.Element {
-  const { loading, bootError, workspace, sidebarCollapsed } = useStore()
+  const { loading, bootError, workspace, sidebarCollapsed, newTerminalOpen } = useStore()
   const [boot, setBoot] = useState<BootInfo | null>(null)
 
   useEffect(() => {
@@ -29,6 +31,13 @@ export function App(): JSX.Element {
     }
   }, [])
 
+  /** Nasce centrado na viewport (560×360 é o tamanho que o main dá ao nó). */
+  const createTerminal = (draft: TerminalDraft): void => {
+    store.closeNewTerminal()
+    const c = viewport.toCanvas({ x: viewport.width / 2, y: viewport.height / 2 })
+    void store.createTerminal(draft, { x: c.x - 280, y: c.y - 180 })
+  }
+
   if (loading) return <div className="boot-screen">carregando…</div>
   if (bootError) return <div className="boot-screen error">falha no boot: {bootError}</div>
 
@@ -45,6 +54,14 @@ export function App(): JSX.Element {
           {boot?.needsRecovery && <span className="warn">sessão anterior não encerrou corretamente</span>}
         </footer>
       </main>
+
+      {newTerminalOpen && (
+        <NewTerminalDialog
+          defaultWorkingDirectory={workspace?.workingDirectory ?? ''}
+          onCancel={() => store.closeNewTerminal()}
+          onCreate={createTerminal}
+        />
+      )}
     </div>
   )
 }

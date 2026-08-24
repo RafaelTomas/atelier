@@ -34,7 +34,7 @@ type Interaction =
 const DRAG_THRESHOLD = 3 // px de tela antes de virar arrasto de verdade
 
 export function CanvasView(): JSX.Element {
-  const { workspace, selection, connectingFrom, tool, pen } = useStore()
+  const { workspace, selection, connectingFrom, tool, pen, roles, prefs } = useStore()
   const hostRef = useRef<HTMLDivElement>(null)
   const nodesRef = useRef<HTMLDivElement>(null)
   const interaction = useRef<Interaction>({ kind: 'idle' })
@@ -53,6 +53,10 @@ export function CanvasView(): JSX.Element {
   const connections = workspace?.connections ?? []
   const drawings = workspace?.drawings ?? []
   const isDrawingTool = tool === 'pen' || tool === 'highlighter'
+  const customThemes = prefs?.terminalThemes ?? []
+
+  /** id → responsabilidade, para o header do nó não varrer a lista por nó. */
+  const rolesById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles])
 
   /** Cache de z-index: ascendente para render, descendente para hit testing. */
   const { renderOrder, hitOrder } = useMemo(() => {
@@ -453,6 +457,12 @@ export function CanvasView(): JSX.Element {
             node={node}
             selected={selection.includes(node.id)}
             workspaceId={workspace?.id ?? ''}
+            role={
+              node.content.type === 'terminal' && node.content.value.assignedRoleId
+                ? rolesById.get(node.content.value.assignedRoleId) ?? null
+                : null
+            }
+            customThemes={customThemes}
           />
         ))}
       </div>

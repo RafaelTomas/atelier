@@ -9,7 +9,8 @@
  *   3. AppState      — lê os três JSON raiz em paralelo
  *   4. Janela        — só depois que o estado está em memória
  */
-import { app, BrowserWindow } from 'electron'
+import { join } from 'node:path'
+import { app, BrowserWindow, nativeImage } from 'electron'
 import { log } from './core/logger'
 import { installCLI } from './core/interagent/cli-install'
 import { interAgentServer } from './core/interagent/server'
@@ -18,6 +19,21 @@ import { appState } from './core/state/app-state'
 import { terminals } from './core/terminal/terminal-manager'
 import { registerIPC } from './ipc/bridge'
 import { createMainWindow } from './window'
+
+/**
+ * Antes de qualquer coisa: é este nome que aparece no menu do macOS e que o
+ * Electron usa para o diretório de perfil do Chromium. O nome do app
+ * EMPACOTADO vem do productName do electron-builder; em dev o Dock mostra o
+ * bundle do node_modules, renomeado por scripts/fix-native-deps.mjs.
+ */
+app.setName('Atelier')
+
+// Em dev o ícone do Dock é o do bundle do Electron; se o postinstall não
+// conseguiu trocá-lo (máquina sem sips/iconutil, por exemplo), este é o plano B.
+if (!app.isPackaged && process.platform === 'darwin') {
+  const icon = nativeImage.createFromPath(join(__dirname, '../../build/icon.png'))
+  if (!icon.isEmpty()) app.dock?.setIcon(icon)
+}
 
 // Instância única: dois processos disputando o mesmo socket IPC quebram o CLI
 if (!app.requestSingleInstanceLock()) {

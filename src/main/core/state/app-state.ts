@@ -13,6 +13,7 @@ import { makeWorkspacePayload } from '../models/workspace'
 import { importLegacyDataIfNeeded, type ImportResult } from '../persistence/import-legacy'
 import { persistence } from '../persistence/persistence-manager'
 import { paths } from '../persistence/paths'
+import { roles } from './role-store'
 import { WorkspaceManager } from './workspace-manager'
 
 class AppState {
@@ -38,7 +39,8 @@ class AppState {
     const [manifest, preferences, data] = await Promise.all([
       persistence.loadManifest(),
       persistence.loadPreferences(),
-      persistence.loadAppState()
+      persistence.loadAppState(),
+      roles.load() // responsabilidades: mapa em memória antes de qualquer terminal
     ])
 
     this.manifest = manifest

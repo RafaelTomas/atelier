@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Ícone do Atelier — fonte do build.
+
+  Dois nós ligados por um cabo: o gesto central do app. As cores são as do
+  canvas (azul do acento, verde de "cabo ativo"), e o desenho fica dentro da
+  grade de 824/1024 do macOS, que é a margem que o sistema espera.
+
+  Editou aqui? Rode `node scripts/make-icon.mjs` para regravar build/icon.png,
+  que é o arquivo que o electron-builder consome.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2A2A33"/>
+      <stop offset="1" stop-color="#0D0D11"/>
+    </linearGradient>
+
+    <linearGradient id="cable" x1="0.15" y1="0.2" x2="0.85" y2="0.8">
+      <stop offset="0" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#30D158"/>
+    </linearGradient>
+
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.03"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <radialGradient id="glowA" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#0A84FF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#0A84FF" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="glowB" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#30D158" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#30D158" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Tile: grade do macOS (824 de lado, raio 22,37%) -->
+  <rect x="100" y="100" width="824" height="824" rx="184" fill="url(#tile)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="182.5" fill="none"
+        stroke="url(#rim)" stroke-width="3"/>
+
+  <!-- Brilho por trás de cada nó: dá profundidade sem detalhe que suma em 16px -->
+  <circle cx="352" cy="392" r="190" fill="url(#glowA)"/>
+  <circle cx="672" cy="632" r="190" fill="url(#glowB)"/>
+
+  <!-- O cabo, com a barriga de sempre (gravidade, não linha reta) -->
+  <path d="M352 392 C 430 610, 545 712, 672 632"
+        fill="none" stroke="#000000" stroke-opacity="0.35" stroke-width="60"
+        stroke-linecap="round" transform="translate(0,10)"/>
+  <path d="M352 392 C 430 610, 545 712, 672 632"
+        fill="none" stroke="url(#cable)" stroke-width="46" stroke-linecap="round"/>
+
+  <!-- Os dois nós -->
+  <circle cx="352" cy="392" r="88" fill="#0A84FF"/>
+  <circle cx="352" cy="392" r="88" fill="none" stroke="#0D0D11" stroke-width="11"/>
+  <circle cx="672" cy="632" r="88" fill="#30D158"/>
+  <circle cx="672" cy="632" r="88" fill="none" stroke="#0D0D11" stroke-width="11"/>
+</svg>

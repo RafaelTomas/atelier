@@ -61,6 +61,8 @@ export interface TerminalSession {
   pty: IPty
   agentType: string
   agentName: string
+  /** Responsabilidade atribuída no momento do spawn — base do `atelier role`. */
+  roleId: UUID | null
   command: string
   /** Buffer em memória para `atelier check` e para reidratar o xterm na UI. */
   buffer: string
@@ -89,12 +91,19 @@ class TerminalManager extends EventEmitter {
    * Ambiente injetado no PTY — é o contrato que faz o `atelier` funcionar
    * dentro do terminal (espelha SwiftTermProvider.swift:116-134).
    */
-  private buildEnv(terminalId: UUID): NodeJS.ProcessEnv {
+  private buildEnv(terminalId: UUID, role?: { id: UUID; name: string } | null): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env }
     env.ATELIER_TERMINAL_ID = terminalId
     env.ATELIER_SOCKET = ipcSocketPath()
     env.ATELIER_SERVER_PORT = String(this.serverPort)
     env.TERM = 'xterm-256color'
+
+    // Responsabilidade atribuída: o nome fica no ambiente para prompts e
+    // scripts; o texto inteiro sai em `atelier role`, que lê do RoleStore.
+    if (role) {
+      env.ATELIER_ROLE_ID = role.id
+      env.ATELIER_ROLE = role.name
+    }
 
     const bin = atelierBinDir()
     const sep = process.platform === 'win32' ? ';' : ':'
@@ -120,7 +129,7 @@ class TerminalManager extends EventEmitter {
         cols: opts.cols ?? 80,
         rows: opts.rows ?? 24,
         cwd,
-        env: this.buildEnv(opts.nodeId) as Record<string, string>
+        env: this.buildEnv(opts.nodeId, opts.role) as Record<string, string>
       })
     } catch (err) {
       ptyLoadError = `falha ao abrir PTY (${shell}): ${(err as Error).message}`
@@ -134,6 +143,7 @@ class TerminalManager extends EventEmitter {
       pty: proc,
       agentType: 'generic_shell',
       agentName: '',
+      roleId: opts.role?.id ?? null,
       command: opts.command ?? '',
       buffer: '',
       lastOutputAt: Date.now(),

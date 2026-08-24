@@ -6,6 +6,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  AgentRole,
   BootInfo,
   CanvasNode,
   Connection,
@@ -69,6 +70,19 @@ const api = {
       patch: Record<string, unknown>
     ): Promise<CanvasNode | null> =>
       ipcRenderer.invoke('node:patch-content', workspaceId, nodeId, patch)
+  },
+
+  role: {
+    list: (): Promise<AgentRole[]> => ipcRenderer.invoke('role:list'),
+    /** Cria quando `patch.id` é ausente, atualiza quando existe. */
+    save: (patch: Partial<AgentRole> & { name: string }): Promise<AgentRole> =>
+      ipcRenderer.invoke('role:save', patch),
+    remove: (id: UUID): Promise<AgentRole[]> => ipcRenderer.invoke('role:delete', id)
+  },
+
+  dialog: {
+    chooseDirectory: (current?: string): Promise<string | null> =>
+      ipcRenderer.invoke('dialog:choose-directory', current)
   },
 
   connection: {

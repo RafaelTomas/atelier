@@ -159,7 +159,14 @@ export function Dock(): JSX.Element {
 
       <span className="dock-sep" />
 
-      <DockButton label="Terminal" onClick={() => add('terminal', [520, 320])}>
+      <DockButton
+        label="Terminal"
+        hint="escolhe agente, aparência e responsabilidade"
+        onClick={() => {
+          setOpenMenu(null)
+          store.openNewTerminal()
+        }}
+      >
         <IconTerminal />
       </DockButton>
 

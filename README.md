@@ -93,19 +93,41 @@ npm run pack:linux    # AppImage + .deb
 > primeira execução, e o SmartScreen do Windows avisa até o binário ganhar
 > reputação.
 
+### Nome e ícone
+
+O ícone é `build/icon.svg`; `npm run icon` o renderiza (pelo próprio Electron,
+sem ferramenta externa) para `build/icon.png`, de onde o electron-builder gera
+`.icns` e `.ico` sozinho.
+
+Em desenvolvimento o app roda dentro do `Electron.app` do `node_modules`, então
+o Dock mostraria o nome e o ícone **dele**. O `postinstall` renomeia esse bundle
+local para `Atelier.app` — a pasta, o executável, as chaves do `Info.plist` e o
+ícone — e re-assina em seguida (editar o bundle invalida a assinatura). O nome
+da **pasta** é o que mais importa: fora da App Store o Dock tira o rótulo do
+nome do arquivo, então trocar só o `Info.plist` não muda nada.
+
+É cosmético e vale só na sua máquina; o app empacotado tira nome e ícone do
+`electron-builder.yml`. Se o Dock insistir no nome antigo, é cache dele:
+`killall Dock` resolve (não fecha nada).
+
 ---
 
 ## Primeiros passos
 
 Um passo a passo de dois minutos, do canvas vazio até dois agentes conversando.
 
-1. **Crie dois terminais.** Botão direito no vazio → novo nó. Em um, rode
-   `claude`; no outro, `codex` (ou qualquer CLI de agente que você use).
+1. **Crie dois terminais.** O ícone de terminal na dock — a pill na base do
+   canvas — abre o diálogo **Novo Terminal**: escolha `Claude Code` no Início
+   Rápido para um, `Codex` para o outro (ou digite o comando de qualquer CLI de
+   agente que você use).
 2. **Ligue um no outro.** Clique no `⇄` no cabeçalho do primeiro nó e depois no
    segundo. Um cabo aparece entre eles.
 3. **Crie uma nota** com botão direito no vazio, escreva os requisitos, e ligue-a
    nos dois terminais.
-4. **Peça ao primeiro agente para falar com o segundo:**
+4. **Dê uma responsabilidade a cada um** (opcional). Na aba **Agente** do
+   diálogo, **+ Novo** cria uma — "Frontend", "Backend", o que fizer sentido — e
+   o texto que você escrever é o que o agente lê quando roda `atelier role`.
+5. **Peça ao primeiro agente para falar com o segundo:**
 
    ```
    Leia a nota "Spec" e peça ao Codex para revisar o que você implementou.
@@ -133,6 +155,7 @@ que está ligado.
 | Seleção em área | Arrastar no vazio |
 | Apagar | `Delete` |
 | Criar nota | Botão direito no vazio |
+| Criar terminal | Ícone de terminal na dock |
 
 Só o que está na tela (mais 200px de margem) existe no DOM — o canvas aguenta
 centenas de nós sem engasgar.
@@ -145,6 +168,19 @@ centenas de nós sem engasgar.
 | **Nota** | Um arquivo `.md` em disco, editável no canvas e legível pelos agentes |
 | **Texto** | Rótulo solto no canvas, para organizar visualmente |
 | **Portal** | Um navegador embutido (`<webview>`), com barra de endereço e sessão isolada por nó |
+
+### As responsabilidades
+
+Um terminal pode carregar uma **responsabilidade** — o que a interface chama de
+agente. É um arquivo em `~/.atelier/roles/`, com nome, ícone, cor e o texto que
+define o foco daquele agente.
+
+Responsabilidades são **globais** (aparecem em todos os workspaces) ou presas a
+um workspace só. O agente lê a própria responsabilidade com `atelier role`, e vê
+a dos colegas conectados no `atelier list`.
+
+O nome e a cor aparecem no cabeçalho do nó, então dá para ler o canvas inteiro
+de longe e saber quem faz o quê.
 
 ### Os cabos
 
@@ -169,6 +205,8 @@ atelier check "Codex" 40                  # últimas 40 linhas da saída dele
 atelier note read "Spec"                  # lê uma nota conectada
 atelier note write "Spec" "conteúdo"      # reescreve
 atelier note create "rascunho"            # cria já conectada a mim
+atelier role                              # qual é a minha responsabilidade?
+atelier role list                         # as responsabilidades disponíveis
 atelier debug                             # diagnóstico
 ```
 
@@ -177,7 +215,7 @@ atelier debug                             # diagnóstico
 trabalhando.
 
 Comandos do app nativo que ainda não foram portados (`portal`, `recruit`,
-`dismiss`, `connect`, `role`, `preset`) respondem com uma mensagem explícita de
+`dismiss`, `connect`, `preset`) respondem com uma mensagem explícita de
 "não implementado" em vez de falhar em silêncio.
 
 ### Como isso funciona por baixo
@@ -201,6 +239,10 @@ Tudo fica em `127.0.0.1`. Nada sai da máquina.
 O `X-Terminal-ID` é o que define o escopo: o servidor resolve quem é o chamador,
 descobre em que ele está ligado, e recusa qualquer coisa fora disso.
 
+O PTY também nasce com `ATELIER_ROLE` e `ATELIER_ROLE_ID` no ambiente quando o
+terminal tem uma responsabilidade atribuída — útil para prompt e scripts; o
+texto inteiro sai em `atelier role`.
+
 ---
 
 ## Estado do projeto
@@ -215,7 +257,9 @@ têm interface.
 | Nós Terminal (xterm.js + node-pty) | ✅ |
 | Nós Nota (`.md` em disco) e Texto | ✅ |
 | Persistência atômica, autosave, recuperação de crash | ✅ |
-| Servidor IPC + CLI (`list`, `ask`, `check`, `note`, `debug`) | ✅ |
+| Servidor IPC + CLI (`list`, `ask`, `check`, `note`, `role`, `debug`) | ✅ |
+| Diálogo de novo terminal (presets, aparência, tema, fonte) | ✅ |
+| Responsabilidades: criar, editar, atribuir, escopo global/workspace | ✅ |
 | Múltiplos workspaces | ✅ |
 | Nós Portal (navegador embutido) | ✅ |
 | Desenho à mão livre (caneta, marca-texto, borracha) | ✅ |
@@ -292,6 +336,7 @@ src/
 ├── preload/                 contextBridge tipado
 ├── renderer/                UI (React)
 │   ├── canvas/              viewport, fundo, cabos, interação
+│   ├── dialogs/             novo terminal + editor de responsabilidade
 │   ├── nodes/               um componente por tipo de nó
 │   └── state/               store com useSyncExternalStore
 └── shared/                  tipos comuns
@@ -361,6 +406,7 @@ teste que o guarda.
 ├── preferences.json
 ├── app-state.json                  workspace ativo + flag de shutdown limpo
 ├── bin/atelier                     o CLI injetado nos terminais
+├── roles/{UUID}.json               as responsabilidades (um arquivo cada)
 ├── run/agent.sock                  socket IPC (recriado a cada boot)
 └── workspaces/{UUID}/
     ├── workspace.json              nós e cabos
@@ -386,7 +432,7 @@ reproduzidos aqui. Ambos dão erros opacos, então ficam registrados:
 | Sintoma | Causa | Correção |
 |---|---|---|
 | `posix_spawnp failed.` ao abrir qualquer terminal | o `spawn-helper` do node-pty chega em `prebuilds/` sem bit de execução (0644) | `chmod +x` no helper |
-| `exited with signal SIGKILL`, sem mais nada | a Apple revogou a notarização de algumas versões do Electron; o Gatekeeper mata o processo (`spctl -a -vv` diz "revoked") | re-assinatura ad-hoc do `Electron.app` local |
+| `exited with signal SIGKILL`, sem mais nada | a Apple revogou a notarização de algumas versões do Electron; o Gatekeeper mata o processo (`spctl -a -vv` diz "revoked") | re-assinatura ad-hoc do bundle local do Electron |
 
 Se algum voltar, rode `node scripts/fix-native-deps.mjs` — é idempotente.
 
@@ -413,6 +459,7 @@ trabalho em andamento.
 | `npm run build` | Typecheck + build de produção |
 | `npm run typecheck` | Só a checagem de tipos (main + renderer) |
 | `npm test` | Codec + smoke |
+| `npm run icon` | Regera `build/icon.png` a partir de `build/icon.svg` |
 | `npm run pack:mac\|win\|linux` | Instaladores |
 
 ---

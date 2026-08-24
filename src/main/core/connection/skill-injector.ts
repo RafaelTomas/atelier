@@ -55,6 +55,18 @@ atelier check "Agent Name" 40
 the prompt — run \`check\` to see progress and wait again. Never interrupt an
 agent that is still working, and do not edit files another agent is modifying.
 
+## Your own responsibility
+
+\`\`\`
+atelier role
+atelier role list
+\`\`\`
+
+If a role is assigned to your terminal, \`atelier role\` prints what you are
+responsible for on this canvas. Run it before starting work — it scopes what you
+should and should not touch. \`atelier list\` shows the roles of the agents you
+are connected to.
+
 ## Notes
 
 \`\`\`

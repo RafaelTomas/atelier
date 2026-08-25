@@ -28,6 +28,7 @@ import {
 import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir } from '../core/persistence/paths'
+import { listDirectory, readIgnoreNames } from '../core/projects/file-tree'
 import { resolveAllowedPath } from '../core/projects/fs-access'
 import { scanController } from '../core/projects/scan-controller'
 import { appState } from '../core/state/app-state'
@@ -294,6 +295,30 @@ export function registerIPC(): void {
     return projectIndex.all
   })
 
+  /**
+   * Cria o nó de projeto no canvas. Reusa o nó fileTree, que já existe no codec
+   * desde o app nativo: o nó guarda APENAS o rootPath, e todo metadado continua
+   * no índice (campos extras em FileTreeContent são gravados mas descartados na
+   * releitura, aqui e no app Swift).
+   */
+  ipcMain.handle('project:add-to-workspace', async (_e, workspaceId: UUID, id: UUID, position: Point) => {
+    const ws = appState.workspaces.get(workspaceId)
+    const project = projectIndex.get(id)
+    if (!ws || !project) return null
+
+    const node = makeCanvasNode(
+      { ...position, ...defaultSize('fileTree') },
+      { type: 'fileTree', value: makeFileTreeContent(project.name, project.path) }
+    )
+    ws.addNode(node)
+    await projectIndex.touchOpened(id)
+    return node
+  })
+
+  /**
+   * Cria o agente que descreve os projetos. Devolve o nó para a UI selecioná-lo
+   * — o terminal em si sobe pelo caminho normal, quando o nó monta.
+   */
   // ─── Sistema de arquivos (árvore do nó de projeto) ──────────────────────────
 
   /**
@@ -314,6 +339,20 @@ export function registerIPC(): void {
     }
     return { roots }
   }
+
+  ipcMain.handle('fs:list-dir', async (_e, path: string, opts?: { root?: string; showIgnored?: boolean }) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    // O motivo volta como código, nunca como erro do sistema: a mensagem do fs
+    // revela a existência e o nome de caminhos fora do escopo permitido.
+    if (!allowed.ok) return { error: allowed.reason }
+    try {
+      const ignore =
+        opts?.root && !opts.showIgnored ? await readIgnoreNames(opts.root) : undefined
+      return await listDirectory(allowed.path, ignore)
+    } catch {
+      return { error: 'error' as const }
+    }
+  })
 
   ipcMain.handle('fs:reveal', async (_e, path: string) => {
     const allowed = await resolveAllowedPath(path, allowedRoots())

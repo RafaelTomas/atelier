@@ -454,6 +454,14 @@ export interface ProjectIndex {
   excludedPaths: string[]
 }
 
+/** Uma entrada de diretório, para a árvore de arquivos do nó de projeto. */
+export interface FsEntry {
+  name: string
+  path: string
+  isDirectory: boolean
+  isSymlink: boolean
+}
+
 /** O que o scanner devolve: dados de disco, ainda sem identidade nem histórico. */
 export interface DiscoveredProject {
   path: string

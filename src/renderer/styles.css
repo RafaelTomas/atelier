@@ -1135,3 +1135,52 @@ button { font: inherit; color: inherit; }
 }
 .scan-error { font-size: 11px; color: #E5484D; margin: 6px 0 0; }
 
+/* ─── Nó de projeto / árvore de arquivos ───────────────────────────────────── */
+
+.file-tree {
+  display: flex; flex-direction: column; height: 100%;
+  background: var(--surface); font-size: 11px; overflow: hidden;
+}
+
+.file-tree-bar { border-bottom-color: var(--dock-border); }
+.file-tree.is-empty { padding: 12px; color: var(--text-dim); }
+
+.file-tree-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 4px 6px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.file-tree-desc {
+  font-size: 10px; color: var(--text-dim); font-style: italic;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.file-tree-actions { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
+.file-tree-actions .ghost-btn { font-size: 12px; padding: 1px 5px; }
+
+.file-tree-body { flex: 1; overflow: auto; padding: 4px 0; }
+
+.file-tree-row {
+  width: 100%; border: 0; background: transparent; cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 6px; text-align: left; color: var(--text);
+  font-size: 11px; line-height: 1.6;
+}
+.file-tree-row:hover { background: var(--border); }
+.file-tree-row.is-selected { background: var(--accent); color: #fff; }
+
+.file-tree-caret { width: 10px; flex-shrink: 0; opacity: .6; }
+.file-tree-icon { flex-shrink: 0; font-size: 10px; }
+.file-tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.file-tree-loading, .file-tree-more, .file-tree-error {
+  font-size: 10px; color: var(--text-dim); padding: 2px 6px; font-style: italic;
+}
+.file-tree-error { color: #E5484D; }
+
+.file-tree-status {
+  flex-shrink: 0; padding: 3px 8px; border-top: 1px solid var(--border);
+  font-size: 10px; color: var(--text-dim);
+  font-family: ui-monospace, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
+}
+.ghost-btn.is-active { background: var(--accent); color: #fff; }
+

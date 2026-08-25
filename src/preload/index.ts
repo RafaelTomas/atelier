@@ -12,6 +12,7 @@ import type {
   CanvasNode,
   Connection,
   Drawing,
+  FsEntry,
   Point,
   Project,
   Preferences,
@@ -157,10 +158,17 @@ const api = {
       ipcRenderer.invoke('project:scan-status'),
     patch: (id: UUID, patch: Partial<Project>): Promise<Project | null> =>
       ipcRenderer.invoke('project:patch', id, patch),
-    remove: (id: UUID): Promise<Project[]> => ipcRenderer.invoke('project:remove', id)
+    remove: (id: UUID): Promise<Project[]> => ipcRenderer.invoke('project:remove', id),
+    addToWorkspace: (workspaceId: UUID, id: UUID, position: Point): Promise<CanvasNode | null> =>
+      ipcRenderer.invoke('project:add-to-workspace', workspaceId, id, position)
   },
 
   fs: {
+    listDir: (
+      path: string,
+      opts?: { root?: string; showIgnored?: boolean }
+    ): Promise<{ entries: FsEntry[]; truncated: number; ignored: number } | { error: string }> =>
+      ipcRenderer.invoke('fs:list-dir', path, opts),
     reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:reveal', path)
   },
 

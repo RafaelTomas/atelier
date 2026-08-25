@@ -87,6 +87,13 @@ export function ProjectPanel(): JSX.Element {
       .slice(0, MAX_VISIBLE)
   }, [projects, projectQuery])
 
+  /** Nasce no centro da viewport, como qualquer nó criado por ação de UI. */
+  const addToCanvas = (project: Project): void => {
+    setMenu(null)
+    const c = viewport.toCanvas({ x: viewport.width / 2, y: viewport.height / 2 })
+    void store.addProjectToWorkspace(project.id, { x: c.x - 150, y: c.y - 210 })
+  }
+
   const newAgentHere = (project: Project): void => {
     setMenu(null)
     store.openNewTerminal(null, project.path)
@@ -153,6 +160,7 @@ export function ProjectPanel(): JSX.Element {
               type="button"
               className={project.isArchived ? 'project-item is-archived' : 'project-item'}
               title={project.path}
+              onDoubleClick={() => addToCanvas(project)}
               onContextMenu={(e) => {
                 e.preventDefault()
                 setMenu({ id: project.id, x: e.clientX, y: e.clientY })
@@ -178,6 +186,9 @@ export function ProjectPanel(): JSX.Element {
           style={{ left: menu.x, top: menu.y }}
           onMouseDown={(e) => e.stopPropagation()}
         >
+          <button type="button" disabled={!workspace} onClick={() => addToCanvas(selected)}>
+            Adicionar ao workspace
+          </button>
           <button type="button" disabled={!workspace} onClick={() => newAgentHere(selected)}>
             Novo agente aqui
           </button>

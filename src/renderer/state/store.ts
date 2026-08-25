@@ -393,6 +393,18 @@ class Store {
     this.set({ projects })
   }
 
+  async addProjectToWorkspace(id: UUID, position: { x: number; y: number }): Promise<CanvasNode | null> {
+    const workspaceId = this.workspaceId
+    if (!workspaceId) return null
+    const node = await window.atelier.project.addToWorkspace(workspaceId, id, position)
+    if (node) {
+      this.mutateWorkspace((ws) => ws.nodes.push(node))
+      this.set({ selection: [node.id] })
+    }
+    await this.loadProjects()
+    return node
+  }
+
   /**
    * Cria o terminal já com tudo que o diálogo coletou. Passa por node.add como
    * qualquer outro nó — o main é que valida a responsabilidade e monta o

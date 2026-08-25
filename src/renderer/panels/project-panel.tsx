@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Project, UUID } from '@shared/types'
 import { viewport } from '../canvas/viewport'
 import { ContextMenu } from '../context-menu'
+import { PROJECT_DRAG_TYPE } from '../drag'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { IconMore, IconPlus, IconSearch } from '../icons'
 import { truncateStart } from '../paths'
@@ -241,6 +242,13 @@ export function ProjectPanel(): JSX.Element {
             <button
               type="button"
               data-project-id={project.id}
+              // Arrastar para o canvas: o alvo do drop decide o que nasce.
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData(PROJECT_DRAG_TYPE, project.id)
+                e.dataTransfer.effectAllowed = 'copy'
+                setMenu(null)
+              }}
               className={[
                 'project-item',
                 project.isArchived ? 'is-archived' : '',

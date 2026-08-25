@@ -11,6 +11,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CanvasNode, Point, Rect, UUID } from '@shared/types'
+import { ContextMenu } from '../context-menu'
+import { PROJECT_DRAG_TYPE } from '../drag'
 import { store, useStore } from '../state/store'
 import { NodeShell } from '../nodes/node-shell'
 import { FormatBar } from '../nodes/format-bar'
@@ -37,7 +39,7 @@ const DRAG_THRESHOLD = 3 // px de tela antes de virar arrasto de verdade
 const CLICK_SLOP = 12 // px de tela: abaixo disso o gesto de área é só um clique
 
 export function CanvasView(): JSX.Element {
-  const { workspace, selection, connectingFrom, placing, tool, pen, roles, prefs, terminalStatus } =
+  const { workspace, selection, connectingFrom, placing, tool, pen, roles, prefs, terminalStatus, projects } =
     useStore()
   const hostRef = useRef<HTMLDivElement>(null)
   const nodesRef = useRef<HTMLDivElement>(null)
@@ -50,6 +52,16 @@ export function CanvasView(): JSX.Element {
   const strokeTick = useRef(0)
   const [visibleIds, setVisibleIds] = useState<Set<UUID>>(new Set())
   const [marquee, setMarquee] = useState<Rect | null>(null)
+  /**
+   * Projeto solto no canvas, esperando o usuário dizer o que fazer com ele.
+   * Guarda o ponto da tela (para o menu) e o do canvas (para o nó nascer onde
+   * foi solto, e não onde o menu foi clicado).
+   */
+  const [dropped, setDropped] = useState<{
+    id: UUID
+    screen: Point
+    canvas: Point
+  } | null>(null)
   /** Retângulo da área sendo desenhada para um componente novo. */
   const [placeBox, setPlaceBox] = useState<Rect | null>(null)
   /** Menu do modo desenho, ancorado no ponto clicado. null = fechado. */
@@ -165,9 +177,43 @@ export function CanvasView(): JSX.Element {
     [drawings]
   )
 
+  useEffect(() => {
+    if (!dropped) return
+    const close = (): void => setDropped(null)
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [dropped])
+
   const screenPoint = (e: React.MouseEvent | MouseEvent): Point => {
     const rect = hostRef.current?.getBoundingClientRect()
     return { x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) }
+  }
+
+  // ─── Projeto arrastado do painel ────────────────────────────────────────────
+
+  /** Só aceita o nosso tipo: arquivo, link ou texto de outro app não são drop. */
+  const onDragOver = (e: React.DragEvent): void => {
+    if (!e.dataTransfer.types.includes(PROJECT_DRAG_TYPE)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  const onDrop = (e: React.DragEvent): void => {
+    const id = e.dataTransfer.getData(PROJECT_DRAG_TYPE)
+    if (!id) return
+    e.preventDefault()
+    setDropped({
+      id: id as UUID,
+      screen: { x: e.clientX, y: e.clientY },
+      canvas: viewport.toCanvas(screenPoint(e))
+    })
   }
 
   // ─── Mouse ──────────────────────────────────────────────────────────────────
@@ -542,6 +588,8 @@ export function CanvasView(): JSX.Element {
       onMouseDown={onMouseDown}
       onWheel={onWheel}
       onContextMenu={onContextMenu}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
       <CanvasBackground mode="grid" />
 
@@ -616,6 +664,35 @@ export function CanvasView(): JSX.Element {
           lineWidth={pen.lineWidth}
           onClose={() => setDrawMenu(null)}
         />
+      )}
+
+      {dropped && (
+        <ContextMenu x={dropped.screen.x} y={dropped.screen.y}>
+          <button
+            type="button"
+            onClick={() => {
+              setDropped(null)
+              // O nó nasce com o canto onde o projeto foi solto.
+              void store.addProjectToWorkspace(dropped.id, dropped.canvas)
+            }}
+          >
+            Adicionar ao workspace
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const project = projects.find((p) => p.id === dropped.id)
+              setDropped(null)
+              if (!project) return
+              store.openNewTerminal(
+                { x: dropped.canvas.x, y: dropped.canvas.y, width: 560, height: 360 },
+                project.path
+              )
+            }}
+          >
+            Novo agente aqui
+          </button>
+        </ContextMenu>
       )}
 
       <Dock />

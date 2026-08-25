@@ -1196,6 +1196,10 @@ button { font: inherit; color: inherit; }
      ganha rolagem horizontal. */
   overflow: hidden;
 }
+/* grab e não pointer: o item é arrastável para o canvas, e o cursor é a única
+   pista disso antes de alguém tentar. */
+.project-item { cursor: grab; }
+.project-item:active { cursor: grabbing; }
 .project-item:hover { background: var(--border); }
 .project-item.is-archived { opacity: .45; }
 /* Piscada curta no projeto recém-adicionado — ele entra em ordem alfabética,

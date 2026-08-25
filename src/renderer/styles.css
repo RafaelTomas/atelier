@@ -1201,6 +1201,9 @@ button { font: inherit; color: inherit; }
 .project-item { cursor: grab; }
 .project-item:active { cursor: grabbing; }
 .project-item:hover { background: var(--border); }
+/* Selecionado = o dono da aba Arquivos. Marca de canto, não fundo cheio: fundo
+   cheio competiria com o hover e com a piscada do recém-adicionado. */
+.project-item.is-selected { background: var(--border); box-shadow: inset 2px 0 0 var(--accent); }
 .project-item.is-archived { opacity: .45; }
 /* Piscada curta no projeto recém-adicionado — ele entra em ordem alfabética,
    longe de onde o usuário clicou. */
@@ -1272,7 +1275,25 @@ button { font: inherit; color: inherit; }
   background: var(--surface); font-size: 11px; overflow: hidden;
 }
 
-.file-tree-bar { border-bottom-color: var(--dock-border); }
+/* ─── Aba Arquivos ─────────────────────────────────────────────────────────── */
+
+.files-title {
+  font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none;
+  color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.files-path {
+  padding: 0 12px 6px; font-size: 10px; color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.files-hint { font-size: 11px; }
+
+.files-body { flex: 1; min-height: 0; display: flex; }
+/* Dentro do painel a árvore não tem superfície própria: o vidro da sidebar é
+   que aparece atrás dela. No canvas ela continua sendo um card opaco. */
+.files-body .file-tree { background: transparent; }
+.files-body .file-tree-bar { border-bottom-color: var(--dock-border); }
 .file-tree.is-empty { padding: 12px; color: var(--text-dim); }
 
 .file-tree-bar {
@@ -1314,3 +1335,14 @@ button { font: inherit; color: inherit; }
 }
 .ghost-btn.is-active { background: var(--accent); color: #fff; }
 
+.project-pending {
+  margin: 4px 10px 6px; padding: 8px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 6px; font-size: 11px;
+  color: var(--text-dim);
+}
+.project-pending-actions { display: flex; gap: 4px; align-items: center; }
+.project-agent-select {
+  flex: 1; min-width: 0; font-size: 11px; padding: 3px 4px; border-radius: 5px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+}

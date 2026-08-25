@@ -37,6 +37,13 @@ import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
  */
 export type Tool = 'select' | 'draw' | 'pen' | 'highlighter' | 'eraser'
 
+/**
+ * Aba aberta no painel lateral. Mora na store, e não no componente, porque
+ * outras partes precisam mandar a aba mudar — o menu de contexto de um projeto
+ * abre a árvore dele, e o vazio da aba Arquivos manda de volta para Projetos.
+ */
+export type SidebarTab = 'workspaces' | 'projetos' | 'arquivos'
+
 /** Ferramentas que o menu de desenho oferece — subconjunto acionável de Tool. */
 export type DrawTool = Extract<Tool, 'pen' | 'highlighter' | 'eraser'>
 
@@ -73,6 +80,7 @@ export interface AppSnapshot {
   placing: Placement | null
   /** Sidebar recolhida — espelha preferences.sidebarCollapsed. */
   sidebarCollapsed: boolean
+  sidebarTab: SidebarTab
   /** Tema escolhido — espelha preferences.theme. */
   theme: ThemeMode
   /** Ferramenta ativa (caneta, marca-texto, borracha ou seleção). */
@@ -103,6 +111,12 @@ export interface AppSnapshot {
   projects: Project[]
   projectQuery: string
   /**
+   * Projeto escolhido no painel — é dele que a aba Arquivos mostra a árvore.
+   * Guarda o id, não o objeto: assim um re-scan que atualize o projeto não
+   * deixa a aba olhando para uma cópia velha.
+   */
+  selectedProjectId: UUID | null
+  /**
    * Há varredura em andamento. O PROGRESSO não entra aqui: a ~7Hz ele
    * re-renderizaria o canvas inteiro a cada evento. O painel assina
    * onScanProgress localmente.
@@ -132,6 +146,7 @@ const initial: AppSnapshot = {
   connectingFrom: null,
   placing: null,
   sidebarCollapsed: false,
+  sidebarTab: 'workspaces',
   theme: 'system',
   tool: 'select',
   pen: { color: '#e0245e', lineWidth: 3 },
@@ -144,6 +159,7 @@ const initial: AppSnapshot = {
   newTerminalCwd: null,
   projects: [],
   projectQuery: '',
+  selectedProjectId: null,
   scanning: false,
   scanDialogOpen: false,
   candidates: [],
@@ -371,6 +387,19 @@ class Store {
     this.set({ projectQuery })
   }
 
+  selectProject(selectedProjectId: UUID | null): void {
+    this.set({ selectedProjectId })
+  }
+
+  setSidebarTab(sidebarTab: SidebarTab): void {
+    this.set({ sidebarTab })
+  }
+
+  /** Seleciona e abre a árvore dele — o par que o menu de contexto usa. */
+  showProjectFiles(id: UUID): void {
+    this.set({ selectedProjectId: id, sidebarTab: 'arquivos' })
+  }
+
   /**
    * O caminho comum: apontar UMA pasta. Abre o seletor nativo e indexa o que
    * voltar. Devolve a mensagem de erro, ou null quando deu certo — e também
@@ -472,7 +501,10 @@ class Store {
 
   async removeProject(id: UUID): Promise<void> {
     const projects = await window.atelier.project.remove(id)
-    this.set({ projects })
+    this.set({
+      projects,
+      selectedProjectId: this.state.selectedProjectId === id ? null : this.state.selectedProjectId
+    })
   }
 
   /**

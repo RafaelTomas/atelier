@@ -1,21 +1,20 @@
 /**
- * Casca do painel lateral: escolhe entre Workspaces e Projetos, e é o que se
- * arrasta para mudar a largura.
+ * Casca do painel lateral: escolhe entre Workspaces, Projetos e Arquivos, e é o
+ * que se arrasta para mudar a largura.
  *
- * Abas e não duas seções empilhadas: numa coluna dessa largura, duas áreas de
- * rolagem deixam as duas inutilizáveis.
+ * Abas e não seções empilhadas: numa coluna dessa largura, três áreas de
+ * rolagem deixariam as três inutilizáveis.
  */
 import { useEffect, useRef } from 'react'
+import { FilesPanel } from './panels/files-panel'
 import { ProjectPanel } from './panels/project-panel'
 import { WorkspacePanel } from './panels/workspace-panel'
-import { useState } from 'react'
-import { store, useStore } from './state/store'
+import { store, useStore, type SidebarTab } from './state/store'
 
-type Tab = 'workspaces' | 'projetos'
-
-const TABS: Array<[Tab, string]> = [
+const TABS: Array<[SidebarTab, string]> = [
   ['workspaces', 'Workspaces'],
-  ['projetos', 'Projetos']
+  ['projetos', 'Projetos'],
+  ['arquivos', 'Arquivos']
 ]
 
 /** Padrão, e os limites do arrasto. O teto relativo é aplicado à parte. */
@@ -35,8 +34,7 @@ function applyWidth(px: number): void {
 }
 
 export function Sidebar(): JSX.Element {
-  const { prefs } = useStore()
-  const [tab, setTab] = useState<Tab>('workspaces')
+  const { prefs, sidebarTab: tab } = useStore()
   const dragging = useRef(false)
 
   // A largura vem das preferências e vai direto para o CSS var. Não entra na
@@ -81,7 +79,7 @@ export function Sidebar(): JSX.Element {
               key={id}
               type="button"
               className={tab === id ? 'segment is-active' : 'segment'}
-              onClick={() => setTab(id)}
+              onClick={() => store.setSidebarTab(id)}
             >
               {label}
             </button>
@@ -97,7 +95,9 @@ export function Sidebar(): JSX.Element {
         </button>
       </div>
 
-      {tab === 'workspaces' ? <WorkspacePanel /> : <ProjectPanel />}
+      {tab === 'workspaces' && <WorkspacePanel />}
+      {tab === 'projetos' && <ProjectPanel />}
+      {tab === 'arquivos' && <FilesPanel />}
 
       <div
         className="sidebar-resizer"

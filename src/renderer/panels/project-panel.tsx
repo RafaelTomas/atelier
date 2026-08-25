@@ -36,7 +36,7 @@ interface Progress {
 const MAX_VISIBLE = 200
 
 export function ProjectPanel(): JSX.Element {
-  const { projects, projectQuery, scanning, workspace, prefs } = useStore()
+  const { projects, projectQuery, scanning, workspace, prefs, selectedProjectId } = useStore()
   const [progress, setProgress] = useState<Progress | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [scannerError, setScannerError] = useState<string | null>(null)
@@ -252,11 +252,14 @@ export function ProjectPanel(): JSX.Element {
               className={[
                 'project-item',
                 project.isArchived ? 'is-archived' : '',
-                project.id === addedId ? 'is-new' : ''
+                project.id === addedId ? 'is-new' : '',
+                project.id === selectedProjectId ? 'is-selected' : ''
               ]
                 .filter(Boolean)
                 .join(' ')}
               title={project.path}
+              // Um clique escolhe de quem é a árvore da aba Arquivos.
+              onClick={() => store.selectProject(project.id)}
               onDoubleClick={() => addToCanvas(project)}
               onContextMenu={(e) => {
                 e.preventDefault()
@@ -336,6 +339,15 @@ export function ProjectPanel(): JSX.Element {
           </button>
           <button type="button" disabled={!workspace} onClick={() => newAgentHere(selected)}>
             Novo agente aqui
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMenu(null)
+              store.showProjectFiles(selected.id)
+            }}
+          >
+            Ver arquivos
           </button>
           <button
             type="button"

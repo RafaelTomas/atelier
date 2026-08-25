@@ -196,6 +196,36 @@ export function IconPencil(p: IconProps): JSX.Element {
 }
 
 /** Recarregar: seta circular com a ponta aberta, como o ↻ do Portal. */
+export function IconPlus(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </Svg>
+  )
+}
+
+export function IconSearch(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4 4" />
+    </Svg>
+  )
+}
+
+/** Três pontos na vertical: "mais opções". Preenchidos — o traço de 1.5px em
+ *  pontos de 1px vira três borrões cinzas. */
+export function IconMore(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
 export function IconReload(p: IconProps): JSX.Element {
   return (
     <Svg {...p}>

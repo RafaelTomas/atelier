@@ -151,6 +151,8 @@ const api = {
 
   project: {
     list: (): Promise<Project[]> => ipcRenderer.invoke('project:list'),
+    addFolder: (path: string): Promise<{ project: Project } | { error: string }> =>
+      ipcRenderer.invoke('project:add-folder', path),
     scanStart: (input: { mode: 'folder' | 'home'; path?: string; maxDepth?: number }): Promise<{ scanId: UUID } | { error: string }> =>
       ipcRenderer.invoke('project:scan-start', input),
     scanCancel: (scanId?: UUID): Promise<void> => ipcRenderer.invoke('project:scan-cancel', scanId),

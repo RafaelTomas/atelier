@@ -358,6 +358,20 @@ class Store {
     this.set({ projectQuery })
   }
 
+  /**
+   * O caminho comum: apontar UMA pasta. Abre o seletor nativo e indexa o que
+   * voltar. Devolve a mensagem de erro, ou null quando deu certo — e também
+   * quando o usuário cancelou, que não é erro.
+   */
+  async addProjectFolder(): Promise<{ error?: string; added?: Project }> {
+    const chosen = await window.atelier.dialog.chooseDirectory()
+    if (!chosen) return {}
+    const result = await window.atelier.project.addFolder(chosen)
+    if ('error' in result) return { error: result.error }
+    await this.loadProjects()
+    return { added: result.project }
+  }
+
   openScanDialog(): void {
     this.set({ scanDialogOpen: true })
   }

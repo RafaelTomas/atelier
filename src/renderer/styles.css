@@ -144,9 +144,15 @@ button { font: inherit; color: inherit; }
 
 .ghost-btn {
   border: 0; background: transparent; cursor: pointer;
-  font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 5px;
+  font-size: 16px; line-height: 1; padding: 3px 5px; border-radius: 5px;
+  /* Os botões da aba são ícones SVG: o flex tira o baseline de texto, que
+     deixava um deslocamento de 1px entre eles. */
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .ghost-btn:hover { background: var(--border); }
+.ghost-btn.is-active { color: var(--accent); background: var(--border); }
+.ghost-btn:disabled { opacity: .3; cursor: default; }
+.ghost-btn:disabled:hover { background: transparent; }
 
 .workspace-list { list-style: none; margin: 0; padding: 0 6px; overflow-y: auto; flex: 1; }
 
@@ -161,8 +167,21 @@ button { font: inherit; color: inherit; }
 .workspace-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 .workspace-item.is-active .workspace-dot { background: #fff; }
 
+/* A busca vive recolhida atrás do ícone e abre para baixo. A animação é de
+   grid-template-rows e não de max-height: com max-height a altura final é um
+   palpite, e um palpite alto faz a lista pular no fim da transição. */
+.sidebar-search {
+  display: grid; grid-template-rows: 1fr; padding: 0 10px 6px;
+  animation: search-open 140ms ease-out;
+}
+
+@keyframes search-open {
+  from { grid-template-rows: 0fr; opacity: 0; padding-bottom: 0; }
+  to { grid-template-rows: 1fr; opacity: 1; padding-bottom: 6px; }
+}
+
 .sidebar-create { padding: 6px 10px; }
-.sidebar-create input {
+.sidebar-create input, .sidebar-search input {
   width: 100%; padding: 5px 8px; border-radius: 6px;
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
 }
@@ -697,6 +716,8 @@ button { font: inherit; color: inherit; }
   padding: 6px 10px; border-radius: 5px; cursor: pointer; font: inherit;
 }
 .context-menu button:hover { background: var(--border); }
+.context-menu button:disabled { opacity: .4; cursor: default; }
+.context-menu button:disabled:hover { background: transparent; }
 
 /* ─── Sidebar recolhida ───────────────────────────────────────────────────── */
 
@@ -1113,6 +1134,13 @@ button { font: inherit; color: inherit; }
 }
 .project-item:hover { background: var(--border); }
 .project-item.is-archived { opacity: .45; }
+/* Piscada curta no projeto recém-adicionado — ele entra em ordem alfabética,
+   longe de onde o usuário clicou. */
+.project-item.is-new { animation: project-added 1.6s ease-out; }
+@keyframes project-added {
+  0%, 60% { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+  100% { background: transparent; }
+}
 
 /* width: 100% e não só min-width: 0 — o item alinha em flex-start, então as
    linhas não esticam sozinhas e um nome longo as fazia crescer até o

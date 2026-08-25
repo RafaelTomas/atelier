@@ -172,6 +172,8 @@ class ProjectStore {
 
   /**
    * Sobrescreve o que o disco manda e preserva o que é do usuário e do agente.
+   * É a regra do merge, isolada porque a adição avulsa precisa exatamente dela
+   * — e só dela, sem tocar em lastScanAt nem em scanRoots.
    */
   private overwriteFromDisk(id: UUID, disc: DiscoveredProject, now: string): void {
     const i = this.index.projects.findIndex((p) => p.id === id)
@@ -212,6 +214,22 @@ class ProjectStore {
     this.reindex()
     await persistence.saveProjectIndex(this.index)
     return this.byPath(disc.path) as Project
+  }
+
+  /** Caminhos que o usuário recusou — a varredura do boot para de oferecê-los. */
+  get ignoredPaths(): string[] {
+    return this.index.excludedPaths
+  }
+
+  isIgnored(path: string): boolean {
+    const key = normalizePath(path)
+    return this.index.excludedPaths.some((p) => normalizePath(p) === key)
+  }
+
+  async ignore(paths: string[]): Promise<void> {
+    for (const path of paths) if (!this.isIgnored(path)) this.index.excludedPaths.push(path)
+    await persistence.saveProjectIndex(this.index)
+    log.info('projects', `${paths.length} caminho(s) não serão mais oferecidos`)
   }
 
   async patch(id: UUID, patch: Partial<Project>): Promise<Project | null> {

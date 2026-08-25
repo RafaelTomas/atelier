@@ -6,10 +6,11 @@
  * emite a ~7Hz, e cada set() da store notifica todos os assinantes — incluindo
  * o canvas. Manter isto aqui é a mesma regra que mantém pan/zoom fora da store.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Project, UUID } from '@shared/types'
 import { viewport } from '../canvas/viewport'
 import { ContextMenu } from '../context-menu'
+import { IconMore, IconPlus, IconSearch } from '../icons'
 import { truncateStart } from '../paths'
 import { store, useStore } from '../state/store'
 
@@ -32,7 +33,13 @@ export function ProjectPanel(): JSX.Element {
   const { projects, projectQuery, scanning, workspace } = useStore()
   const [progress, setProgress] = useState<Progress | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
-
+  const [error, setError] = useState<string | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null)
+  // Piscada no projeto recém-adicionado: sem isso ele cai em ordem alfabética
+  // no meio de dezenas e o usuário não vê que a ação fez alguma coisa.
+  const [addedId, setAddedId] = useState<UUID | null>(null)
+  const searchInput = useRef<HTMLInputElement>(null)
   useEffect(() => {
     void store.loadProjects()
   }, [])
@@ -54,10 +61,17 @@ export function ProjectPanel(): JSX.Element {
   }, [])
 
   useEffect(() => {
-    if (!menu) return
-    const close = (): void => setMenu(null)
+    if (searchOpen) searchInput.current?.focus()
+  }, [searchOpen])
+
+  useEffect(() => {
+    if (!menu && !moreMenu) return
+    const close = (): void => {
+      setMenu(null)
+      setMoreMenu(null)
+    }
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setMenu(null)
+      if (e.key === 'Escape') close()
     }
     window.addEventListener('mousedown', close)
     window.addEventListener('keydown', onKey)
@@ -65,7 +79,7 @@ export function ProjectPanel(): JSX.Element {
       window.removeEventListener('mousedown', close)
       window.removeEventListener('keydown', onKey)
     }
-  }, [menu])
+  }, [menu, moreMenu])
 
   const visible = useMemo(() => {
     const q = projectQuery.trim().toLowerCase()
@@ -100,6 +114,22 @@ export function ProjectPanel(): JSX.Element {
     store.openNewTerminal(null, project.path)
   }
 
+  const addFolder = async (): Promise<void> => {
+    const { error: failure, added } = await store.addProjectFolder()
+    if (failure) setError(failure)
+    if (!added) return
+    setError(null)
+    setAddedId(added.id)
+    document.querySelector(`[data-project-id="${added.id}"]`)?.scrollIntoView({ block: 'nearest' })
+    setTimeout(() => setAddedId((id) => (id === added.id ? null : id)), 1600)
+  }
+
+  /** Fechar sempre limpa: uma lista filtrada sem o campo à vista mente. */
+  const toggleSearch = (): void => {
+    if (searchOpen) store.setProjectQuery('')
+    setSearchOpen(!searchOpen)
+  }
+
   const selected = menu ? projects.find((p) => p.id === menu.id) ?? null : null
 
   return (
@@ -107,25 +137,43 @@ export function ProjectPanel(): JSX.Element {
       <div className="sidebar-header">
         <span>Projetos {projects.length > 0 && <em className="sidebar-count">{projects.length}</em>}</span>
         <div className="sidebar-header-actions">
+          <button type="button" className="ghost-btn" onClick={() => void addFolder()} title="Adicionar projeto…">
+            <IconPlus size={15} />
+          </button>
           <button
             type="button"
-            className="ghost-btn"
-            onClick={() => store.openScanDialog()}
-            title="Escanear projetos"
-            disabled={scanning}
+            className={searchOpen || projectQuery ? 'ghost-btn is-active' : 'ghost-btn'}
+            onClick={toggleSearch}
+            title="Buscar projeto"
+            disabled={projects.length === 0}
           >
-            ⟳
+            <IconSearch size={15} />
+          </button>
+          <button
+            type="button"
+            className={moreMenu ? 'ghost-btn is-active' : 'ghost-btn'}
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect()
+              setMoreMenu(moreMenu ? null : { x: r.right, y: r.bottom + 4 })
+            }}
+            title="Mais opções"
+          >
+            <IconMore size={15} />
           </button>
         </div>
       </div>
 
-      {projects.length > 0 && (
-        <div className="sidebar-create">
+      {projects.length > 0 && searchOpen && (
+        <div className="sidebar-search">
           <input
+            ref={searchInput}
             className="project-search"
             value={projectQuery}
             placeholder="Buscar projeto…"
             onChange={(e) => store.setProjectQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') toggleSearch()
+            }}
           />
         </div>
       )}
@@ -148,18 +196,30 @@ export function ProjectPanel(): JSX.Element {
       {!scanning && projects.length === 0 && (
         <div className="project-empty">
           <p>Nenhum projeto no índice ainda.</p>
-          <button type="button" className="btn is-primary" onClick={() => store.openScanDialog()}>
-            Escanear projetos
+          <button type="button" className="btn is-primary" onClick={() => void addFolder()}>
+            Adicionar projeto
+          </button>
+          <button type="button" className="btn" onClick={() => store.openScanDialog()}>
+            Escanear a pasta pessoal
           </button>
         </div>
       )}
+
+      {error && <p className="scan-error">{error}</p>}
 
       <ul className="project-list">
         {visible.map((project) => (
           <li key={project.id}>
             <button
               type="button"
-              className={project.isArchived ? 'project-item is-archived' : 'project-item'}
+              data-project-id={project.id}
+              className={[
+                'project-item',
+                project.isArchived ? 'is-archived' : '',
+                project.id === addedId ? 'is-new' : ''
+              ]
+                .filter(Boolean)
+                .join(' ')}
               title={project.path}
               onDoubleClick={() => addToCanvas(project)}
               onContextMenu={(e) => {
@@ -180,6 +240,22 @@ export function ProjectPanel(): JSX.Element {
           </li>
         ))}
       </ul>
+
+      {moreMenu && (
+        <ContextMenu x={moreMenu.x} y={moreMenu.y} align="right">
+          <button
+            type="button"
+            disabled={scanning}
+            onClick={() => {
+              setMoreMenu(null)
+              store.openScanDialog()
+            }}
+          >
+            {scanning ? 'Escaneando…' : 'Escanear projetos…'}
+          </button>
+
+        </ContextMenu>
+      )}
 
       {menu && selected && (
         <ContextMenu x={menu.x} y={menu.y}>

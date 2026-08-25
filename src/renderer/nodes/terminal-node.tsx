@@ -12,7 +12,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import type { CanvasNode, TerminalContent, TerminalTheme, UUID } from '@shared/types'
 import { viewport } from '../canvas/viewport'
-import { useStore } from '../state/store'
+import { store, useStore } from '../state/store'
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, resolveTheme } from '../terminal-presets'
 import '@xterm/xterm/css/xterm.css'
 
@@ -35,7 +35,9 @@ export function TerminalNode({
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const [frozen, setFrozen] = useState(viewport.zoom < FREEZE_ZOOM)
-  const { theme } = useStore()
+  const { theme, terminalEpoch } = useStore()
+  /** Sobe a cada recarregar: derruba o xterm e faz o PTY nascer de novo. */
+  const epoch = terminalEpoch[node.id] ?? 0
 
   useEffect(() => viewport.subscribe((v) => setFrozen(v.zoom < FREEZE_ZOOM)), [])
 
@@ -109,6 +111,9 @@ export function TerminalNode({
         return
       }
       if (result?.buffer) term.write(result.buffer)
+      // Reabrir a janela não gera saída nova: sem isto o rodapé só apareceria
+      // no próximo chunk do agente.
+      if (result?.status) store.setTerminalStatus(node.id, result.status)
     })()
 
     const offData = window.atelier.terminal.onData(({ id, data }) => {
@@ -141,7 +146,7 @@ export function TerminalNode({
       term.dispose()
       termRef.current = null
     }
-  }, [frozen, node.id, workspaceId])
+  }, [frozen, node.id, workspaceId, epoch])
 
   const palette = resolveTheme(content.themeId, customThemes)
 

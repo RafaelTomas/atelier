@@ -127,3 +127,22 @@ export function rectsIntersect(a: Rect, b: Rect): boolean {
 export function rectCenter(r: Rect): Point {
   return { x: r.x + r.width / 2, y: r.y + r.height / 2 }
 }
+
+/**
+ * Ponto da BORDA do retângulo na direção de `toward` — onde o raio que sai do
+ * centro cruza o contorno. É daí que um cabo deve sair: ancorar no centro faz
+ * a corda atravessar o conteúdo do nó.
+ */
+export function rectEdgePoint(r: Rect, toward: Point): Point {
+  const c = rectCenter(r)
+  const dx = toward.x - c.x
+  const dy = toward.y - c.y
+  if (dx === 0 && dy === 0) return c
+  // t = o quanto dá para andar na direção do alvo antes de cruzar a borda;
+  // manda o eixo que estoura primeiro. Na diagonal, os dois empatam no canto.
+  const t = Math.min(
+    dx === 0 ? Infinity : r.width / 2 / Math.abs(dx),
+    dy === 0 ? Infinity : r.height / 2 / Math.abs(dy)
+  )
+  return { x: c.x + dx * t, y: c.y + dy * t }
+}

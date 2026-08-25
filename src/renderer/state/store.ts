@@ -10,6 +10,7 @@
 import { useSyncExternalStore } from 'react'
 import type {
   AgentRole,
+  AgentStatus,
   CanvasNode,
   Connection,
   Drawing,
@@ -59,6 +60,15 @@ export interface AppSnapshot {
   roles: AgentRole[]
   /** Diálogo "Novo Terminal" aberto — a dock dispara, o App renderiza. */
   newTerminalOpen: boolean
+  /** Terminal aberto no diálogo em modo edição. null = ninguém editando. */
+  editTerminalId: UUID | null
+  /**
+   * Geração de cada terminal. Recarregar incrementa: o TerminalNode tem isso
+   * nas deps do efeito, então o xterm é derrubado e o PTY sobe de novo.
+   */
+  terminalEpoch: Record<UUID, number>
+  /** Linha de status lida da tela de cada agente — o que o rodapé do nó mostra. */
+  terminalStatus: Record<UUID, AgentStatus>
   /** Espelho de preferences.json — hoje lido para os temas de terminal. */
   prefs: Preferences | null
   loading: boolean
@@ -77,6 +87,9 @@ const initial: AppSnapshot = {
   pen: { color: '#e0245e', lineWidth: 3 },
   roles: [],
   newTerminalOpen: false,
+  editTerminalId: null,
+  terminalEpoch: {},
+  terminalStatus: {},
   prefs: null,
   loading: true,
   bootError: null
@@ -281,6 +294,40 @@ class Store {
    */
   async createTerminal(draft: TerminalDraft, position: { x: number; y: number }): Promise<CanvasNode | null> {
     return this.addNode('terminal', position, { ...draft })
+  }
+
+  openEditTerminal(nodeId: UUID): void {
+    this.set({ editTerminalId: nodeId })
+  }
+
+  closeEditTerminal(): void {
+    this.set({ editTerminalId: null })
+  }
+
+  /**
+   * Grava o rascunho por cima do terminal existente. Os campos do TerminalDraft
+   * são os mesmos do TerminalContent, então o patch raso dá conta.
+   *
+   * Comando, diretório e shell só valem no próximo boot do PTY: mexer neles não
+   * mata o processo em andamento — quem decide isso é o botão de recarregar.
+   */
+  async saveTerminal(nodeId: UUID, draft: TerminalDraft): Promise<void> {
+    await this.patchContent(nodeId, { ...draft })
+    this.set({ editTerminalId: null })
+  }
+
+  /** Mata o PTY e sobe outro no lugar, com o conteúdo atual do nó. */
+  async restartTerminal(nodeId: UUID): Promise<void> {
+    await window.atelier.terminal.kill(nodeId)
+    const epoch = this.state.terminalEpoch
+    // Sessão nova, contadores zerados: os do processo velho não valem mais.
+    const status = { ...this.state.terminalStatus }
+    delete status[nodeId]
+    this.set({ terminalEpoch: { ...epoch, [nodeId]: (epoch[nodeId] ?? 0) + 1 }, terminalStatus: status })
+  }
+
+  setTerminalStatus(nodeId: UUID, status: AgentStatus): void {
+    this.set({ terminalStatus: { ...this.state.terminalStatus, [nodeId]: status } })
   }
 
   // ─── Responsabilidades (agentes) ────────────────────────────────────────────

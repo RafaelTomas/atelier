@@ -50,6 +50,7 @@ await esbuild.build({
       export { makeTerminalContent, makeStickyNoteContent } from './src/main/core/models/node-content.ts'
       export { roles } from './src/main/core/state/role-store.ts'
       export { importLegacyDataIfNeeded } from './src/main/core/persistence/import-legacy.ts'
+      export { scanAgentStatus } from './src/main/core/terminal/agent-status.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -68,6 +69,7 @@ const { appState, interAgentServer, persistence, ipcSocketPath, paths } = core
 const { makeCanvasNode, makeTerminalContent, makeStickyNoteContent } = core
 const { roles } = core
 const { importLegacyDataIfNeeded } = core
+const { scanAgentStatus } = core
 
 /** Fala o protocolo real do atelier por socket. */
 function cli(args, terminalId) {
@@ -370,6 +372,48 @@ await test('ATELIER_HOME definido bloqueia a importação (isolamento do dev)', 
   assert.equal(result.imported, false)
   assert.match(result.reason ?? '', /ATELIER_HOME/)
   await rm(legacy, { recursive: true, force: true })
+})
+
+// ─── Linha de status do agente ────────────────────────────────────────────────
+// Raspagem da tela: formato de terceiro, então tem que ter teste.
+
+await test('lê a linha inteira do Claude Code, com ANSI no meio', () => {
+  const line = '\x1b[2m. 31,3k tok . 3% . 5h:80% 7d:58%\x1b[0m'
+  const s = scanAgentStatus(line)
+  assert.equal(s.tokens, 31300, 'vírgula com sufixo k é decimal, não milhar')
+  assert.equal(s.contextPct, 3)
+  assert.deepEqual(s.limits, [
+    { window: '5h', pct: 80 },
+    { window: '7d', pct: 58 }
+  ])
+})
+
+await test('separador decimal: pt-BR e en-US convivem', () => {
+  assert.equal(scanAgentStatus('218.0k tok').tokens, 218000)
+  assert.equal(scanAgentStatus('1.2M tokens').tokens, 1200000)
+  assert.equal(scanAgentStatus('tokens used: 12,345').tokens, 12345, 'milhar en-US')
+  assert.equal(scanAgentStatus('Total tokens: 1.234').tokens, 1234, 'milhar pt-BR')
+})
+
+await test('vale a ocorrência mais recente, não a primeira', () => {
+  const s = scanAgentStatus('antes 100.0k tok . 9%\r\n\x1b[Kdepois 218.5k tok . 44%')
+  assert.equal(s.tokens, 218500)
+  assert.equal(s.contextPct, 44)
+})
+
+await test('o bloco de limites vem inteiro, não só a última janela', () => {
+  const s = scanAgentStatus('velho 5h:10% 7d:20%\r\nnovo 5h:80% 7d:58%')
+  assert.deepEqual(s.limits, [
+    { window: '5h', pct: 80 },
+    { window: '7d', pct: 58 }
+  ])
+})
+
+await test('terminal sem linha de status não inventa número', () => {
+  const s = scanAgentStatus('$ ls -la\r\ntotal 24\r\n')
+  assert.equal(s.tokens, null)
+  assert.equal(s.contextPct, null)
+  assert.deepEqual(s.limits, [])
 })
 
 // ─── Shutdown ─────────────────────────────────────────────────────────────────

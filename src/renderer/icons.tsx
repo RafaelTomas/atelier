@@ -177,6 +177,34 @@ export function IconTrash(p: IconProps): JSX.Element {
   )
 }
 
+/** Ligar: as duas setas do cabeçalho do nó, no mesmo traço da dock. */
+export function IconConnect(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M4 9h16m-3.5-3.5L20 9M20 15H4m3.5 3.5L4 15" />
+    </Svg>
+  )
+}
+
+export function IconPencil(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3Z" />
+      <path d="M14.5 7.5 17 10" />
+    </Svg>
+  )
+}
+
+/** Recarregar: seta circular com a ponta aberta, como o ↻ do Portal. */
+export function IconReload(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M20 12a8 8 0 1 1-2.6-5.9" />
+      <path d="M20 4v4.5h-4.5" />
+    </Svg>
+  )
+}
+
 export function IconChevronDown({ size = 10 }: IconProps): JSX.Element {
   return (
     <svg

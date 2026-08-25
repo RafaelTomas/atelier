@@ -14,11 +14,13 @@ import type { CanvasNode, Point, Rect, UUID } from '@shared/types'
 import { store, useStore } from '../state/store'
 import { NodeShell } from '../nodes/node-shell'
 import { FormatBar } from '../nodes/format-bar'
+import { NodeActionBar } from '../nodes/node-action-bar'
 import { Dock } from '../dock'
 import { CanvasBackground } from './background'
 import { DrawingsLayer, type LiveStroke } from './drawings-layer'
 import { DrawMenu, type DrawMenuState } from './draw-menu'
 import { ConnectionsLayer } from './connections-layer'
+import { ConnectionPreview, canLink } from './connection-preview'
 import { CULL_MARGIN, rectsIntersect, viewport } from './viewport'
 
 type Interaction =
@@ -28,13 +30,13 @@ type Interaction =
   | { kind: 'dragging'; id: UUID; start: Point; frame: Rect }
   | { kind: 'resizing'; id: UUID; start: Point; frame: Rect }
   | { kind: 'marquee'; start: Point; current: Point }
-  | { kind: 'connecting'; from: UUID; current: Point }
   | { kind: 'drawing' }
 
 const DRAG_THRESHOLD = 3 // px de tela antes de virar arrasto de verdade
 
 export function CanvasView(): JSX.Element {
-  const { workspace, selection, connectingFrom, tool, pen, roles, prefs } = useStore()
+  const { workspace, selection, connectingFrom, tool, pen, roles, prefs, terminalStatus } =
+    useStore()
   const hostRef = useRef<HTMLDivElement>(null)
   const nodesRef = useRef<HTMLDivElement>(null)
   const interaction = useRef<Interaction>({ kind: 'idle' })
@@ -48,6 +50,10 @@ export function CanvasView(): JSX.Element {
   const [marquee, setMarquee] = useState<Rect | null>(null)
   /** Menu do modo desenho, ancorado no ponto clicado. null = fechado. */
   const [drawMenu, setDrawMenu] = useState<DrawMenuState | null>(null)
+  /** Espaço segurado: o canvas vira mão e qualquer arrasto é pan. */
+  const [spacePan, setSpacePan] = useState(false)
+  /** Espaço solto no meio do arrasto — a mão fica até o mouseup. */
+  const releasePanOnUp = useRef(false)
 
   const nodes = workspace?.nodes ?? []
   const connections = workspace?.connections ?? []
@@ -163,6 +169,14 @@ export function CanvasView(): JSX.Element {
   // ─── Mouse ──────────────────────────────────────────────────────────────────
 
   const onMouseDown = (e: React.MouseEvent): void => {
+    // Mão do espaço antes de qualquer outra coisa: com ela segurada o arrasto é
+    // pan, venha de onde vier — a .nodes-layer fica transparente ao mouse, então
+    // nem terminal nem portal chegam a ver o clique.
+    if (spacePan && e.button === 0) {
+      e.preventDefault()
+      interaction.current = { kind: 'panning', last: screenPoint(e) }
+      return
+    }
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       interaction.current = { kind: 'panning', last: screenPoint(e) }
       return
@@ -211,9 +225,18 @@ export function CanvasView(): JSX.Element {
     const nodeId = nodeEl?.dataset.nodeId as UUID | undefined
     const node = nodeId ? nodes.find((n) => n.id === nodeId) : hitTest(cp)
 
-    if (connectingFrom && node) {
-      void store.addConnection(connectingFrom, node.id)
-      store.startConnecting(null)
+    if (connectingFrom) {
+      const source = nodes.find((n) => n.id === connectingFrom)
+      // Clique no vazio cancela. Em alvo que não aceita o cabo o clique é
+      // ignorado e o modo continua ligado — o fantasma já avisou em vermelho.
+      if (!node || !source) {
+        store.startConnecting(null)
+        return
+      }
+      if (canLink(source, node, connections)) {
+        void store.addConnection(connectingFrom, node.id)
+        store.startConnecting(null)
+      }
       return
     }
 
@@ -276,10 +299,6 @@ export function CanvasView(): JSX.Element {
           setMarquee(normalizeRect(state.start, cp))
           break
         }
-        case 'connecting': {
-          interaction.current = { ...state, current: cp }
-          break
-        }
         case 'drawing': {
           const stroke = liveStroke.current
           if (stroke) {
@@ -303,6 +322,10 @@ export function CanvasView(): JSX.Element {
     const onUp = (e: MouseEvent): void => {
       const state = interaction.current
       interaction.current = { kind: 'idle' }
+      if (releasePanOnUp.current) {
+        releasePanOnUp.current = false
+        setSpacePan(false)
+      }
       const cp = viewport.toCanvas(screenPoint(e))
 
       switch (state.kind) {
@@ -404,9 +427,37 @@ export function CanvasView(): JSX.Element {
         e.preventDefault()
         viewport.setZoom(1)
       }
+
+      // Espaço: mão. preventDefault porque senão a tecla ativa o botão focado.
+      if (e.code === 'Space' && !e.repeat && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        setSpacePan(true)
+      }
     }
+
+    const onKeyUp = (e: KeyboardEvent): void => {
+      if (e.code !== 'Space') return
+      // Soltar o espaço no meio do arrasto não corta o pan: a mão fica até o
+      // mouseup, senão o gesto morre pela metade.
+      if (interaction.current.kind === 'panning') releasePanOnUp.current = true
+      else setSpacePan(false)
+    }
+
+    // Alt-tab com o espaço apertado nunca entrega o keyup — sem isso o canvas
+    // ficaria preso na mão.
+    const onBlur = (): void => {
+      releasePanOnUp.current = false
+      setSpacePan(false)
+    }
+
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
   }, [selection])
 
   const onContextMenu = (e: React.MouseEvent): void => {
@@ -430,11 +481,21 @@ export function CanvasView(): JSX.Element {
         ) ?? null
       : null
 
+  /**
+   * Terminal com seleção única — ganha a barra de ligar/editar/recarregar/
+   * excluir. Com vários selecionados a barra não teria um alvo só.
+   */
+  const actionTarget =
+    selection.length === 1
+      ? nodes.find((n) => n.id === selection[0] && n.content.type === 'terminal') ?? null
+      : null
+
   return (
     <div
       ref={hostRef}
       className={[
         'canvas-host',
+        spacePan ? 'is-space-pan' : '',
         connectingFrom ? 'is-connecting' : '',
         tool !== 'select' ? `tool-${tool}` : ''
       ]
@@ -450,6 +511,16 @@ export function CanvasView(): JSX.Element {
 
       <ConnectionsLayer nodes={nodes} connections={connections} liveFrames={liveFrames} />
 
+      {connectingFrom && (
+        <ConnectionPreview
+          from={connectingFrom}
+          nodes={nodes}
+          connections={connections}
+          hostRef={hostRef}
+          hitTest={hitTest}
+        />
+      )}
+
       <div ref={nodesRef} className="nodes-layer">
         {visibleNodes.map((node) => (
           <NodeShell
@@ -463,6 +534,7 @@ export function CanvasView(): JSX.Element {
                 : null
             }
             customThemes={customThemes}
+            status={terminalStatus[node.id] ?? null}
           />
         ))}
       </div>
@@ -480,6 +552,8 @@ export function CanvasView(): JSX.Element {
       )}
 
       {formatTarget && <FormatBar key={formatTarget.id} node={formatTarget} />}
+
+      {actionTarget && <NodeActionBar key={actionTarget.id} node={actionTarget} />}
 
       {drawMenu && (
         <DrawMenu

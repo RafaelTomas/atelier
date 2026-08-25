@@ -10,6 +10,7 @@ export type RendererEvent =
   | 'connection:status'
   | 'terminal:data'
   | 'terminal:exit'
+  | 'terminal:status'
 
 /**
  * Import dinâmico do electron: fora do app (teste headless, CI) isto vira um

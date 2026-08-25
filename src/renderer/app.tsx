@@ -8,7 +8,8 @@ import { store, useStore } from './state/store'
 import { Toolbar } from './toolbar'
 
 export function App(): JSX.Element {
-  const { loading, bootError, workspace, sidebarCollapsed, newTerminalOpen } = useStore()
+  const { loading, bootError, workspace, sidebarCollapsed, newTerminalOpen, editTerminalId } =
+    useStore()
   const [boot, setBoot] = useState<BootInfo | null>(null)
 
   useEffect(() => {
@@ -25,9 +26,13 @@ export function App(): JSX.Element {
     const offStatus = window.atelier.events.onConnectionStatus(({ id, status }) => {
       store.setConnectionStatus(id, status as 'idle' | 'communicating' | 'error')
     })
+    const offStatus2 = window.atelier.terminal.onStatus(({ id, status }) => {
+      store.setTerminalStatus(id, status)
+    })
     return () => {
       offWorkspace()
       offStatus()
+      offStatus2()
     }
   }, [])
 
@@ -37,6 +42,26 @@ export function App(): JSX.Element {
     const c = viewport.toCanvas({ x: viewport.width / 2, y: viewport.height / 2 })
     void store.createTerminal(draft, { x: c.x - 280, y: c.y - 180 })
   }
+
+  /** Nó em edição → rascunho com o que já está gravado nele. */
+  const editing = workspace?.nodes.find((n) => n.id === editTerminalId) ?? null
+  const editDraft: TerminalDraft | null =
+    editing && editing.content.type === 'terminal'
+      ? {
+          name: editing.content.value.name,
+          command: editing.content.value.command,
+          agentType: editing.content.value.agentType,
+          workingDirectory: editing.content.value.workingDirectory,
+          icon: editing.content.value.icon,
+          color: editing.content.value.color,
+          monitorWithOmbro: editing.content.value.monitorWithOmbro,
+          isManager: editing.content.value.isManager,
+          themeId: editing.content.value.themeId,
+          fontFamily: editing.content.value.fontFamily,
+          fontSize: editing.content.value.fontSize,
+          assignedRoleId: editing.content.value.assignedRoleId
+        }
+      : null
 
   if (loading) return <div className="boot-screen">carregando…</div>
   if (bootError) return <div className="boot-screen error">falha no boot: {bootError}</div>
@@ -60,6 +85,16 @@ export function App(): JSX.Element {
           defaultWorkingDirectory={workspace?.workingDirectory ?? ''}
           onCancel={() => store.closeNewTerminal()}
           onCreate={createTerminal}
+        />
+      )}
+
+      {editDraft && editTerminalId && (
+        <NewTerminalDialog
+          key={editTerminalId}
+          defaultWorkingDirectory={workspace?.workingDirectory ?? ''}
+          initial={editDraft}
+          onCancel={() => store.closeEditTerminal()}
+          onCreate={(draft) => void store.saveTerminal(editTerminalId, draft)}
         />
       )}
     </div>

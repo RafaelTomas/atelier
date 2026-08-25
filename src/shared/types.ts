@@ -162,6 +162,29 @@ export function isConnectable(content: NodeContent): boolean {
   return CONNECTABLE_TYPES.includes(content.type)
 }
 
+/**
+ * O que dá para ler da linha de status do agente. Quem raspa é o main
+ * (terminal/agent-status), quem mostra é o rodapé do nó no renderer.
+ */
+export interface AgentStatus {
+  /** Tokens da sessão, como o agente conta. */
+  tokens: number | null
+  /** Percentual de contexto usado. */
+  contextPct: number | null
+  /** Janelas de limite de uso: `5h` 80%, `7d` 58%. */
+  limits: { window: string; pct: number }[]
+}
+
+/**
+ * 218000 -> "218.0k", 18500000 -> "18.5M". Fica no módulo compartilhado porque
+ * quem lê o número é o main (terminal/agent-status) e quem o mostra é o renderer.
+ */
+export function formatTokens(count: number): string {
+  if (count >= 1e6) return `${(count / 1e6).toFixed(1)}M`
+  if (count >= 1e3) return `${(count / 1e3).toFixed(1)}k`
+  return String(count)
+}
+
 // ─── Nó ───────────────────────────────────────────────────────────────────────
 
 export interface CanvasNode {
@@ -185,6 +208,24 @@ export type ConnectionKind =
   | 'crossFloor'
 
 export type ConnectionStatus = 'idle' | 'communicating' | 'error'
+
+/**
+ * `kind` de uma conexão a partir dos tipos dos dois nós — null = par não
+ * conectável. Mora aqui, e não no WorkspaceManager, porque o renderer precisa
+ * da MESMA regra para prever o cabo antes de pedi-lo ao processo principal.
+ */
+export function connectionKindForTypes(
+  a: NodeContentType,
+  b: NodeContentType
+): ConnectionKind | null {
+  const pair = new Set([a, b])
+  if (a === 'terminal' && b === 'terminal') return 'terminal'
+  if (pair.has('terminal') && pair.has('stickyNote')) return 'note'
+  if (pair.has('terminal') && pair.has('portal')) return 'portal'
+  if (a === 'portal' && b === 'portal') return 'portalToPortal'
+  if (a === 'stickyNote' && b === 'stickyNote') return 'noteToNote'
+  return null
+}
 
 /** Forma normalizada usada pelo renderer e pelo ConnectionManager. */
 export interface Connection {

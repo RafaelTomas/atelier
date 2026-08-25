@@ -4,7 +4,8 @@
  * Posiciona em coordenadas de canvas (o contêiner pai é que tem o transform),
  * desenha header, borda de seleção, alça de resize e o ponto de conexão.
  */
-import type { AgentRole, CanvasNode, TerminalTheme, UUID } from '@shared/types'
+import type { AgentRole, AgentStatus, CanvasNode, TerminalTheme, UUID } from '@shared/types'
+import { formatTokens } from '@shared/types'
 import { Icon } from '../node-icons'
 import { store } from '../state/store'
 import { NoteNode } from './note-node'
@@ -21,6 +22,8 @@ interface Props {
   role?: AgentRole | null
   /** Temas de terminal do usuário — vêm de cima para não assinar a store por nó. */
   customThemes?: TerminalTheme[]
+  /** Linha de status lida da tela do agente. null = ele nunca mostrou nada. */
+  status?: AgentStatus | null
 }
 
 function title(node: CanvasNode): string {
@@ -49,7 +52,8 @@ export function NodeShell({
   selected,
   workspaceId,
   role = null,
-  customThemes = []
+  customThemes = [],
+  status = null
 }: Props): JSX.Element {
   const { frame } = node
   const terminal = node.content.type === 'terminal' ? node.content.value : null
@@ -142,7 +146,49 @@ export function NodeShell({
 
       <div className="node-body">{body}</div>
 
+      {terminal && status && <AgentStatusFooter status={status} />}
+
       <div data-resize-handle className="resize-handle" />
+    </div>
+  )
+}
+
+/** Alto o bastante para o número virar aviso, não decoração. */
+const LIMIT_ALERT = 85
+
+/**
+ * Rodapé do terminal: o que o agente mostra na própria linha de status —
+ * tokens da sessão, contexto usado e as janelas de limite de uso.
+ *
+ * Nada aqui é calculado pelo Atelier: é leitura da tela. Campo que o agente
+ * não imprime simplesmente não aparece, em vez de virar um zero mentiroso.
+ */
+function AgentStatusFooter({ status }: { status: AgentStatus }): JSX.Element | null {
+  const { tokens, contextPct, limits } = status
+  if (tokens === null && contextPct === null && limits.length === 0) return null
+
+  return (
+    <div className="node-footer" title="Lido da linha de status do próprio agente">
+      {tokens !== null && (
+        <span className="nf-item">
+          <span className="nf-label">tok</span>
+          <span className="nf-value">{formatTokens(tokens)}</span>
+        </span>
+      )}
+      {contextPct !== null && (
+        <span className="nf-item" title="Contexto usado">
+          <span className="nf-label">ctx</span>
+          <span className="nf-value">{contextPct}%</span>
+        </span>
+      )}
+      {limits.map((limit) => (
+        <span key={limit.window} className="nf-item" title={`Limite de uso na janela de ${limit.window}`}>
+          <span className="nf-label">{limit.window}</span>
+          <span className={limit.pct >= LIMIT_ALERT ? 'nf-value is-alert' : 'nf-value'}>
+            {limit.pct}%
+          </span>
+        </span>
+      ))}
     </div>
   )
 }

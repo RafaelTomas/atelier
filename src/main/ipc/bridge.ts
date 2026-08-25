@@ -5,7 +5,15 @@
  * o que preserva a regra do app nativo de que toda I/O é centralizada.
  */
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import type { AgentRole, CanvasNode, NodeContent, Point, Rect, UUID } from '@shared/types'
+import type {
+  AgentRole,
+  AgentStatus,
+  CanvasNode,
+  NodeContent,
+  Point,
+  Rect,
+  UUID
+} from '@shared/types'
 import { Constants } from '../core/constants'
 import { log } from '../core/logger'
 import {
@@ -279,7 +287,9 @@ export function registerIPC(): void {
       if (!session) return { error: ptyUnavailableReason() ?? 'não foi possível abrir o PTY' }
 
       terminals.setAgentInfo(nodeId, { agentType: tc.agentType, agentName: tc.name })
-      return { buffer: session.buffer }
+      // O status volta junto para a UI reabrir já com os números certos — o
+      // evento só chega no próximo chunk de saída do agente.
+      return { buffer: session.buffer, status: session.status }
     }
   )
 
@@ -352,6 +362,9 @@ export function registerIPC(): void {
 
   terminals.on('data', (id: UUID, data: string) => notifyRenderer('terminal:data', { id, data }))
   terminals.on('exit', (id: UUID, code: number) => notifyRenderer('terminal:exit', { id, code }))
+  terminals.on('status', (id: UUID, status: AgentStatus) =>
+    notifyRenderer('terminal:status', { id, status })
+  )
 
   log.debug('ipc', 'handlers registrados')
 }

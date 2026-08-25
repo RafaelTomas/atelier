@@ -13,6 +13,7 @@ import type {
   UUID,
   WorkspacePayload
 } from '@shared/types'
+import { connectionKindForTypes } from '@shared/types'
 import { nowISO } from '../coding'
 import { makeConnection } from '../models/workspace'
 
@@ -107,13 +108,7 @@ export class WorkspaceManager {
     const a = this.node(idA)?.content.type
     const b = this.node(idB)?.content.type
     if (!a || !b) return null
-    const pair = new Set([a, b])
-    if (a === 'terminal' && b === 'terminal') return 'terminal'
-    if (pair.has('terminal') && pair.has('stickyNote')) return 'note'
-    if (pair.has('terminal') && pair.has('portal')) return 'portal'
-    if (a === 'portal' && b === 'portal') return 'portalToPortal'
-    if (a === 'stickyNote' && b === 'stickyNote') return 'noteToNote'
-    return null
+    return connectionKindForTypes(a, b)
   }
 
   addConnection(idA: UUID, idB: UUID): Connection | null {

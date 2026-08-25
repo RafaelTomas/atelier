@@ -1,10 +1,10 @@
 /**
- * Diálogo "Novo Terminal".
+ * Diálogo de terminal — "Novo" ou "Editar", o mesmo formulário nos dois casos.
  *
  * Três abas sobre o mesmo rascunho: Detalhes (o que roda), Aparência (como
  * aparece) e Agente (qual responsabilidade ele carrega). Nada é gravado até o
- * botão Criar — a única exceção é a responsabilidade, que é um arquivo próprio
- * em ~/.atelier/roles/ e é salva assim que o usuário confirma no editor.
+ * botão de confirmar — a única exceção é a responsabilidade, que é um arquivo
+ * próprio em ~/.atelier/roles/ e é salva assim que o usuário confirma no editor.
  */
 import { useEffect, useMemo, useState } from 'react'
 import type { AgentRole, TerminalDraft, TerminalTheme, UUID } from '@shared/types'
@@ -29,6 +29,11 @@ type RoleFilter = 'todos' | 'global' | 'workspace'
 interface Props {
   /** Diretório padrão do workspace, usado quando o usuário não escolhe outro. */
   defaultWorkingDirectory: string
+  /**
+   * Rascunho de partida. Presente = modo edição: o Início Rápido some (não faz
+   * sentido resetar um terminal que já roda) e o botão vira Salvar.
+   */
+  initial?: TerminalDraft | null
   onCancel: () => void
   onCreate: (draft: TerminalDraft) => void
 }
@@ -54,12 +59,16 @@ function emptyDraft(workingDirectory: string): TerminalDraft {
 
 export function NewTerminalDialog({
   defaultWorkingDirectory,
+  initial = null,
   onCancel,
   onCreate
 }: Props): JSX.Element {
   const { roles, prefs, workspace } = useStore()
+  const editing = initial !== null
   const [tab, setTab] = useState<Tab>('detalhes')
-  const [draft, setDraft] = useState<TerminalDraft>(() => emptyDraft(defaultWorkingDirectory))
+  const [draft, setDraft] = useState<TerminalDraft>(
+    () => initial ?? emptyDraft(defaultWorkingDirectory)
+  )
   /** Preset escolhido só para destacar o cartão — o rascunho é a fonte da verdade. */
   const [quickId, setQuickId] = useState<string | null>(null)
 
@@ -92,7 +101,7 @@ export function NewTerminalDialog({
     })
   }
 
-  const create = (): void => {
+  const submit = (): void => {
     const name = draft.name.trim()
     onCreate({
       ...draft,
@@ -102,9 +111,15 @@ export function NewTerminalDialog({
 
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
-      <div className="modal" role="dialog" aria-label="Novo Terminal" onMouseDown={(e) => e.stopPropagation()}>
-        <h2 className="modal-title">Novo Terminal</h2>
+      <div
+        className="modal"
+        role="dialog"
+        aria-label={editing ? 'Editar Terminal' : 'Novo Terminal'}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <h2 className="modal-title">{editing ? 'Editar Terminal' : 'Novo Terminal'}</h2>
 
+        {!editing && (
         <section className="quick-start">
           <span className="section-label">Início Rápido</span>
           <div className="quick-start-row">
@@ -121,6 +136,7 @@ export function NewTerminalDialog({
             ))}
           </div>
         </section>
+        )}
 
         <div className="modal-divider" />
 
@@ -139,7 +155,7 @@ export function NewTerminalDialog({
 
         <div className="modal-body">
           {tab === 'detalhes' && (
-            <DetailsTab draft={draft} patch={patch} onSubmit={create} />
+            <DetailsTab draft={draft} patch={patch} onSubmit={submit} editing={editing} />
           )}
           {tab === 'aparencia' && (
             <AppearanceTab draft={draft} patch={patch} customThemes={prefs?.terminalThemes ?? []} />
@@ -161,8 +177,8 @@ export function NewTerminalDialog({
           <button type="button" className="btn" onClick={onCancel}>
             Cancelar
           </button>
-          <button type="button" className="btn is-primary" onClick={create}>
-            Criar
+          <button type="button" className="btn is-primary" onClick={submit}>
+            {editing ? 'Salvar' : 'Criar'}
           </button>
         </footer>
       </div>
@@ -177,7 +193,12 @@ interface TabProps {
   patch: (p: Partial<TerminalDraft>) => void
 }
 
-function DetailsTab({ draft, patch, onSubmit }: TabProps & { onSubmit: () => void }): JSX.Element {
+function DetailsTab({
+  draft,
+  patch,
+  onSubmit,
+  editing = false
+}: TabProps & { onSubmit: () => void; editing?: boolean }): JSX.Element {
   const browse = async (): Promise<void> => {
     const chosen = await window.atelier.dialog.chooseDirectory(draft.workingDirectory)
     if (chosen) patch({ workingDirectory: chosen })
@@ -214,6 +235,13 @@ function DetailsTab({ draft, patch, onSubmit }: TabProps & { onSubmit: () => voi
           Procurar…
         </button>
       </div>
+
+      {editing && (
+        <p className="field-hint">
+          Nome, ícone, cor e responsabilidade valem na hora. Comando e diretório
+          só valem no próximo boot do processo — use o ↻ do terminal.
+        </p>
+      )}
     </div>
   )
 }

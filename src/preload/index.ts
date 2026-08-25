@@ -7,6 +7,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AgentRole,
+  AgentStatus,
   BootInfo,
   CanvasNode,
   Connection,
@@ -98,7 +99,7 @@ const api = {
       nodeId: UUID,
       cols: number,
       rows: number
-    ): Promise<{ buffer?: string; error?: string }> =>
+    ): Promise<{ buffer?: string; status?: AgentStatus; error?: string }> =>
       ipcRenderer.invoke('terminal:spawn', workspaceId, nodeId, cols, rows),
     write: (nodeId: UUID, data: string): Promise<void> =>
       ipcRenderer.invoke('terminal:write', nodeId, data),
@@ -107,7 +108,10 @@ const api = {
     kill: (nodeId: UUID): Promise<void> => ipcRenderer.invoke('terminal:kill', nodeId),
     buffer: (nodeId: UUID): Promise<string> => ipcRenderer.invoke('terminal:buffer', nodeId),
     onData: (cb: (p: { id: UUID; data: string }) => void): Unsubscribe => on('terminal:data', cb),
-    onExit: (cb: (p: { id: UUID; code: number }) => void): Unsubscribe => on('terminal:exit', cb)
+    onExit: (cb: (p: { id: UUID; code: number }) => void): Unsubscribe => on('terminal:exit', cb),
+    /** Linha de status do agente (tokens, contexto, limites); muda pouco. */
+    onStatus: (cb: (p: { id: UUID; status: AgentStatus }) => void): Unsubscribe =>
+      on('terminal:status', cb)
   },
 
   drawing: {

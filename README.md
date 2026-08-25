@@ -148,12 +148,14 @@ que está ligado.
 | Ação | Como |
 |---|---|
 | Pan | Scroll |
+| Pan com a mão | Segurar `espaço` e arrastar |
 | Zoom | ⌘/Ctrl + scroll |
 | Voltar a 100% | `⌘0` |
 | Mover nó | Arrastar pelo cabeçalho |
 | Redimensionar | Alça inferior direita |
 | Seleção em área | Arrastar no vazio |
 | Apagar | `Delete` |
+| Ações do terminal | Selecionar — a barra sobe acima do nó |
 | Criar nota | Botão direito no vazio |
 | Criar terminal | Ícone de terminal na dock |
 
@@ -168,6 +170,30 @@ centenas de nós sem engasgar.
 | **Nota** | Um arquivo `.md` em disco, editável no canvas e legível pelos agentes |
 | **Texto** | Rótulo solto no canvas, para organizar visualmente |
 | **Portal** | Um navegador embutido (`<webview>`), com barra de endereço e sessão isolada por nó |
+
+Selecionar um nó desenha um anel tracejado azul em volta dele. No terminal, a
+seleção também traz uma barra logo acima do card com quatro ações: **ligar**
+(mesmo cabo do `⇄`), **editar** (abre o diálogo já preenchido), **recarregar**
+(mata o processo e sobe outro no lugar) e **excluir**.
+
+Editar aplica nome, ícone, cor, tema e responsabilidade na hora. Comando e
+diretório de trabalho ficam gravados mas só valem no próximo boot do processo —
+mudar o comando de um agente que está trabalhando não o interrompe; quem decide
+isso é o botão de recarregar.
+
+O rodapé do terminal repete a **linha de status do agente**: tokens da sessão,
+contexto usado e as janelas de limite de uso — `tok 31.3k · ctx 3% · 5h 80% ·
+7d 58%`. Janela em 85% ou mais fica vermelha.
+
+Não existe API para nada disso: os números são raspados do que o próprio agente
+imprime (`31,3k tok · 3% · 5h:80% 7d:58%` no Claude Code), lidos do fluxo do PTY
+no processo principal — o que mantém a conta atualizada mesmo com o nó fora da
+viewport, onde o renderer não recebe nada. Consequências honestas: o significado
+é o que o agente dá ao número, campo que ele não imprime não vira zero (some do
+rodapé), terminal sem linha de status nenhuma não ganha rodapé, e recarregar
+zera tudo junto com o processo. O parser — inclusive a diferença entre `31,3k`
+(decimal pt-BR) e `12,345` (milhar en-US) — está coberto por testes no smoke
+(`scanAgentStatus`), que é onde um formato de terceiro quebra.
 
 ### As responsabilidades
 
@@ -184,9 +210,15 @@ de longe e saber quem faz o quê.
 
 ### Os cabos
 
-Clique no `⇄` no cabeçalho de um nó e depois no nó de destino. O cabo tem física
-de verdade — integração de Verlet com 21 pontos, gravidade e amortecimento — e
-adormece quando para de se mexer, para não queimar CPU à toa.
+Clique no `⇄` no cabeçalho de um nó e depois no nó de destino. Entre os dois
+cliques, um cabo tracejado azul sai da borda do primeiro nó e segue o cursor:
+ele engrossa e o alvo ganha contorno quando o par aceita conexão, e fica
+vermelho quando não aceita (dois textos, ou um par que já está ligado). Clicar
+no vazio cancela, como o `Esc`.
+
+O cabo tem física de verdade — integração de Verlet com 21 pontos, gravidade e
+amortecimento — e adormece quando para de se mexer, para não queimar CPU à toa.
+O fantasma usa a mesma simulação, então o cabo nasce na forma que ele já tinha.
 
 O cabo não é decoração: **ele é a permissão**. Um agente só enxerga e conversa
 com aquilo em que está ligado.
@@ -258,7 +290,7 @@ têm interface.
 | Nós Nota (`.md` em disco) e Texto | ✅ |
 | Persistência atômica, autosave, recuperação de crash | ✅ |
 | Servidor IPC + CLI (`list`, `ask`, `check`, `note`, `role`, `debug`) | ✅ |
-| Diálogo de novo terminal (presets, aparência, tema, fonte) | ✅ |
+| Diálogo de terminal — novo e editar (presets, aparência, tema, fonte) | ✅ |
 | Responsabilidades: criar, editar, atribuir, escopo global/workspace | ✅ |
 | Múltiplos workspaces | ✅ |
 | Nós Portal (navegador embutido) | ✅ |
@@ -367,13 +399,25 @@ permite testar boot, persistência e o protocolo do CLI sem abrir janela nenhuma
 ## Testes
 
 ```bash
-npm test              # 30 asserções, nenhuma precisa de display
-npm run test:codec    # compatibilidade do formato em disco
-npm run test:smoke    # boot, canvas, persistência e CLI de ponta a ponta
+npm test              # 46 asserções, nenhuma precisa de display
+npm run test:codec    # compatibilidade do formato em disco (18)
+npm run test:smoke    # boot, canvas, persistência e CLI de ponta a ponta (28)
 ```
 
 O smoke test não usa mock: ele sobe o servidor IPC de verdade e conversa com ele
 por socket, com exatamente o mesmo HTTP que o CLI fala.
+
+O CI roda os dois em macOS, Ubuntu e Windows — matriz de três runners porque o
+`node-pty` é nativo e não aceita cross-compile. Duas armadilhas do Windows já
+custaram build vermelho e estão resolvidas no `smoke-headless.mjs`:
+
+- O bundle do núcleo é montado com um `stdin` de esbuild, e os imports ali são
+  **relativos** (`./src/main/...`), resolvidos por `resolveDir`. Interpolar o
+  caminho absoluto do projeto naquela string quebra no Windows: `C:\a\b` vira
+  código TypeScript, onde `\a` e `\b` são escapes de string.
+- O endereço do IPC no Windows é um named pipe, que **não existe no sistema de
+  arquivos** — `existsSync` sempre diz que não está lá. A prova de que o servidor
+  subiu é abrir uma conexão no pipe.
 
 O teste de codec é o mais importante do projeto. Ele valida contra
 `fixtures/full-workspace.json`, que cobre os oito tipos de nó e os seis tipos de

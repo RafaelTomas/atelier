@@ -8,13 +8,14 @@
  */
 import { EventEmitter } from 'node:events'
 import type { IPty } from 'node-pty'
-import type { TerminalSpawnOptions, UUID } from '@shared/types'
+import type { AgentStatus, TerminalSpawnOptions, UUID } from '@shared/types'
 import { Constants } from '../constants'
 import { log } from '../logger'
 import { defaultShell } from '../models/node-content'
 import { atelierBinDir } from '../interagent/cli-install'
 import { persistence } from '../persistence/persistence-manager'
 import { ipcSocketPath } from '../persistence/paths'
+import { scanAgentStatus } from './agent-status'
 
 /**
  * node-pty é módulo nativo. Carregado sob demanda, por duas razões:
@@ -54,6 +55,10 @@ export function ptyUnavailableReason(): string | null {
 }
 
 const SCROLLBACK_LIMIT = 200_000 // caracteres mantidos em memória por terminal
+/** Trecho final do buffer varrido atrás da linha de status do agente. */
+const STATUS_WINDOW = 8_000
+/** Varredura no máximo a cada 500ms: um agente falante emite dezenas de chunks/s. */
+const STATUS_SCAN_INTERVAL = 500
 
 export interface TerminalSession {
   id: UUID
@@ -69,6 +74,9 @@ export interface TerminalSession {
   lastOutputAt: number
   lastActiveAt: number
   exited: boolean
+  /** O que o agente mostra na própria linha de status. */
+  status: AgentStatus
+  lastStatusScan: number
 }
 
 class TerminalManager extends EventEmitter {
@@ -148,13 +156,16 @@ class TerminalManager extends EventEmitter {
       buffer: '',
       lastOutputAt: Date.now(),
       lastActiveAt: 0,
-      exited: false
+      exited: false,
+      status: { tokens: null, contextPct: null, limits: [] },
+      lastStatusScan: 0
     }
 
     proc.onData((data) => {
       session.buffer = (session.buffer + data).slice(-SCROLLBACK_LIMIT)
       session.lastOutputAt = Date.now()
       this.emit('data', session.id, data)
+      this.scanStatus(session)
       void persistence.appendScrollback(session.workspaceId, session.id, data).catch(() => undefined)
     })
 
@@ -172,6 +183,30 @@ class TerminalManager extends EventEmitter {
       setTimeout(() => this.write(session.id, `${opts.command}\r`), 300)
     }
     return session
+  }
+
+  /**
+   * Lê a linha de status do agente e avisa quando algum número muda.
+   *
+   * Varre a cauda do buffer, não o chunk: a linha costuma vir partida entre
+   * pacotes do PTY, e os números ficariam invisíveis pela metade. Campo que
+   * some da tela não apaga o valor anterior — o agente redesenha a linha em
+   * pedaços, e apagar a cada frame faria o rodapé piscar.
+   */
+  private scanStatus(session: TerminalSession): void {
+    const now = Date.now()
+    if (now - session.lastStatusScan < STATUS_SCAN_INTERVAL) return
+    session.lastStatusScan = now
+
+    const fresh = scanAgentStatus(session.buffer.slice(-STATUS_WINDOW))
+    const next: AgentStatus = {
+      tokens: fresh.tokens ?? session.status.tokens,
+      contextPct: fresh.contextPct ?? session.status.contextPct,
+      limits: fresh.limits.length > 0 ? fresh.limits : session.status.limits
+    }
+    if (JSON.stringify(next) === JSON.stringify(session.status)) return
+    session.status = next
+    this.emit('status', session.id, next)
   }
 
   write(id: UUID, data: string): void {

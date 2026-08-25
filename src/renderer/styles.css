@@ -186,6 +186,14 @@ button { font: inherit; color: inherit; }
    crosshair — não é o cursor de quem já está desenhando. */
 .canvas-host.tool-draw { cursor: context-menu; }
 
+/* Espaço segurado: a seta vira mão e o arrasto move o quadro. Vem DEPOIS dos
+   cursores de ferramenta de propósito — mesma especificidade, ganha por ordem.
+   A camada de nós fica transparente ao mouse para o arrasto virar pan mesmo em
+   cima de um terminal ou de um portal, que engoliriam o clique. */
+.canvas-host.is-space-pan { cursor: grab; }
+.canvas-host.is-space-pan:active { cursor: grabbing; }
+.canvas-host.is-space-pan .nodes-layer { pointer-events: none; }
+
 /* Um transform só para todos os nós — pan/zoom composto pela GPU */
 .nodes-layer {
   position: absolute; top: 0; left: 0;
@@ -205,6 +213,28 @@ button { font: inherit; color: inherit; }
 .rope-idle { stroke: var(--rope); stroke-dasharray: 5 4; }
 .rope-communicating { stroke: var(--rope-active); filter: drop-shadow(0 0 4px var(--rope-active)); }
 .rope-error { stroke: var(--rope-error); stroke-dasharray: 3 3; }
+
+/* Cabo fantasma do modo conectar: sai do nó de origem e persegue o cursor até
+   o clique no destino. Acima dos nós (a .nodes-layer tem transform, logo é um
+   contexto de empilhamento próprio) para não sumir atrás do alvo. */
+.connection-preview { z-index: 40; }
+
+.rope-preview {
+  stroke: var(--accent);
+  stroke-dasharray: 6 5;
+  animation: rope-march .5s linear infinite;
+}
+/* Sobre um alvo que aceita o cabo: mais grosso e com brilho */
+.rope-preview.is-valid { stroke-width: 3; filter: drop-shadow(0 0 5px var(--accent)); }
+/* Sobre um alvo que não aceita: para de marchar e fica vermelho */
+.rope-preview.is-invalid { stroke: var(--rope-error); animation: none; }
+
+@keyframes rope-march { to { stroke-dashoffset: -11; } }
+
+.node.is-connect-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
+}
 
 .marquee {
   position: absolute; pointer-events: none;
@@ -253,9 +283,14 @@ button { font: inherit; color: inherit; }
   overflow: hidden;
   will-change: transform;
 }
-.node.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
+/* Seleção: SÓ o anel tracejado azul em volta do card, com folga — a borda do nó
+   fica na cor normal, senão viram duas linhas azuis concêntricas. Outline (e não
+   border) porque não entra no box model: o conteúdo não pula 2px ao selecionar. */
+.node.is-selected {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+}
 .node.is-chromeless { background: transparent; border: 0; box-shadow: none; }
-.node.is-chromeless.is-selected { border: 1px dashed var(--accent); }
 
 .node-header {
   height: 26px; flex-shrink: 0;
@@ -279,6 +314,29 @@ button { font: inherit; color: inherit; }
 .node-btn:hover { background: var(--border); color: var(--text); }
 
 .node-body { flex: 1; min-height: 0; display: flex; }
+
+/* Rodapé do terminal: a linha de status do agente (tokens, contexto, limites),
+   raspada da tela. Fica fora do .node-body para o xterm não perder altura por
+   dentro. Rola na horizontal em nó estreito em vez de espremer os números. */
+.node-footer {
+  height: 18px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  padding: 0 8px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 9px 9px;
+  font-size: 10px; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none;
+}
+.node-footer::-webkit-scrollbar { display: none; }
+
+.nf-item { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.nf-label { color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+.nf-value { color: var(--text); font-weight: 600; }
+/* Janela de uso perto do teto: o número precisa saltar antes de estourar. */
+.nf-value.is-alert { color: var(--rope-error); }
 
 .resize-handle {
   position: absolute; right: 0; bottom: 0;
@@ -311,6 +369,34 @@ button { font: inherit; color: inherit; }
 
 /* Fica em coordenadas de TELA (fora da .nodes-layer), então não escala com o
    zoom; o translate tira a barra de cima do nó e a centraliza nele. */
+/* Barra de ações do terminal selecionado — mesma pill da barra de formatação,
+   ancorada acima do nó em coordenadas de tela. */
+.node-action-bar {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  z-index: 60;
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+}
+
+.action-btn {
+  border: 0; background: transparent; cursor: pointer;
+  width: 28px; height: 26px; border-radius: 7px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim);
+}
+.action-btn:hover { background: var(--surface-2); color: var(--text); }
+.action-btn.is-danger:hover {
+  background: color-mix(in srgb, var(--rope-error) 16%, transparent);
+  color: var(--rope-error);
+}
+
+.action-sep { width: 1px; height: 16px; margin: 0 2px; background: var(--border); }
+
 .format-bar {
   position: absolute;
   transform: translate(-50%, -100%);
@@ -774,6 +860,10 @@ button { font: inherit; color: inherit; }
 .tab-pane { display: flex; flex-direction: column; gap: 12px; }
 
 .tab-hint { margin: 0; color: var(--text-dim); text-align: center; }
+
+.field-hint {
+  margin: 2px 0 0; font-size: 11px; line-height: 1.45; color: var(--text-dim);
+}
 
 .field-row { display: flex; align-items: center; gap: 10px; }
 

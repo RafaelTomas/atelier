@@ -171,6 +171,7 @@ centenas de nós sem engasgar.
 | **Texto** | Rótulo solto no canvas, para organizar visualmente |
 | **Portal** | Um navegador embutido (`<webview>`), com barra de endereço e sessão isolada por nó |
 | **Documento PDF** | Um Portal apontando para `file://` — quem renderiza é o visor de PDF do Chromium |
+| **Árvore de arquivos** | Um projeto do índice no canvas: navega as pastas, com expansão preguiçosa e filtro de `.gitignore` |
 
 Nada nasce no clique da dock: o item arma o modo **desenhe a área** e o próximo
 arrasto no canvas define onde e de que tamanho o componente vai nascer — vale
@@ -202,6 +203,32 @@ rodapé), terminal sem linha de status nenhuma não ganha rodapé, e recarregar
 zera tudo junto com o processo. O parser — inclusive a diferença entre `31,3k`
 (decimal pt-BR) e `12,345` (milhar en-US) — está coberto por testes no smoke
 (`scanAgentStatus`), que é onde um formato de terceiro quebra.
+
+### Os projetos
+
+A aba **Projetos** do painel lateral é um índice dos seus repositórios, global —
+não pertence a workspace nenhum. Três botões no cabeçalho: **+** adiciona uma
+pasta escolhida a dedo, a **lupa** abre a busca, e o **⟳** varre a pasta pessoal
+inteira.
+
+A regra da varredura é uma só: **um diretório é projeto se tem `.git`**. É o que
+faz um repositório com `backend/` e `frontend/` dentro aparecer como uma entrada
+— a dele — em vez de duas que não são o projeto. A poda é a parte séria: a
+varredura para no primeiro repositório, não cruza sistema de arquivos, não segue
+symlink e pula ocultos, `node_modules`, caches e artefatos de build. Numa home
+real: 30 projetos em 449 diretórios, 33ms — contra 74.030 diretórios sem poda.
+
+O **+** é a exceção deliberada: uma pasta apontada à mão entra mesmo sem
+repositório. A regra do `.git` existe para a descoberta automática não errar
+varrendo uma home inteira sem supervisão, não para discutir com quem escolheu a
+pasta.
+
+De um projeto você leva um nó de árvore para o canvas e cria agentes que já
+nascem no diretório certo. Nome, linguagem, stack e a primeira linha do README
+vêm das heurísticas do próprio scan — **nenhuma descrição depende de agente**.
+Ao fim de uma varredura, um nó **Scanner** nasce no canvas e escreve as
+descrições que faltam pelo CLI (`atelier projects describe`); é um agente
+comum, visível, que você pode interromper. O checkbox no diálogo desliga isso.
 
 ### As responsabilidades
 
@@ -247,8 +274,16 @@ atelier note write "Spec" "conteúdo"      # reescreve
 atelier note create "rascunho"            # cria já conectada a mim
 atelier role                              # qual é a minha responsabilidade?
 atelier role list                         # as responsabilidades disponíveis
+atelier projects list [--pending]         # o índice de projetos do usuário
+atelier projects info "<caminho>"         # tudo o que o índice sabe de um
+atelier projects describe "<caminho>" "…" # escreve a descrição de um projeto
 atelier debug                             # diagnóstico
 ```
+
+`projects` é o único que NÃO se limita aos nós conectados: o índice é global, e
+o identificador preferido é o **caminho** — nomes de pasta repetem, e um
+`describe` por nome ambíguo é recusado com a lista de caminhos em vez de
+descrever o projeto errado em silêncio.
 
 `ask` bloqueia até o outro agente ficar ocioso. **Se estourar o tempo, use
 `check` em vez de reenviar o prompt** — reenviar interrompe quem ainda está
@@ -475,6 +510,7 @@ teste que o guarda.
 ├── manifest.json                   índice de workspaces
 ├── preferences.json
 ├── app-state.json                  workspace ativo + flag de shutdown limpo
+├── projects.json                   o índice de projetos (global)
 ├── bin/atelier                     o CLI injetado nos terminais
 ├── roles/{UUID}.json               as responsabilidades (um arquivo cada)
 ├── run/agent.sock                  socket IPC (recriado a cada boot)

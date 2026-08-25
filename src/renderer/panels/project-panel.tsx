@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Project, UUID } from '@shared/types'
 import { viewport } from '../canvas/viewport'
+import { ContextMenu } from '../context-menu'
 import { truncateStart } from '../paths'
 import { store, useStore } from '../state/store'
 
@@ -181,11 +182,7 @@ export function ProjectPanel(): JSX.Element {
       </ul>
 
       {menu && selected && (
-        <div
-          className="context-menu"
-          style={{ left: menu.x, top: menu.y }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
+        <ContextMenu x={menu.x} y={menu.y}>
           <button type="button" disabled={!workspace} onClick={() => addToCanvas(selected)}>
             Adicionar ao workspace
           </button>
@@ -219,7 +216,7 @@ export function ProjectPanel(): JSX.Element {
           >
             Remover do índice
           </button>
-        </div>
+        </ContextMenu>
       )}
     </>
   )

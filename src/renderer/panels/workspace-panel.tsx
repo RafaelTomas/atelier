@@ -4,6 +4,7 @@
  */
 import { useEffect, useState } from 'react'
 import type { UUID } from '@shared/types'
+import { ContextMenu } from '../context-menu'
 import { store, useStore } from '../state/store'
 
 interface MenuState {
@@ -99,11 +100,7 @@ export function WorkspacePanel(): JSX.Element {
       </ul>
 
       {menu && (
-        <div
-          className="context-menu"
-          style={{ left: menu.x, top: menu.y }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
+        <ContextMenu x={menu.x} y={menu.y}>
           <button
             type="button"
             onClick={() =>
@@ -112,7 +109,7 @@ export function WorkspacePanel(): JSX.Element {
           >
             Renomear
           </button>
-        </div>
+        </ContextMenu>
       )}
 
       {creating && (

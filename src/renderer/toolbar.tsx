@@ -28,7 +28,9 @@ export function Toolbar(): JSX.Element {
   }, [themeMenu])
 
   return (
-    <header className={sidebarCollapsed ? 'toolbar has-window-controls' : 'toolbar'}>
+    // Sempre: a sidebar flutua sobre o canvas, então a toolbar encosta na borda
+    // esquerda da janela — onde ficam os semáforos do macOS — mesmo aberta.
+    <header className="toolbar has-window-controls">
       {sidebarCollapsed && (
         <button
           type="button"

@@ -18,6 +18,9 @@
   --term-bg: #f7f7f9;
   --term-fg: #1a1a1a;
   --dock-bg: rgb(255 255 255 / .82);
+  /* A sidebar é maior que o dock e fica sobre a grade: mais aberta que ele,
+     e o blur maior é o que segura a legibilidade do texto por cima. */
+  --sidebar-bg: rgb(255 255 255 / .58);
   --dock-border: #d3d3da;
   --dock-fg: #55555c;
   --dock-fg-strong: #1a1a1a;
@@ -39,6 +42,7 @@
     --term-bg: #101014;
     --term-fg: #e6e6e6;
     --dock-bg: rgb(30 30 35 / .86);
+    --sidebar-bg: rgb(27 27 32 / .52);
     --dock-border: #3d3d46;
     --dock-fg: #b6b6c0;
     --dock-fg-strong: #f2f2f6;
@@ -60,6 +64,7 @@
   --term-bg: #101014;
   --term-fg: #e6e6e6;
   --dock-bg: rgb(30 30 35 / .86);
+  --sidebar-bg: rgb(27 27 32 / .52);
   --dock-border: #3d3d46;
   --dock-fg: #b6b6c0;
   --dock-fg-strong: #f2f2f6;
@@ -93,13 +98,29 @@ button { font: inherit; color: inherit; }
 
 /* ─── Sidebar ──────────────────────────────────────────────────────────────── */
 
+/* A área onde o canvas e a sidebar se sobrepõem. Sem ela a sidebar não teria
+   a que se ancorar sem cobrir a toolbar. */
+.canvas-area { position: relative; flex: 1; display: flex; min-height: 0; min-width: 0; }
+
 .sidebar {
-  width: 220px; flex-shrink: 0;
-  background: var(--surface-2);
-  border-right: 1px solid var(--border);
+  position: absolute; top: 0; left: 0; bottom: 0; z-index: 5;
+  width: 220px; overflow-x: hidden;
+  /* Ela FLUTUA, como o dock — a grade e os nós passam por trás, que é o que o
+     blur tem para borrar. Token próprio e não o do dock: a sidebar é muito
+     maior, e no mesmo grau de opacidade o painel inteiro vira uma parede. */
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(28px) saturate(1.6);
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+  border-right: 1px solid var(--dock-border);
+  box-shadow: 2px 0 12px rgb(0 0 0 / .12);
   display: flex; flex-direction: column;
-  padding-top: 38px; /* espaço dos semáforos do macOS */
+  padding-top: 8px;
 }
+
+/* A rolagem continua; o que some é a barra. Numa coluna de 220px ela come
+   largura útil e corta os nomes de projeto. */
+.sidebar *, .sidebar { scrollbar-width: none; }
+.sidebar ::-webkit-scrollbar, .sidebar::-webkit-scrollbar { width: 0; height: 0; display: none; }
 
 .sidebar-header {
   display: flex; align-items: center; justify-content: space-between;

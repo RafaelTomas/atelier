@@ -89,10 +89,15 @@ export function App(): JSX.Element {
 
   return (
     <div className="app-shell">
-      {!sidebarCollapsed && <Sidebar />}
       <main className="main-pane">
         <Toolbar />
-        {workspace ? <CanvasView /> : <div className="boot-screen">nenhum workspace aberto</div>}
+        {/* A sidebar FLUTUA sobre o canvas, não divide a linha com ele: é o que
+            dá o que borrar ao backdrop-filter — encostada, atrás dela só há a
+            cor de fundo da janela e a translucidez não aparece. */}
+        <div className="canvas-area">
+          {workspace ? <CanvasView /> : <div className="boot-screen">nenhum workspace aberto</div>}
+          {!sidebarCollapsed && <Sidebar />}
+        </div>
         <footer className="status-bar">
           <span>{boot ? `IPC :${boot.serverPort}` : 'IPC —'}</span>
           <span>{boot?.socketPath}</span>

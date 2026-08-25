@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict'
 import net from 'node:net'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -51,6 +51,10 @@ await esbuild.build({
       export { roles } from './src/main/core/state/role-store.ts'
       export { importLegacyDataIfNeeded } from './src/main/core/persistence/import-legacy.ts'
       export { scanAgentStatus } from './src/main/core/terminal/agent-status.ts'
+      export { projectIndex } from './src/main/core/state/project-store.ts'
+      export { scanForProjects } from './src/main/core/projects/scanner.ts'
+      export { isRepository, inferKind } from './src/main/core/projects/detect.ts'
+      export { isPathAllowed } from './src/main/core/projects/fs-access.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -70,6 +74,7 @@ const { makeCanvasNode, makeTerminalContent, makeStickyNoteContent } = core
 const { roles } = core
 const { importLegacyDataIfNeeded } = core
 const { scanAgentStatus } = core
+const { projectIndex, scanForProjects, isRepository, inferKind, isPathAllowed } = core
 
 /** Fala o protocolo real do atelier por socket. */
 function cli(args, terminalId) {
@@ -415,6 +420,272 @@ await test('terminal sem linha de status não inventa número', () => {
   assert.equal(s.contextPct, null)
   assert.deepEqual(s.limits, [])
 })
+
+// ─── Projetos: varredura e índice ─────────────────────────────────────────────
+
+/** Árvore sintética que exercita todas as regras de poda de uma vez. */
+async function buildProjectTree() {
+  const base = await mkdtemp(join(tmpdir(), 'atelier-projects-'))
+  const repo = async (...parts) => {
+    await mkdir(join(base, ...parts, '.git'), { recursive: true })
+    await writeFile(join(base, ...parts, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+  }
+
+  await repo('a')
+  await writeFile(join(base, 'a', 'package.json'), JSON.stringify({ name: 'projeto-a', description: 'o projeto A' }))
+
+  await repo('b')
+  // Um repositório dentro de outro: a parada no .git tem de ignorá-lo
+  await repo('b', 'sub')
+
+  // node_modules tem package.json em cada pacote: sem poda vira ruído
+  await mkdir(join(base, 'c', 'node_modules', 'x'), { recursive: true })
+  await writeFile(join(base, 'c', 'node_modules', 'x', 'package.json'), '{"name":"dependencia"}')
+
+  await repo('d', 'nested')
+  await writeFile(join(base, 'd', 'nested', 'pom.xml'), '<project/>')
+
+  // O ganho da regra: um repo com backend/ e frontend/ dentro é UM projeto
+  await repo('mono')
+  await mkdir(join(base, 'mono', 'backend'), { recursive: true })
+  await writeFile(join(base, 'mono', 'backend', 'package.json'), '{"name":"backend"}')
+  await mkdir(join(base, 'mono', 'frontend'), { recursive: true })
+  await writeFile(join(base, 'mono', 'frontend', 'package.json'), '{"name":"frontend"}')
+
+  // Pasta com manifesto e SEM repositório: não é projeto
+  await mkdir(join(base, 'solto'), { recursive: true })
+  await writeFile(join(base, 'solto', 'package.json'), '{"name":"solto"}')
+
+  // Symlink apontando para o próprio topo: um walk ingênuo faz laço aqui
+  try {
+    await symlink(base, join(base, 'loop'), 'dir')
+  } catch {
+    // Windows sem privilégio de symlink: o resto do teste continua válido
+  }
+  return base
+}
+
+const projectTree = await buildProjectTree()
+
+await test('scan acha projetos, poda node_modules e não entra em laço de symlink', async () => {
+  const r = await scanForProjects({
+    roots: [projectTree],
+    descendRoots: true,
+    maxDepth: 6,
+    maxDurationMs: 20_000,
+    maxDirs: 5000
+  })
+  const nomes = r.projects.map((p) => p.name).sort()
+  assert.equal(r.stopped, 'done')
+  // 'mono' entra uma vez só, e 'solto' (manifesto sem .git) não entra
+  assert.deepEqual(nomes, ['a', 'b', 'mono', 'nested'])
+  assert.ok(!nomes.includes('dependencia'), 'node_modules não foi podado')
+  assert.ok(!nomes.includes('backend') && !nomes.includes('frontend'), 'sub-pasta virou entrada')
+  // O nome é o da PASTA, nunca o do manifesto ('projeto-a' está no package.json de a/)
+  assert.ok(!nomes.includes('projeto-a'), 'nome veio do manifesto')
+})
+
+await test('parada no marcador: projeto dentro de projeto não vira entrada', async () => {
+  const r = await scanForProjects({
+    roots: [join(projectTree, 'b')],
+    maxDepth: 6,
+    maxDurationMs: 20_000,
+    maxDirs: 5000
+  })
+  assert.equal(r.projects.length, 1)
+  assert.equal(r.projects[0].gitBranch, 'main')
+})
+
+await test('maxDepth corta a descida', async () => {
+  const r = await scanForProjects({
+    roots: [projectTree],
+    descendRoots: true,
+    maxDepth: 1,
+    maxDurationMs: 20_000,
+    maxDirs: 5000
+  })
+  // 'd/nested' está no nível 2 e não pode ser alcançado
+  assert.ok(!r.projects.some((p) => p.name === 'nested'))
+})
+
+await test('cancelar durante o scan devolve parcial, não erro', async () => {
+  const signal = { cancelled: false }
+  const r = await scanForProjects({
+    roots: [projectTree],
+    descendRoots: true,
+    maxDepth: 6,
+    maxDurationMs: 20_000,
+    maxDirs: 5000,
+    signal,
+    onProgress: () => {
+      signal.cancelled = true
+    }
+  })
+  assert.ok(r.stopped === 'cancelled' || r.stopped === 'done')
+})
+
+await test('só .git faz um diretório ser projeto', () => {
+  const dirent = (name) => ({ name, isDirectory: () => false, isSymbolicLink: () => false })
+  assert.equal(isRepository([dirent('package.json'), dirent('go.mod')]), false)
+  assert.equal(isRepository([dirent('README.md'), dirent('.git')]), true)
+})
+
+await test('inferKind é só rótulo: nunca decide, e sempre responde algo', () => {
+  const dirent = (name) => ({ name, isDirectory: () => false, isSymbolicLink: () => false })
+  assert.deepEqual(inferKind([dirent('.git'), dirent('go.mod')]), { kind: 'go', language: 'go' })
+  assert.deepEqual(inferKind([dirent('.git'), dirent('App.csproj')]), { kind: 'dotnet', language: 'csharp' })
+  // Repositório sem manifesto reconhecido continua sendo projeto, com selo 'git'
+  assert.deepEqual(inferKind([dirent('.git'), dirent('notas.txt')]), { kind: 'git', language: null })
+  // Sem repositório: só a adição manual chega aqui
+  assert.deepEqual(inferKind([dirent('notas.txt')]), { kind: 'folder', language: null })
+})
+
+await test('mergeScan preenche o índice e persiste', async () => {
+  const r = await scanForProjects({
+    roots: [projectTree],
+    descendRoots: true,
+    maxDepth: 6,
+    maxDurationMs: 20_000,
+    maxDirs: 5000
+  })
+  const summary = await projectIndex.mergeScan(r.projects, {
+    roots: [projectTree],
+    archiveMissing: true
+  })
+  assert.equal(summary.added, 4)
+  assert.ok(existsSync(paths.projects()))
+})
+
+await test('re-scan preserva favorito e descrição do agente', async () => {
+  const alvo = projectIndex.byName('a')
+  assert.ok(alvo, 'projeto a não entrou no índice')
+  await projectIndex.patch(alvo.id, { isFavorite: true })
+  await projectIndex.describe(alvo.id, { description: 'escrito pelo agente', stack: ['React'] })
+
+  const r = await scanForProjects({
+    roots: [projectTree],
+    descendRoots: true,
+    maxDepth: 6,
+    maxDurationMs: 20_000,
+    maxDirs: 5000
+  })
+  const summary = await projectIndex.mergeScan(r.projects, {
+    roots: [projectTree],
+    archiveMissing: true
+  })
+  assert.equal(summary.added, 0, 're-scan duplicou projetos')
+
+  const depois = projectIndex.byName('a')
+  assert.equal(depois.isFavorite, true, 'favorito foi perdido')
+  assert.equal(depois.description, 'escrito pelo agente', 'descrição do agente foi sobrescrita')
+  assert.deepEqual(depois.stack, ['React'])
+})
+
+await test('projeto que sumiu é arquivado, nunca apagado', async () => {
+  await rm(join(projectTree, 'a'), { recursive: true, force: true })
+  const r = await scanForProjects({
+    roots: [projectTree],
+    descendRoots: true,
+    maxDepth: 6,
+    maxDurationMs: 20_000,
+    maxDirs: 5000
+  })
+  const summary = await projectIndex.mergeScan(r.projects, {
+    roots: [projectTree],
+    archiveMissing: true
+  })
+  assert.equal(summary.archived, 1)
+  const sumido = projectIndex.byName('a')
+  assert.ok(sumido, 'projeto arquivado foi apagado do índice')
+  assert.equal(sumido.isArchived, true)
+  assert.equal(sumido.description, 'escrito pelo agente', 'arquivar perdeu o enriquecimento')
+})
+
+await test('scan cancelado nunca arquiva (ausência não foi provada)', async () => {
+  const antes = projectIndex.all.filter((p) => p.isArchived).length
+  const summary = await projectIndex.mergeScan([], {
+    roots: [projectTree],
+    archiveMissing: false
+  })
+  assert.equal(summary.archived, 0)
+  assert.equal(projectIndex.all.filter((p) => p.isArchived).length, antes)
+})
+
+await test('projects.json sobrevive ao reload com UUID e datas no dialeto', async () => {
+  await projectIndex.load()
+  const p = projectIndex.byName('nested')
+  assert.ok(p)
+  assert.equal(p.id, p.id.toUpperCase(), 'UUID não está em maiúsculas')
+  assert.match(p.createdAt, /^\d{4}-\d{2}-\d{2}T[\d:]+Z$/, 'data com milissegundos')
+  const raw = JSON.parse(readFileSync(paths.projects(), 'utf8'))
+  assert.equal(raw.type, 'projectIndex')
+  assert.equal(raw.schemaVersion, 1)
+})
+
+await test('atelier projects list mostra o índice pelo socket', async () => {
+  const out = await cli(['projects', 'list'], terminalId)
+  assert.match(out, /project\(s\) in the index/)
+  assert.match(out, /nested/)
+})
+
+await test('atelier projects --pending é a fila de trabalho do Scanner', async () => {
+  const antes = await cli(['projects', 'list', '--pending'], terminalId)
+  assert.match(antes, /awaiting a description/)
+
+  const escrita = await cli(
+    ['projects', 'describe', 'nested', 'Serviço Java de exemplo', '--stack', 'Java,Maven', '--role', 'api'],
+    terminalId
+  )
+  assert.match(escrita, /Updated 'nested'/)
+
+  const info = await cli(['projects', 'info', 'nested'], terminalId)
+  assert.match(info, /Serviço Java de exemplo/)
+  assert.match(info, /Java, Maven/)
+
+  // e o descrito sai da fila
+  const depois = await cli(['projects', 'list', '--pending'], terminalId)
+  assert.ok(!depois.includes('nested'), 'projeto descrito continuou pendente')
+})
+
+await test('describe sobrevive ao reload do índice', async () => {
+  await projectIndex.load()
+  assert.equal(projectIndex.byName('nested').description, 'Serviço Java de exemplo')
+  assert.equal(projectIndex.byName('nested').role, 'api')
+})
+
+await test('projects recusa subcomando desconhecido sem derrubar o servidor', async () => {
+  const out = await cli(['projects', 'destruir'], terminalId)
+  assert.match(out, /unknown subcommand/)
+  assert.match(await cli(['projects', 'list'], terminalId), /index/)
+})
+
+await test('describe recusa nome ambíguo em vez de descrever o errado', async () => {
+  const a = projectIndex.byName('b')
+  const c = projectIndex.byName('nested')
+  await projectIndex.patch(a.id, { name: 'backend' })
+  await projectIndex.patch(c.id, { name: 'backend' })
+
+  const ambiguo = await cli(['projects', 'describe', 'backend', 'qualquer coisa'], terminalId)
+  assert.match(ambiguo, /matches 2 projects/)
+  assert.ok(ambiguo.includes(a.path), 'a recusa não mostrou os caminhos para desambiguar')
+
+  // Com o caminho completo, funciona
+  const ok = await cli(['projects', 'describe', a.path, 'pelo caminho'], terminalId)
+  assert.match(ok, /Updated 'backend'/)
+  assert.equal(projectIndex.get(a.id).description, 'pelo caminho')
+  assert.notEqual(projectIndex.get(c.id).description, 'pelo caminho', 'descreveu o projeto errado')
+})
+
+await test('isPathAllowed barra caminho fora das raízes permitidas', async () => {
+  const permitido = { roots: [projectTree] }
+  assert.equal(await isPathAllowed('/etc/passwd', permitido), false)
+  assert.equal(await isPathAllowed(join(projectTree, 'b'), permitido), true)
+  // O separador no prefixo importa: 'proj' não pode liberar 'projeto-x'
+  assert.equal(await isPathAllowed(projectTree + '-outro', permitido), false)
+  assert.equal(await isPathAllowed('nao/absoluto', permitido), false)
+})
+
+await rm(projectTree, { recursive: true, force: true })
 
 // ─── Shutdown ─────────────────────────────────────────────────────────────────
 

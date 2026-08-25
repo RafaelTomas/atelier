@@ -16,6 +16,7 @@ import { installCLI } from './core/interagent/cli-install'
 import { interAgentServer } from './core/interagent/server'
 import { installSkillsIfNeeded } from './core/connection/skill-injector'
 import { appState } from './core/state/app-state'
+import { scanOnLaunch } from './core/projects/scan-controller'
 import { terminals } from './core/terminal/terminal-manager'
 import { registerIPC } from './ipc/bridge'
 import { createMainWindow } from './window'
@@ -49,6 +50,9 @@ app.on('second-instance', () => {
   }
 })
 
+/** Tempo depois da janela abrir. Não é precisão, é cortesia com o primeiro paint. */
+const LAUNCH_SCAN_DELAY_MS = 2000
+
 async function boot(): Promise<void> {
   const started = Date.now()
 
@@ -73,6 +77,16 @@ async function boot(): Promise<void> {
   createMainWindow()
 
   log.info('boot', `pronto em ${Date.now() - started}ms`)
+
+  // 5. Procurar projetos novos — depois da janela, e sem bloquear nada. O
+  //    atraso é para a varredura não disputar disco com o primeiro paint e com
+  //    a leitura dos scrollbacks; ela leva dezenas de ms, mas o boot é o pior
+  //    momento possível para tirar I/O de quem está desenhando a tela.
+  if (appState.preferences.autoScanOnLaunch) {
+    setTimeout(() => {
+      void scanOnLaunch().catch((err) => log.error('scan', 'varredura de boot falhou', err))
+    }, LAUNCH_SCAN_DELAY_MS)
+  }
 }
 
 app.whenReady().then(boot).catch((err) => {

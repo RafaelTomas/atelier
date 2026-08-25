@@ -13,14 +13,17 @@ import type {
   AgentStatus,
   CanvasNode,
   Connection,
+  DiscoveredProject,
   Drawing,
   Preferences,
+  Project,
   Rect,
   TerminalDraft,
   UUID,
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
+import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
 
 /**
@@ -33,6 +36,13 @@ import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
  * já são a ferramenta concreta e agem direto no arrasto.
  */
 export type Tool = 'select' | 'draw' | 'pen' | 'highlighter' | 'eraser'
+
+/**
+ * Aba aberta no painel lateral. Mora na store, e não no componente, porque
+ * outras partes precisam mandar a aba mudar — o menu de contexto de um projeto
+ * abre a árvore dele, e o vazio da aba Arquivos manda de volta para Projetos.
+ */
+export type SidebarTab = 'workspaces' | 'projetos' | 'arquivos'
 
 /** Ferramentas que o menu de desenho oferece — subconjunto acionável de Tool. */
 export type DrawTool = Extract<Tool, 'pen' | 'highlighter' | 'eraser'>
@@ -70,6 +80,7 @@ export interface AppSnapshot {
   placing: Placement | null
   /** Sidebar recolhida — espelha preferences.sidebarCollapsed. */
   sidebarCollapsed: boolean
+  sidebarTab: SidebarTab
   /** Tema escolhido — espelha preferences.theme. */
   theme: ThemeMode
   /** Ferramenta ativa (caneta, marca-texto, borracha ou seleção). */
@@ -90,6 +101,35 @@ export interface AppSnapshot {
   terminalEpoch: Record<UUID, number>
   /** Linha de status lida da tela de cada agente — o que o rodapé do nó mostra. */
   terminalStatus: Record<UUID, AgentStatus>
+  /**
+   * Diretório com que o próximo "Novo Terminal" nasce. É assim que um projeto
+   * passa o cwd para o agente: no momento da criação, não por cabo — o formato
+   * em disco não tem array de conexão para o par projeto↔terminal.
+   */
+  newTerminalCwd: string | null
+  /** Índice de projetos (global, não pertence ao workspace). */
+  projects: Project[]
+  projectQuery: string
+  /**
+   * Projeto escolhido no painel — é dele que a aba Arquivos mostra a árvore.
+   * Guarda o id, não o objeto: assim um re-scan que atualize o projeto não
+   * deixa a aba olhando para uma cópia velha.
+   */
+  selectedProjectId: UUID | null
+  /**
+   * Há varredura em andamento. O PROGRESSO não entra aqui: a ~7Hz ele
+   * re-renderizaria o canvas inteiro a cada evento. O painel assina
+   * onScanProgress localmente.
+   */
+  scanning: boolean
+  scanDialogOpen: boolean
+  /** Projetos que a varredura do boot achou e que aguardam resposta do usuário. */
+  candidates: DiscoveredProject[]
+  /**
+   * Ao fim da varredura, sobe o agente que descreve os projetos. Hoje sempre
+   * false — ver DESCRIBE_PROJECTS_ENABLED em renderer/feature-flags.ts.
+   */
+  autoDescribe: boolean
   /** Espelho de preferences.json — hoje lido para os temas de terminal. */
   prefs: Preferences | null
   /** Aviso passageiro na barra — some sozinho. */
@@ -106,6 +146,7 @@ const initial: AppSnapshot = {
   connectingFrom: null,
   placing: null,
   sidebarCollapsed: false,
+  sidebarTab: 'workspaces',
   theme: 'system',
   tool: 'select',
   pen: { color: '#e0245e', lineWidth: 3 },
@@ -115,6 +156,14 @@ const initial: AppSnapshot = {
   editTerminalId: null,
   terminalEpoch: {},
   terminalStatus: {},
+  newTerminalCwd: null,
+  projects: [],
+  projectQuery: '',
+  selectedProjectId: null,
+  scanning: false,
+  scanDialogOpen: false,
+  candidates: [],
+  autoDescribe: DESCRIBE_PROJECTS_ENABLED,
   prefs: null,
   notice: null,
   loading: true,
@@ -125,6 +174,8 @@ class Store {
   private state: AppSnapshot = initial
   private listeners = new Set<() => void>()
   private noticeTimer: ReturnType<typeof setTimeout> | null = null
+  /** Esta varredura pediu descrição automática? Ver startScan/finishScan. */
+  private armedAutoDescribe = false
 
   getSnapshot = (): AppSnapshot => this.state
 
@@ -318,12 +369,168 @@ class Store {
    * e backdrop-filter, e os dois viram bloco contedor de `position: fixed` —
    * o overlay ficaria preso dentro da pill.
    */
-  openNewTerminal(frame: Rect | null = null): void {
-    this.set({ newTerminalOpen: true, newTerminalFrame: frame })
+  openNewTerminal(frame: Rect | null = null, workingDirectory: string | null = null): void {
+    this.set({ newTerminalOpen: true, newTerminalFrame: frame, newTerminalCwd: workingDirectory })
   }
 
   closeNewTerminal(): void {
-    this.set({ newTerminalOpen: false, newTerminalFrame: null })
+    this.set({ newTerminalOpen: false, newTerminalFrame: null, newTerminalCwd: null })
+  }
+
+  // ─── Projetos ───────────────────────────────────────────────────────────────
+
+  async loadProjects(): Promise<void> {
+    this.set({ projects: await window.atelier.project.list() })
+  }
+
+  setProjectQuery(projectQuery: string): void {
+    this.set({ projectQuery })
+  }
+
+  selectProject(selectedProjectId: UUID | null): void {
+    this.set({ selectedProjectId })
+  }
+
+  setSidebarTab(sidebarTab: SidebarTab): void {
+    this.set({ sidebarTab })
+  }
+
+  /** Seleciona e abre a árvore dele — o par que o menu de contexto usa. */
+  showProjectFiles(id: UUID): void {
+    this.set({ selectedProjectId: id, sidebarTab: 'arquivos' })
+  }
+
+  /**
+   * O caminho comum: apontar UMA pasta. Abre o seletor nativo e indexa o que
+   * voltar. Devolve a mensagem de erro, ou null quando deu certo — e também
+   * quando o usuário cancelou, que não é erro.
+   */
+  async addProjectFolder(): Promise<{ error?: string; added?: Project }> {
+    const chosen = await window.atelier.dialog.chooseDirectory()
+    if (!chosen) return {}
+    const result = await window.atelier.project.addFolder(chosen)
+    if ('error' in result) return { error: result.error }
+    await this.loadProjects()
+    return { added: result.project }
+  }
+
+  // ─── Projetos novos achados no boot ────────────────────────────────────────
+
+  setCandidates(candidates: DiscoveredProject[]): void {
+    this.set({ candidates })
+  }
+
+  async loadCandidates(): Promise<void> {
+    this.set({ candidates: await window.atelier.project.candidates() })
+  }
+
+  async acceptCandidates(paths: string[]): Promise<void> {
+    const projects = await window.atelier.project.acceptCandidates(paths)
+    // O card fecha inteiro: quem desmarcou um item já respondeu sobre ele. O
+    // desmarcado não é ignorado — volta a ser oferecido na próxima abertura.
+    this.set({ projects, candidates: [] })
+  }
+
+  async ignoreCandidates(): Promise<void> {
+    await window.atelier.project.ignoreCandidates(this.state.candidates.map((c) => c.path))
+    this.set({ candidates: [] })
+  }
+
+  /** Fecha sem responder: a próxima abertura pergunta de novo. */
+  dismissCandidates(): void {
+    this.set({ candidates: [] })
+  }
+
+  async setAutoScanOnLaunch(autoScanOnLaunch: boolean): Promise<void> {
+    const prefs = await window.atelier.prefs.set({ autoScanOnLaunch })
+    this.set({ prefs })
+  }
+
+  /** O botão do aviso: desliga e fecha, com o caminho de volta na mensagem. */
+  async disableAutoScan(): Promise<void> {
+    await this.setAutoScanOnLaunch(false)
+    this.set({ candidates: [] })
+    this.showNotice('varredura automática desligada — religa no menu ⋮ da aba Projetos')
+  }
+
+  openScanDialog(): void {
+    this.set({ scanDialogOpen: true })
+  }
+
+  closeScanDialog(): void {
+    this.set({ scanDialogOpen: false })
+  }
+
+  setAutoDescribe(autoDescribe: boolean): void {
+    this.set({ autoDescribe })
+  }
+
+  async startScan(input: { mode: 'folder' | 'home'; path?: string; maxDepth?: number }): Promise<string | null> {
+    const result = await window.atelier.project.scanStart(input)
+    if ('error' in result) return result.error
+    // Armado no início e consumido no fim: um toggle no diálogo enquanto a
+    // varredura roda não muda o que ESTA varredura combinou de fazer.
+    this.armedAutoDescribe = this.state.autoDescribe
+    this.set({ scanning: true, scanDialogOpen: false })
+    return null
+  }
+
+  cancelScan(): void {
+    this.armedAutoDescribe = false
+    void window.atelier.project.scanCancel()
+  }
+
+  /**
+   * Chamado pelo evento scan-done: recarrega o índice e desarma o estado.
+   * Devolve `true` quando o painel deve subir o agente que descreve — só faz
+   * sentido se sobrou fila e há workspace aberto para receber o nó.
+   */
+  async finishScan(): Promise<boolean> {
+    const armed = this.armedAutoDescribe
+    this.armedAutoDescribe = false
+    this.set({ scanning: false })
+    await this.loadProjects()
+    const pending = this.state.projects.some((p) => !p.isArchived && !p.enrichedAt)
+    return armed && pending && this.workspaceId !== null
+  }
+
+  async patchProject(id: UUID, patch: Partial<Project>): Promise<void> {
+    await window.atelier.project.patch(id, patch)
+    await this.loadProjects()
+  }
+
+  async removeProject(id: UUID): Promise<void> {
+    const projects = await window.atelier.project.remove(id)
+    this.set({
+      projects,
+      selectedProjectId: this.state.selectedProjectId === id ? null : this.state.selectedProjectId
+    })
+  }
+
+  /**
+   * Cria o agente que descreve os projetos. O comando vem do preset escolhido
+   * pelo usuário, não é fixo: nem todo mundo usa o mesmo agente.
+   */
+  async startScannerAgent(position: { x: number; y: number }, command: string): Promise<string | null> {
+    const workspaceId = this.workspaceId
+    if (!workspaceId) return 'nenhum workspace aberto'
+    const result = await window.atelier.project.startScanner(workspaceId, position, command)
+    if ('error' in result) return result.error
+    await this.reload()
+    this.set({ selection: [result.node.id] })
+    return null
+  }
+
+  async addProjectToWorkspace(id: UUID, position: { x: number; y: number }): Promise<CanvasNode | null> {
+    const workspaceId = this.workspaceId
+    if (!workspaceId) return null
+    const node = await window.atelier.project.addToWorkspace(workspaceId, id, position)
+    if (node) {
+      this.mutateWorkspace((ws) => ws.nodes.push(node))
+      this.set({ selection: [node.id] })
+    }
+    await this.loadProjects()
+    return node
   }
 
   /**
@@ -451,6 +658,15 @@ class Store {
   }
 
   /** Otimista: a UI reage na hora, o preferences.json é gravado em seguida. */
+  /**
+   * Largura do painel. Chamada UMA vez, no fim do arrasto — durante o gesto
+   * quem manda na largura é o CSS var, escrito direto no documento.
+   */
+  async setSidebarWidth(sidebarWidth: number): Promise<void> {
+    const prefs = await window.atelier.prefs.set({ sidebarWidth })
+    this.set({ prefs })
+  }
+
   toggleSidebar(): void {
     const collapsed = !this.state.sidebarCollapsed
     this.set({ sidebarCollapsed: collapsed })

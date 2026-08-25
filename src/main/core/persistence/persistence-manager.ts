@@ -15,6 +15,7 @@ import type {
   AgentRole,
   AppStateData,
   Preferences,
+  ProjectIndex,
   UUID,
   WorkspaceManifest,
   WorkspacePayload
@@ -28,6 +29,11 @@ import {
   makeManifest,
   makePreferences
 } from '../models/app-state'
+import {
+  decodeProjectIndex,
+  encodeProjectIndex,
+  makeProjectIndex
+} from '../models/project'
 import { decodeAgentRole, encodeAgentRole } from '../models/role'
 import { decodeWorkspaceDocument, encodeWorkspaceDocument } from '../models/workspace'
 import { migrateWorkspaceDocument } from './migrations'
@@ -182,6 +188,20 @@ class PersistenceManager {
 
   async deleteRole(id: UUID): Promise<void> {
     await rm(paths.roleFile(id), { force: true })
+  }
+
+  // ─── Índice de projetos (projects.json) ─────────────────────────────────────
+  // Arquivo raiz próprio, com schema próprio: o índice é global, não pertence a
+  // nenhum workspace, e não tem contraparte no app Swift — por isso fica fora
+  // do workspace.json e das migrações dele.
+
+  async loadProjectIndex(): Promise<ProjectIndex> {
+    const raw = await this.readJSON(paths.projects())
+    return raw ? decodeProjectIndex(raw) : makeProjectIndex()
+  }
+
+  async saveProjectIndex(index: ProjectIndex): Promise<void> {
+    await this.atomicWrite(paths.projects(), this.stringify(encodeProjectIndex(index)))
   }
 
   // ─── Notas (.md) ────────────────────────────────────────────────────────────

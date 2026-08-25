@@ -3,13 +3,24 @@ import type { BootInfo, TerminalDraft } from '@shared/types'
 import { CanvasView } from './canvas/canvas-view'
 import { viewport } from './canvas/viewport'
 import { NewTerminalDialog } from './dialogs/new-terminal-dialog'
+import { ScanDialog } from './dialogs/scan-dialog'
+import { ProjectCandidates } from './project-candidates'
 import { Sidebar } from './sidebar'
 import { store, useStore } from './state/store'
 import { Toolbar } from './toolbar'
 
 export function App(): JSX.Element {
-  const { loading, bootError, workspace, sidebarCollapsed, newTerminalOpen, newTerminalFrame, editTerminalId } =
-    useStore()
+  const {
+    loading,
+    bootError,
+    workspace,
+    sidebarCollapsed,
+    newTerminalOpen,
+    newTerminalFrame,
+    newTerminalCwd,
+    editTerminalId,
+    scanDialogOpen
+  } = useStore()
   const [boot, setBoot] = useState<BootInfo | null>(null)
 
   useEffect(() => {
@@ -29,10 +40,18 @@ export function App(): JSX.Element {
     const offStatus2 = window.atelier.terminal.onStatus(({ id, status }) => {
       store.setTerminalStatus(id, status)
     })
+    // A varredura do boot roda uns segundos depois da janela abrir. Assinamos o
+    // evento E perguntamos: o evento cobre o caso normal, a pergunta cobre um
+    // F5 no renderer, que perderia o evento e deixaria o aviso sumido.
+    const offCandidates = window.atelier.events.onProjectCandidates(({ candidates }) =>
+      store.setCandidates(candidates)
+    )
+    void store.loadCandidates()
     return () => {
       offWorkspace()
       offStatus()
       offStatus2()
+      offCandidates()
     }
   }, [])
 
@@ -79,10 +98,15 @@ export function App(): JSX.Element {
 
   return (
     <div className="app-shell">
-      {!sidebarCollapsed && <Sidebar />}
       <main className="main-pane">
         <Toolbar />
-        {workspace ? <CanvasView /> : <div className="boot-screen">nenhum workspace aberto</div>}
+        {/* A sidebar FLUTUA sobre o canvas, não divide a linha com ele: é o que
+            dá o que borrar ao backdrop-filter — encostada, atrás dela só há a
+            cor de fundo da janela e a translucidez não aparece. */}
+        <div className="canvas-area">
+          {workspace ? <CanvasView /> : <div className="boot-screen">nenhum workspace aberto</div>}
+          {!sidebarCollapsed && <Sidebar />}
+        </div>
         <footer className="status-bar">
           <span>{boot ? `IPC :${boot.serverPort}` : 'IPC —'}</span>
           <span>{boot?.socketPath}</span>
@@ -93,7 +117,8 @@ export function App(): JSX.Element {
 
       {newTerminalOpen && (
         <NewTerminalDialog
-          defaultWorkingDirectory={workspace?.workingDirectory ?? ''}
+          // O projeto escolhido no painel manda no cwd; sem ele, o do workspace.
+          defaultWorkingDirectory={newTerminalCwd ?? workspace?.workingDirectory ?? ''}
           onCancel={() => store.closeNewTerminal()}
           onCreate={createTerminal}
         />
@@ -108,6 +133,10 @@ export function App(): JSX.Element {
           onCreate={(draft) => void store.saveTerminal(editTerminalId, draft)}
         />
       )}
+
+      {scanDialogOpen && <ScanDialog />}
+
+      <ProjectCandidates />
     </div>
   )
 }

@@ -10,9 +10,12 @@ import type {
   AgentStatus,
   BootInfo,
   CanvasNode,
+  DiscoveredProject,
   Connection,
   Drawing,
+  FsEntry,
   Point,
+  Project,
   Preferences,
   Rect,
   UUID,
@@ -147,11 +150,56 @@ const api = {
       on('note:changed', cb)
   },
 
+  project: {
+    list: (): Promise<Project[]> => ipcRenderer.invoke('project:list'),
+    addFolder: (path: string): Promise<{ project: Project } | { error: string }> =>
+      ipcRenderer.invoke('project:add-folder', path),
+    candidates: (): Promise<DiscoveredProject[]> => ipcRenderer.invoke('project:candidates'),
+    acceptCandidates: (paths: string[]): Promise<Project[]> =>
+      ipcRenderer.invoke('project:accept-candidates', paths),
+    ignoreCandidates: (paths: string[]): Promise<void> =>
+      ipcRenderer.invoke('project:ignore-candidates', paths),
+    scanStart: (input: { mode: 'folder' | 'home'; path?: string; maxDepth?: number }): Promise<{ scanId: UUID } | { error: string }> =>
+      ipcRenderer.invoke('project:scan-start', input),
+    scanCancel: (scanId?: UUID): Promise<void> => ipcRenderer.invoke('project:scan-cancel', scanId),
+    scanStatus: (): Promise<{ scanId: UUID; mode: string; roots: string[] } | null> =>
+      ipcRenderer.invoke('project:scan-status'),
+    patch: (id: UUID, patch: Partial<Project>): Promise<Project | null> =>
+      ipcRenderer.invoke('project:patch', id, patch),
+    remove: (id: UUID): Promise<Project[]> => ipcRenderer.invoke('project:remove', id),
+    addToWorkspace: (workspaceId: UUID, id: UUID, position: Point): Promise<CanvasNode | null> =>
+      ipcRenderer.invoke('project:add-to-workspace', workspaceId, id, position),
+    startScanner: (
+      workspaceId: UUID,
+      position: Point,
+      command: string
+    ): Promise<{ node: CanvasNode } | { error: string }> =>
+      ipcRenderer.invoke('project:start-scanner', workspaceId, position, command)
+  },
+
+  fs: {
+    listDir: (
+      path: string,
+      opts?: { root?: string; showIgnored?: boolean }
+    ): Promise<{ entries: FsEntry[]; truncated: number; ignored: number } | { error: string }> =>
+      ipcRenderer.invoke('fs:list-dir', path, opts),
+    reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:reveal', path)
+  },
+
   events: {
     onWorkspaceChanged: (cb: (p: { workspaceId: UUID }) => void): Unsubscribe =>
       on('workspace:changed', cb),
     onConnectionStatus: (cb: (p: { id: UUID; status: string }) => void): Unsubscribe =>
-      on('connection:status', cb)
+      on('connection:status', cb),
+    onScanProgress: (
+      cb: (p: { scanId: UUID; scannedDirs: number; found: number; currentPath: string; elapsedMs: number }) => void
+    ): Unsubscribe => on('project:scan-progress', cb),
+    onScanDone: (
+      cb: (p: { scanId: UUID; added: number; updated: number; archived: number; stopped: string }) => void
+    ): Unsubscribe => on('project:scan-done', cb),
+    onProjectsChanged: (cb: (p: { ids: UUID[] }) => void): Unsubscribe => on('project:changed', cb),
+    onProjectCandidates: (cb: (p: { candidates: DiscoveredProject[] }) => void): Unsubscribe =>
+      on('project:candidates', cb)
   }
 }
 

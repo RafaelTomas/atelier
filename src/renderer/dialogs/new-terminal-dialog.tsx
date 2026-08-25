@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AgentRole, TerminalDraft, TerminalTheme, UUID } from '@shared/types'
 import { Icon, ICON_NAMES } from '../node-icons'
+import { shortenPath } from '../paths'
 import { store, useStore } from '../state/store'
 import {
   BUILTIN_THEMES,
@@ -247,11 +248,6 @@ function DetailsTab({
 }
 
 /** ~/Projetos/x em vez do caminho absoluto inteiro, como no app nativo. */
-function shortenPath(path: string): string {
-  if (!path) return ''
-  const home = path.match(/^(\/Users\/[^/]+|\/home\/[^/]+|C:\\Users\\[^\\]+)/)
-  return home ? `~${path.slice(home[0].length)}` : path
-}
 
 // ─── Aparência ────────────────────────────────────────────────────────────────
 

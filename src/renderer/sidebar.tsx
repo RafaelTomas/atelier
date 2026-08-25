@@ -1,139 +1,112 @@
-import { useEffect, useState } from 'react'
-import type { UUID } from '@shared/types'
-import { store, useStore } from './state/store'
+/**
+ * Casca do painel lateral: escolhe entre Workspaces, Projetos e Arquivos, e é o
+ * que se arrasta para mudar a largura.
+ *
+ * Abas e não seções empilhadas: numa coluna dessa largura, três áreas de
+ * rolagem deixariam as três inutilizáveis.
+ */
+import { useEffect, useRef } from 'react'
+import { FilesPanel } from './panels/files-panel'
+import { ProjectPanel } from './panels/project-panel'
+import { WorkspacePanel } from './panels/workspace-panel'
+import { store, useStore, type SidebarTab } from './state/store'
 
-interface MenuState {
-  id: UUID
-  x: number
-  y: number
+const TABS: Array<[SidebarTab, string]> = [
+  ['workspaces', 'Workspaces'],
+  ['projetos', 'Projetos'],
+  ['arquivos', 'Arquivos']
+]
+
+/** Padrão, e os limites do arrasto. O teto relativo é aplicado à parte. */
+export const SIDEBAR_WIDTH = { default: 220, min: 180, max: 480 }
+
+/** Fração da janela que a sidebar nunca passa — numa tela pequena, o teto fixo
+ *  de 480px engoliria o canvas. */
+const MAX_FRACTION = 0.4
+
+function clampWidth(px: number): number {
+  const ceiling = Math.min(SIDEBAR_WIDTH.max, window.innerWidth * MAX_FRACTION)
+  return Math.round(Math.max(SIDEBAR_WIDTH.min, Math.min(ceiling, px)))
+}
+
+function applyWidth(px: number): void {
+  document.documentElement.style.setProperty('--sidebar-width', `${px}px`)
 }
 
 export function Sidebar(): JSX.Element {
-  const { entries, activeId } = useStore()
-  const [creating, setCreating] = useState(false)
-  const [name, setName] = useState('')
-  const [menu, setMenu] = useState<MenuState | null>(null)
-  const [renamingId, setRenamingId] = useState<UUID | null>(null)
-  const [renameValue, setRenameValue] = useState('')
+  const { prefs, sidebarTab: tab } = useStore()
+  const dragging = useRef(false)
 
-  const submit = (): void => {
-    const trimmed = name.trim()
-    if (trimmed) void store.createWorkspace(trimmed)
-    setName('')
-    setCreating(false)
-  }
-
-  // Um clique/Escape em qualquer lugar fecha o menu, como qualquer menu nativo.
+  // A largura vem das preferências e vai direto para o CSS var. Não entra na
+  // store: durante o arrasto isso seria um set() por frame, e cada set()
+  // notifica TODOS os assinantes, canvas incluído.
   useEffect(() => {
-    if (!menu) return
-    const close = (): void => setMenu(null)
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setMenu(null)
-    }
-    window.addEventListener('mousedown', close)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('mousedown', close)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [menu])
+    if (prefs) applyWidth(clampWidth(prefs.sidebarWidth))
+  }, [prefs?.sidebarWidth])
 
-  const startRename = (id: UUID, current: string): void => {
-    setMenu(null)
-    setRenamingId(id)
-    setRenameValue(current)
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>): void => {
+    e.preventDefault()
+    dragging.current = true
+    // Sem captura o arrasto morre assim que o ponteiro entra no canvas — que é
+    // onde ele passa quase todo o gesto.
+    e.currentTarget.setPointerCapture(e.pointerId)
   }
 
-  const commitRename = (): void => {
-    if (renamingId) void store.renameWorkspace(renamingId, renameValue)
-    setRenamingId(null)
-    setRenameValue('')
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if (!dragging.current) return
+    applyWidth(clampWidth(e.clientX))
+  }
+
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if (!dragging.current) return
+    dragging.current = false
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    // Uma gravação só, no fim do gesto.
+    void store.setSidebarWidth(clampWidth(e.clientX))
+  }
+
+  const resetWidth = (): void => {
+    applyWidth(SIDEBAR_WIDTH.default)
+    void store.setSidebarWidth(SIDEBAR_WIDTH.default)
   }
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-header">
-        <span>Workspaces</span>
-        <div className="sidebar-header-actions">
-          <button type="button" className="ghost-btn" onClick={() => setCreating(true)} title="Novo workspace">
-            +
-          </button>
-          <button
-            type="button"
-            className="ghost-btn"
-            onClick={() => store.toggleSidebar()}
-            title="Recolher painel"
-          >
-            «
-          </button>
+      <div className="sidebar-tabs">
+        <div className="segmented">
+          {TABS.map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={tab === id ? 'segment is-active' : 'segment'}
+              onClick={() => store.setSidebarTab(id)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={() => store.toggleSidebar()}
+          title="Recolher painel"
+        >
+          «
+        </button>
       </div>
 
-      <ul className="workspace-list">
-        {entries.map((entry) => (
-          <li key={entry.id}>
-            {renamingId === entry.id ? (
-              <input
-                autoFocus
-                className="workspace-rename"
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commitRename()
-                  if (e.key === 'Escape') setRenamingId(null)
-                }}
-                onBlur={commitRename}
-              />
-            ) : (
-              <button
-                type="button"
-                className={entry.id === activeId ? 'workspace-item is-active' : 'workspace-item'}
-                onClick={() => void store.openWorkspace(entry.id)}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  setMenu({ id: entry.id, x: e.clientX, y: e.clientY })
-                }}
-              >
-                <span className="workspace-dot" data-color={entry.color} />
-                {entry.name}
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+      {tab === 'workspaces' && <WorkspacePanel />}
+      {tab === 'projetos' && <ProjectPanel />}
+      {tab === 'arquivos' && <FilesPanel />}
 
-      {menu && (
-        <div
-          className="context-menu"
-          style={{ left: menu.x, top: menu.y }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            onClick={() =>
-              startRename(menu.id, entries.find((w) => w.id === menu.id)?.name ?? '')
-            }
-          >
-            Renomear
-          </button>
-        </div>
-      )}
-
-      {creating && (
-        <div className="sidebar-create">
-          <input
-            autoFocus
-            value={name}
-            placeholder="Nome do workspace"
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submit()
-              if (e.key === 'Escape') setCreating(false)
-            }}
-            onBlur={submit}
-          />
-        </div>
-      )}
+      <div
+        className="sidebar-resizer"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onDoubleClick={resetWidth}
+        title="Arraste para redimensionar · duplo clique para o padrão"
+      />
     </aside>
   )
 }

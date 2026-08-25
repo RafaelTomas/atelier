@@ -4,6 +4,7 @@
  * O renderer NUNCA toca em disco, em PTY ou em socket: tudo passa por aqui,
  * o que preserva a regra do app nativo de que toda I/O é centralizada.
  */
+import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
@@ -27,7 +28,13 @@ import {
 import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir } from '../core/persistence/paths'
+import { listDirectory, readIgnoreNames } from '../core/projects/file-tree'
+import { resolveAllowedPath } from '../core/projects/fs-access'
+import { addProjectFolder } from '../core/projects/add-folder'
+import { candidates, clearCandidates, scanController } from '../core/projects/scan-controller'
+import { startScannerAgent } from '../core/projects/scanner-agent'
 import { appState } from '../core/state/app-state'
+import { projectIndex } from '../core/state/project-store'
 import { roles } from '../core/state/role-store'
 import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manager'
 import { interAgentServer } from '../core/interagent/server'
@@ -119,6 +126,7 @@ export function registerIPC(): void {
     serverPort: interAgentServer.port,
     socketPath: ipcSocketPath(),
     dataDir: dataDir(),
+    homeDir: homedir(),
     platform: process.platform,
     needsRecovery: appState.needsRecovery
   }))
@@ -259,6 +267,135 @@ export function registerIPC(): void {
       }
     }
     return roles.all
+  })
+
+  // ─── Projetos ───────────────────────────────────────────────────────────────
+  // O índice é GLOBAL: não pertence a workspace nenhum, e por isso estes canais
+  // não recebem workspaceId (exceto o que cria nó no canvas).
+
+  ipcMain.handle('project:list', () => projectIndex.all)
+
+  // A varredura do boot deixa os candidatos no main; o renderer pergunta quando
+  // monta, para não depender de ter chegado a tempo no evento.
+  ipcMain.handle('project:candidates', () => candidates())
+
+  ipcMain.handle('project:accept-candidates', async (_e, paths: string[]) => {
+    const chosen = candidates().filter((c) => paths.includes(c.path))
+    for (const disc of chosen) await projectIndex.add(disc)
+    clearCandidates(paths)
+    if (chosen.length > 0) notifyRenderer('project:changed', { ids: [] })
+    return projectIndex.all
+  })
+
+  ipcMain.handle('project:ignore-candidates', async (_e, paths: string[]) => {
+    await projectIndex.ignore(paths)
+    clearCandidates(paths)
+  })
+
+  ipcMain.handle('project:add-folder', async (_e, path: string) => {
+    const result = await addProjectFolder(path)
+    if ('project' in result) notifyRenderer('project:changed', { ids: [result.project.id] })
+    return result
+  })
+
+  ipcMain.handle('project:scan-start', (_e, input: { mode: 'folder' | 'home'; path?: string; maxDepth?: number }) =>
+    scanController.start(input)
+  )
+
+  ipcMain.handle('project:scan-cancel', (_e, scanId?: UUID) => {
+    scanController.cancel(scanId)
+  })
+
+  ipcMain.handle('project:scan-status', () => scanController.active)
+
+  ipcMain.handle('project:patch', async (_e, id: UUID, patch: Record<string, unknown>) => {
+    const updated = await projectIndex.patch(id, patch)
+    if (updated) notifyRenderer('project:changed', { ids: [id] })
+    return updated
+  })
+
+  ipcMain.handle('project:remove', async (_e, id: UUID) => {
+    await projectIndex.remove(id)
+    notifyRenderer('project:changed', { ids: [id] })
+    return projectIndex.all
+  })
+
+  /**
+   * Cria o nó de projeto no canvas. Reusa o nó fileTree, que já existe no codec
+   * desde o app nativo: o nó guarda APENAS o rootPath, e todo metadado continua
+   * no índice (campos extras em FileTreeContent são gravados mas descartados na
+   * releitura, aqui e no app Swift).
+   */
+  ipcMain.handle('project:add-to-workspace', async (_e, workspaceId: UUID, id: UUID, position: Point) => {
+    const ws = appState.workspaces.get(workspaceId)
+    const project = projectIndex.get(id)
+    if (!ws || !project) return null
+
+    const node = makeCanvasNode(
+      { ...position, ...defaultSize('fileTree') },
+      { type: 'fileTree', value: makeFileTreeContent(project.name, project.path) }
+    )
+    ws.addNode(node)
+    await projectIndex.touchOpened(id)
+    return node
+  })
+
+  /**
+   * Cria o agente que descreve os projetos. Devolve o nó para a UI selecioná-lo
+   * — o terminal em si sobe pelo caminho normal, quando o nó monta.
+   */
+  ipcMain.handle('project:start-scanner', async (_e, workspaceId: UUID, position: Point, command: string) => {
+    const result = await startScannerAgent({
+      workspaceId,
+      position,
+      command,
+      homeDir: homedir()
+    })
+    if ('error' in result) return result
+    notifyRenderer('workspace:changed', { workspaceId })
+    return { node: result.node }
+  })
+
+  // ─── Sistema de arquivos (árvore do nó de projeto) ──────────────────────────
+
+  /**
+   * Raízes que o renderer pode ler: os projetos do índice, o diretório do
+   * workspace ativo e o rootPath de cada nó de árvore aberto. Recalculado a
+   * cada chamada de propósito — ver fs-access.ts.
+   */
+  function allowedRoots(): { roots: string[] } {
+    const roots = projectIndex.all.map((p) => p.path)
+    const ws = appState.activeWorkspace
+    if (ws) {
+      if (ws.payload.workingDirectory) roots.push(ws.payload.workingDirectory)
+      for (const node of ws.nodes) {
+        if (node.content.type === 'fileTree' && node.content.value.rootPath) {
+          roots.push(node.content.value.rootPath)
+        }
+      }
+    }
+    return { roots }
+  }
+
+  ipcMain.handle('fs:list-dir', async (_e, path: string, opts?: { root?: string; showIgnored?: boolean }) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    // O motivo volta como código, nunca como erro do sistema: a mensagem do fs
+    // revela a existência e o nome de caminhos fora do escopo permitido.
+    if (!allowed.ok) return { error: allowed.reason }
+    try {
+      const ignore =
+        opts?.root && !opts.showIgnored ? await readIgnoreNames(opts.root) : undefined
+      return await listDirectory(allowed.path, ignore)
+    } catch {
+      return { error: 'error' as const }
+    }
+  })
+
+  ipcMain.handle('fs:reveal', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return false
+    shell.showItemInFolder(allowed.path)
+    return true
   })
 
   // ─── Diálogos nativos ───────────────────────────────────────────────────────

@@ -1,6 +1,8 @@
 /** Porte de Sources/Shared/Constants.swift */
 export const Constants = {
   schemaVersion: 2,
+  /** Versão do índice de projetos (projects.json) — independente do workspace. */
+  projectIndexSchemaVersion: 1,
   appDataDirectoryName: '.atelier',
   defaultFontSize: 13,
   defaultFontFamily: 'system',

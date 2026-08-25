@@ -8,6 +8,7 @@ import type { AgentRole, AgentStatus, CanvasNode, TerminalTheme, UUID } from '@s
 import { formatTokens } from '@shared/types'
 import { Icon } from '../node-icons'
 import { store } from '../state/store'
+import { FileTreeNode } from './file-tree-node'
 import { NoteNode } from './note-node'
 import { TerminalNode } from './terminal-node'
 import { TextNode } from './text-node'
@@ -75,6 +76,8 @@ export function NodeShell({
         return <TextNode node={node} content={node.content.value} />
       case 'portal':
         return <PortalNode node={node} content={node.content.value} workspaceId={workspaceId} />
+      case 'fileTree':
+        return <FileTreeNode content={node.content.value} />
       default:
         return <PlaceholderNode type={node.content.type} />
     }

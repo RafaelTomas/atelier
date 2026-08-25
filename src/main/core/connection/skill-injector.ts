@@ -26,7 +26,7 @@ const OWNER_MARKER = '<!-- installed-by: atelier -->'
 
 const SKILL_MD = `---
 name: atelier
-description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', or 'create/update a note'.
+description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', or 'describe the projects'.
 ---
 
 ${OWNER_MARKER}
@@ -75,6 +75,27 @@ atelier note read "Note Name" [offset] [limit]
 atelier note write "Note Name" "content"
 atelier note edit "Note Name" "old text" "new text"
 \`\`\`
+
+## Projects
+
+The user's indexed development projects, found by the Scan button. Unlike the
+commands above, this index is GLOBAL: it is not limited to what you are
+connected to, and it never reads files inside a project — only its metadata.
+
+\`\`\`
+atelier projects list [search] [--pending]
+atelier projects info "<path or name>"
+atelier projects describe "<path>" "one sentence" --stack "React,TypeScript" --role "api"
+\`\`\`
+
+Address a project by its full PATH, as printed by \`list\`. Names repeat — half
+a dozen "backend" in one home is normal — and an ambiguous name is refused.
+
+\`--pending\` lists the projects that still have no description. If you were
+given the "Scanner de projetos" role, that listing is your work queue: take the
+first one, inspect the folder yourself, report with \`describe\`, repeat.
+
+Never modify anything inside a project while describing it.
 
 ## Troubleshooting
 

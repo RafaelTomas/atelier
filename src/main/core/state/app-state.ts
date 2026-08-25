@@ -13,6 +13,7 @@ import { makeWorkspacePayload } from '../models/workspace'
 import { importLegacyDataIfNeeded, type ImportResult } from '../persistence/import-legacy'
 import { persistence } from '../persistence/persistence-manager'
 import { paths } from '../persistence/paths'
+import { projectIndex } from './project-store'
 import { roles } from './role-store'
 import { WorkspaceManager } from './workspace-manager'
 
@@ -40,7 +41,8 @@ class AppState {
       persistence.loadManifest(),
       persistence.loadPreferences(),
       persistence.loadAppState(),
-      roles.load() // responsabilidades: mapa em memória antes de qualquer terminal
+      roles.load(), // responsabilidades: mapa em memória antes de qualquer terminal
+      projectIndex.load() // índice de projetos: global, independe do workspace ativo
     ])
 
     this.manifest = manifest

@@ -107,6 +107,15 @@ export function Dock(): JSX.Element {
     })
   }
 
+  /**
+   * A home vem resolvida do main: passar '~' aqui não funciona, porque o
+   * rootPath do nó vai cru para o fs e ninguém expande til nesse caminho.
+   */
+  const openHomeTree = async (): Promise<void> => {
+    const { homeDir } = await window.atelier.bootInfo()
+    add('fileTree', [300, 420], { name: 'Home', rootPath: homeDir }, undefined, 'árvore de arquivos')
+  }
+
   const NOTE_MENU: MenuItem[] = [
     {
       id: 'note',
@@ -188,8 +197,8 @@ export function Dock(): JSX.Element {
     {
       id: 'tree-home',
       label: 'Árvore na home',
-      hint: 'abre em ~',
-      run: () => add('fileTree', [300, 420], { name: 'Home', rootPath: '~' }, undefined, 'árvore de arquivos')
+      hint: 'abre na sua pasta pessoal',
+      run: () => void openHomeTree()
     }
   ]
 

@@ -7,14 +7,16 @@
  * arquivos — as regras estão em core/projects/exclusions.ts.
  */
 import { useEffect, useState } from 'react'
+import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { shortenPath } from '../paths'
-import { store } from '../state/store'
+import { store, useStore } from '../state/store'
 
 type Mode = 'folder' | 'home'
 
 const DEPTHS = [4, 6, 8]
 
 export function ScanDialog(): JSX.Element {
+  const { autoDescribe, workspace } = useStore()
   const [mode, setMode] = useState<Mode>('folder')
   const [path, setPath] = useState('')
   const [maxDepth, setMaxDepth] = useState(6)
@@ -102,6 +104,25 @@ export function ScanDialog(): JSX.Element {
               ))}
             </div>
           </div>
+
+          {DESCRIBE_PROJECTS_ENABLED && (
+            <label className="check-row is-stacked">
+              <input
+                type="checkbox"
+                checked={autoDescribe}
+                disabled={!workspace}
+                onChange={(e) => store.setAutoDescribe(e.target.checked)}
+              />
+              <span>
+                <strong>Descrever automaticamente</strong>
+                <em>
+                  {workspace
+                    ? 'ao terminar, um agente Scanner nasce no canvas e escreve a descrição de cada projeto encontrado'
+                    : 'precisa de um workspace aberto para receber o agente'}
+                </em>
+              </span>
+            </label>
+          )}
 
           <p className="scan-note">
             Ignoramos <code>node_modules</code>, pastas ocultas, artefatos de build, caches e

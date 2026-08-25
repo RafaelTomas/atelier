@@ -10,9 +10,14 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Project, UUID } from '@shared/types'
 import { viewport } from '../canvas/viewport'
 import { ContextMenu } from '../context-menu'
+import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { IconMore, IconPlus, IconSearch } from '../icons'
 import { truncateStart } from '../paths'
 import { store, useStore } from '../state/store'
+import { QUICK_STARTS } from '../terminal-presets'
+
+/** Só os presets que sobem um agente: um shell puro não descreveria nada. */
+const AGENT_PRESETS = QUICK_STARTS.filter((p) => p.command.length > 0)
 
 interface MenuState {
   id: UUID
@@ -33,16 +38,24 @@ export function ProjectPanel(): JSX.Element {
   const { projects, projectQuery, scanning, workspace } = useStore()
   const [progress, setProgress] = useState<Progress | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [scannerError, setScannerError] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null)
   // Piscada no projeto recém-adicionado: sem isso ele cai em ordem alfabética
   // no meio de dezenas e o usuário não vê que a ação fez alguma coisa.
   const [addedId, setAddedId] = useState<UUID | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
+  // Último agente escolhido para descrever. Não é fixo — nem todos usam o
+  // mesmo — e é ele que a descrição automática do fim do scan reaproveita.
+  const [scannerCommand, setScannerCommand] = useState(AGENT_PRESETS[0]?.command ?? 'claude')
+
   useEffect(() => {
     void store.loadProjects()
   }, [])
+
+  // O assinante do scan-done é montado uma vez só; o comando do agente muda
+  // com o select. Um ref evita reassinar o evento a cada troca.
+  const startScannerRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     const offProgress = window.atelier.events.onScanProgress((p) =>
@@ -50,7 +63,9 @@ export function ProjectPanel(): JSX.Element {
     )
     const offDone = window.atelier.events.onScanDone(() => {
       setProgress(null)
-      void store.finishScan()
+      void store.finishScan().then((shouldDescribe) => {
+        if (shouldDescribe) startScannerRef.current()
+      })
     })
     const offChanged = window.atelier.events.onProjectsChanged(() => void store.loadProjects())
     return () => {
@@ -114,11 +129,21 @@ export function ProjectPanel(): JSX.Element {
     store.openNewTerminal(null, project.path)
   }
 
+  const startScanner = (command = scannerCommand): void => {
+    setMenu(null)
+    setMoreMenu(null)
+    setScannerCommand(command)
+    const c = viewport.toCanvas({ x: viewport.width / 2, y: viewport.height / 2 })
+    void store.startScannerAgent({ x: c.x - 280, y: c.y - 180 }, command).then((failure) => {
+      setScannerError(failure)
+    })
+  }
+
   const addFolder = async (): Promise<void> => {
-    const { error: failure, added } = await store.addProjectFolder()
-    if (failure) setError(failure)
+    const { error, added } = await store.addProjectFolder()
+    if (error) setScannerError(error)
     if (!added) return
-    setError(null)
+    setScannerError(null)
     setAddedId(added.id)
     document.querySelector(`[data-project-id="${added.id}"]`)?.scrollIntoView({ block: 'nearest' })
     setTimeout(() => setAddedId((id) => (id === added.id ? null : id)), 1600)
@@ -130,7 +155,10 @@ export function ProjectPanel(): JSX.Element {
     setSearchOpen(!searchOpen)
   }
 
+  startScannerRef.current = () => startScanner()
+
   const selected = menu ? projects.find((p) => p.id === menu.id) ?? null : null
+  const pendingCount = projects.filter((p) => !p.isArchived && !p.enrichedAt).length
 
   return (
     <>
@@ -205,7 +233,7 @@ export function ProjectPanel(): JSX.Element {
         </div>
       )}
 
-      {error && <p className="scan-error">{error}</p>}
+      {scannerError && <p className="scan-error">{scannerError}</p>}
 
       <ul className="project-list">
         {visible.map((project) => (
@@ -254,6 +282,30 @@ export function ProjectPanel(): JSX.Element {
             {scanning ? 'Escaneando…' : 'Escanear projetos…'}
           </button>
 
+          {DESCRIBE_PROJECTS_ENABLED && (
+            <>
+              <div className="context-menu-sep" />
+              {pendingCount === 0 ? (
+                <div className="context-menu-label">Todos os projetos descritos</div>
+              ) : (
+                <>
+                  <div className="context-menu-label">
+                    {pendingCount} sem descrição · descrever com
+                  </div>
+                  {AGENT_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      disabled={!workspace}
+                      onClick={() => startScanner(preset.command)}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </>
+              )}
+            </>
+          )}
         </ContextMenu>
       )}
 

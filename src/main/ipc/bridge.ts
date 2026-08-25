@@ -31,6 +31,7 @@ import { ipcSocketPath, dataDir } from '../core/persistence/paths'
 import { listDirectory, readIgnoreNames } from '../core/projects/file-tree'
 import { resolveAllowedPath } from '../core/projects/fs-access'
 import { addProjectFolder } from '../core/projects/add-folder'
+import { startScannerAgent } from '../core/projects/scanner-agent'
 import { scanController } from '../core/projects/scan-controller'
 import { appState } from '../core/state/app-state'
 import { projectIndex } from '../core/state/project-store'
@@ -326,6 +327,18 @@ export function registerIPC(): void {
    * Cria o agente que descreve os projetos. Devolve o nó para a UI selecioná-lo
    * — o terminal em si sobe pelo caminho normal, quando o nó monta.
    */
+  ipcMain.handle('project:start-scanner', async (_e, workspaceId: UUID, position: Point, command: string) => {
+    const result = await startScannerAgent({
+      workspaceId,
+      position,
+      command,
+      homeDir: homedir()
+    })
+    if ('error' in result) return result
+    notifyRenderer('workspace:changed', { workspaceId })
+    return { node: result.node }
+  })
+
   // ─── Sistema de arquivos (árvore do nó de projeto) ──────────────────────────
 
   /**

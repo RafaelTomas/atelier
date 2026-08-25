@@ -22,6 +22,7 @@ import type {
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
+import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
 
 /**
@@ -107,6 +108,11 @@ export interface AppSnapshot {
    */
   scanning: boolean
   scanDialogOpen: boolean
+  /**
+   * Ao fim da varredura, sobe o agente que descreve os projetos. Hoje sempre
+   * false — ver DESCRIBE_PROJECTS_ENABLED em renderer/feature-flags.ts.
+   */
+  autoDescribe: boolean
   /** Espelho de preferences.json — hoje lido para os temas de terminal. */
   prefs: Preferences | null
   /** Aviso passageiro na barra — some sozinho. */
@@ -137,6 +143,7 @@ const initial: AppSnapshot = {
   projectQuery: '',
   scanning: false,
   scanDialogOpen: false,
+  autoDescribe: DESCRIBE_PROJECTS_ENABLED,
   prefs: null,
   notice: null,
   loading: true,
@@ -147,6 +154,8 @@ class Store {
   private state: AppSnapshot = initial
   private listeners = new Set<() => void>()
   private noticeTimer: ReturnType<typeof setTimeout> | null = null
+  /** Esta varredura pediu descrição automática? Ver startScan/finishScan. */
+  private armedAutoDescribe = false
 
   getSnapshot = (): AppSnapshot => this.state
 
@@ -380,21 +389,37 @@ class Store {
     this.set({ scanDialogOpen: false })
   }
 
+  setAutoDescribe(autoDescribe: boolean): void {
+    this.set({ autoDescribe })
+  }
+
   async startScan(input: { mode: 'folder' | 'home'; path?: string; maxDepth?: number }): Promise<string | null> {
     const result = await window.atelier.project.scanStart(input)
     if ('error' in result) return result.error
+    // Armado no início e consumido no fim: um toggle no diálogo enquanto a
+    // varredura roda não muda o que ESTA varredura combinou de fazer.
+    this.armedAutoDescribe = this.state.autoDescribe
     this.set({ scanning: true, scanDialogOpen: false })
     return null
   }
 
   cancelScan(): void {
+    this.armedAutoDescribe = false
     void window.atelier.project.scanCancel()
   }
 
-  /** Chamado pelo evento scan-done: recarrega o índice e desarma o estado. */
-  async finishScan(): Promise<void> {
+  /**
+   * Chamado pelo evento scan-done: recarrega o índice e desarma o estado.
+   * Devolve `true` quando o painel deve subir o agente que descreve — só faz
+   * sentido se sobrou fila e há workspace aberto para receber o nó.
+   */
+  async finishScan(): Promise<boolean> {
+    const armed = this.armedAutoDescribe
+    this.armedAutoDescribe = false
     this.set({ scanning: false })
     await this.loadProjects()
+    const pending = this.state.projects.some((p) => !p.isArchived && !p.enrichedAt)
+    return armed && pending && this.workspaceId !== null
   }
 
   async patchProject(id: UUID, patch: Partial<Project>): Promise<void> {
@@ -405,6 +430,20 @@ class Store {
   async removeProject(id: UUID): Promise<void> {
     const projects = await window.atelier.project.remove(id)
     this.set({ projects })
+  }
+
+  /**
+   * Cria o agente que descreve os projetos. O comando vem do preset escolhido
+   * pelo usuário, não é fixo: nem todo mundo usa o mesmo agente.
+   */
+  async startScannerAgent(position: { x: number; y: number }, command: string): Promise<string | null> {
+    const workspaceId = this.workspaceId
+    if (!workspaceId) return 'nenhum workspace aberto'
+    const result = await window.atelier.project.startScanner(workspaceId, position, command)
+    if ('error' in result) return result.error
+    await this.reload()
+    this.set({ selection: [result.node.id] })
+    return null
   }
 
   async addProjectToWorkspace(id: UUID, position: { x: number; y: number }): Promise<CanvasNode | null> {

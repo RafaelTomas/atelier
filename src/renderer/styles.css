@@ -718,6 +718,11 @@ button { font: inherit; color: inherit; }
 .context-menu button:hover { background: var(--border); }
 .context-menu button:disabled { opacity: .4; cursor: default; }
 .context-menu button:disabled:hover { background: transparent; }
+.context-menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
+.context-menu-label {
+  padding: 5px 10px 3px; font-size: 10px; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-dim);
+}
 
 /* ─── Sidebar recolhida ───────────────────────────────────────────────────── */
 
@@ -968,6 +973,13 @@ button { font: inherit; color: inherit; }
 
 .check-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .check-row input { width: 15px; height: 15px; accent-color: var(--accent); }
+
+/* Checkbox com legenda em duas linhas, como o do diálogo de scan. */
+.check-row.is-stacked { align-items: flex-start; }
+.check-row.is-stacked input { margin-top: 2px; }
+.check-row.is-stacked span { display: flex; flex-direction: column; gap: 2px; }
+.check-row.is-stacked em { font-style: normal; font-size: 11px; color: var(--text-dim); }
+.check-row input:disabled { cursor: not-allowed; }
 
 .path-display {
   flex: 1; min-width: 0; color: var(--text-dim);

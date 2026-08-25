@@ -162,7 +162,13 @@ const api = {
       ipcRenderer.invoke('project:patch', id, patch),
     remove: (id: UUID): Promise<Project[]> => ipcRenderer.invoke('project:remove', id),
     addToWorkspace: (workspaceId: UUID, id: UUID, position: Point): Promise<CanvasNode | null> =>
-      ipcRenderer.invoke('project:add-to-workspace', workspaceId, id, position)
+      ipcRenderer.invoke('project:add-to-workspace', workspaceId, id, position),
+    startScanner: (
+      workspaceId: UUID,
+      position: Point,
+      command: string
+    ): Promise<{ node: CanvasNode } | { error: string }> =>
+      ipcRenderer.invoke('project:start-scanner', workspaceId, position, command)
   },
 
   fs: {

@@ -3,13 +3,23 @@ import type { BootInfo, TerminalDraft } from '@shared/types'
 import { CanvasView } from './canvas/canvas-view'
 import { viewport } from './canvas/viewport'
 import { NewTerminalDialog } from './dialogs/new-terminal-dialog'
+import { ScanDialog } from './dialogs/scan-dialog'
 import { Sidebar } from './sidebar'
 import { store, useStore } from './state/store'
 import { Toolbar } from './toolbar'
 
 export function App(): JSX.Element {
-  const { loading, bootError, workspace, sidebarCollapsed, newTerminalOpen, newTerminalFrame, editTerminalId } =
-    useStore()
+  const {
+    loading,
+    bootError,
+    workspace,
+    sidebarCollapsed,
+    newTerminalOpen,
+    newTerminalFrame,
+    newTerminalCwd,
+    editTerminalId,
+    scanDialogOpen
+  } = useStore()
   const [boot, setBoot] = useState<BootInfo | null>(null)
 
   useEffect(() => {
@@ -93,7 +103,8 @@ export function App(): JSX.Element {
 
       {newTerminalOpen && (
         <NewTerminalDialog
-          defaultWorkingDirectory={workspace?.workingDirectory ?? ''}
+          // O projeto escolhido no painel manda no cwd; sem ele, o do workspace.
+          defaultWorkingDirectory={newTerminalCwd ?? workspace?.workingDirectory ?? ''}
           onCancel={() => store.closeNewTerminal()}
           onCreate={createTerminal}
         />
@@ -108,6 +119,8 @@ export function App(): JSX.Element {
           onCreate={(draft) => void store.saveTerminal(editTerminalId, draft)}
         />
       )}
+
+      {scanDialogOpen && <ScanDialog />}
     </div>
   )
 }

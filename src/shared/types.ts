@@ -392,6 +392,79 @@ export interface BootInfo {
   serverPort: number
   socketPath: string
   dataDir: string
+  /** Pasta pessoal do usuário. O renderer não tem `os`, e '~' não é expandido. */
+  homeDir: string
   platform: string
   needsRecovery: boolean
 }
+
+// ─── Projetos ─────────────────────────────────────────────────────────────────
+// O índice de projetos vive FORA do workspace.json, em ~/.atelier/projects.json,
+// com schema próprio (projectIndexSchemaVersion). É global: não pertence a um
+// workspace, e por isso não passa pelo codec estilo Codable do canvas.
+
+/**
+ * Um projeto de desenvolvimento descoberto no disco.
+ *
+ * A divisão entre campos derivados e campos preservados é o contrato do merge
+ * (ver ProjectStore.mergeScan): tudo que o scanner sabe reproduzir é
+ * sobrescrito a cada varredura; tudo que veio do usuário ou de um agente
+ * sobrevive.
+ */
+export interface Project {
+  id: UUID
+  /** Caminho absoluto e normalizado — é a chave de identidade real. */
+  path: string
+  name: string
+  /** Nome editado à mão: o scan não sobrescreve mais. */
+  hasCustomName: boolean
+
+  // Derivados do disco — reescritos a cada scan
+  kind: string
+  language: string | null
+  gitRemote: string | null
+  gitBranch: string | null
+
+  // Do usuário — preservados
+  isFavorite: boolean
+  isArchived: boolean
+  /** O caminho sumiu do disco. Marcamos em vez de apagar. */
+  isMissing: boolean
+  tags: string[]
+
+  // Do nó Scanner, via `atelier projects describe` — preservados
+  description: string | null
+  stack: string[]
+  role: string | null
+  enrichedAt: string | null
+
+  lastSeenAt: string
+  lastOpenedAt: string | null
+  createdAt: string
+  lastModifiedAt: string
+}
+
+export interface ProjectIndex {
+  schemaVersion: number
+  type: 'projectIndex'
+  projects: Project[]
+  lastScanAt: string | null
+  scanRoots: string[]
+  /** Caminhos que a varredura deve pular, além da poda padrão. */
+  excludedPaths: string[]
+}
+
+/** O que o scanner devolve: dados de disco, ainda sem identidade nem histórico. */
+export interface DiscoveredProject {
+  path: string
+  name: string
+  kind: string
+  language: string | null
+  gitBranch: string | null
+  gitRemote: string | null
+  /** Descrição lida de package.json/README — não é a do agente. */
+  summary: string | null
+  stack: string[]
+  lastCommitAt: string | null
+}
+

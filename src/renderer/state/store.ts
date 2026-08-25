@@ -15,6 +15,7 @@ import type {
   Connection,
   Drawing,
   Preferences,
+  Project,
   Rect,
   TerminalDraft,
   UUID,
@@ -90,6 +91,22 @@ export interface AppSnapshot {
   terminalEpoch: Record<UUID, number>
   /** Linha de status lida da tela de cada agente — o que o rodapé do nó mostra. */
   terminalStatus: Record<UUID, AgentStatus>
+  /**
+   * Diretório com que o próximo "Novo Terminal" nasce. É assim que um projeto
+   * passa o cwd para o agente: no momento da criação, não por cabo — o formato
+   * em disco não tem array de conexão para o par projeto↔terminal.
+   */
+  newTerminalCwd: string | null
+  /** Índice de projetos (global, não pertence ao workspace). */
+  projects: Project[]
+  projectQuery: string
+  /**
+   * Há varredura em andamento. O PROGRESSO não entra aqui: a ~7Hz ele
+   * re-renderizaria o canvas inteiro a cada evento. O painel assina
+   * onScanProgress localmente.
+   */
+  scanning: boolean
+  scanDialogOpen: boolean
   /** Espelho de preferences.json — hoje lido para os temas de terminal. */
   prefs: Preferences | null
   /** Aviso passageiro na barra — some sozinho. */
@@ -115,6 +132,11 @@ const initial: AppSnapshot = {
   editTerminalId: null,
   terminalEpoch: {},
   terminalStatus: {},
+  newTerminalCwd: null,
+  projects: [],
+  projectQuery: '',
+  scanning: false,
+  scanDialogOpen: false,
   prefs: null,
   notice: null,
   loading: true,
@@ -318,12 +340,57 @@ class Store {
    * e backdrop-filter, e os dois viram bloco contedor de `position: fixed` —
    * o overlay ficaria preso dentro da pill.
    */
-  openNewTerminal(frame: Rect | null = null): void {
-    this.set({ newTerminalOpen: true, newTerminalFrame: frame })
+  openNewTerminal(frame: Rect | null = null, workingDirectory: string | null = null): void {
+    this.set({ newTerminalOpen: true, newTerminalFrame: frame, newTerminalCwd: workingDirectory })
   }
 
   closeNewTerminal(): void {
-    this.set({ newTerminalOpen: false, newTerminalFrame: null })
+    this.set({ newTerminalOpen: false, newTerminalFrame: null, newTerminalCwd: null })
+  }
+
+  // ─── Projetos ───────────────────────────────────────────────────────────────
+
+  async loadProjects(): Promise<void> {
+    this.set({ projects: await window.atelier.project.list() })
+  }
+
+  setProjectQuery(projectQuery: string): void {
+    this.set({ projectQuery })
+  }
+
+  openScanDialog(): void {
+    this.set({ scanDialogOpen: true })
+  }
+
+  closeScanDialog(): void {
+    this.set({ scanDialogOpen: false })
+  }
+
+  async startScan(input: { mode: 'folder' | 'home'; path?: string; maxDepth?: number }): Promise<string | null> {
+    const result = await window.atelier.project.scanStart(input)
+    if ('error' in result) return result.error
+    this.set({ scanning: true, scanDialogOpen: false })
+    return null
+  }
+
+  cancelScan(): void {
+    void window.atelier.project.scanCancel()
+  }
+
+  /** Chamado pelo evento scan-done: recarrega o índice e desarma o estado. */
+  async finishScan(): Promise<void> {
+    this.set({ scanning: false })
+    await this.loadProjects()
+  }
+
+  async patchProject(id: UUID, patch: Partial<Project>): Promise<void> {
+    await window.atelier.project.patch(id, patch)
+    await this.loadProjects()
+  }
+
+  async removeProject(id: UUID): Promise<void> {
+    const projects = await window.atelier.project.remove(id)
+    this.set({ projects })
   }
 
   /**

@@ -13,6 +13,7 @@ import type {
   Connection,
   Drawing,
   Point,
+  Project,
   Preferences,
   Rect,
   UUID,
@@ -147,11 +148,34 @@ const api = {
       on('note:changed', cb)
   },
 
+  project: {
+    list: (): Promise<Project[]> => ipcRenderer.invoke('project:list'),
+    scanStart: (input: { mode: 'folder' | 'home'; path?: string; maxDepth?: number }): Promise<{ scanId: UUID } | { error: string }> =>
+      ipcRenderer.invoke('project:scan-start', input),
+    scanCancel: (scanId?: UUID): Promise<void> => ipcRenderer.invoke('project:scan-cancel', scanId),
+    scanStatus: (): Promise<{ scanId: UUID; mode: string; roots: string[] } | null> =>
+      ipcRenderer.invoke('project:scan-status'),
+    patch: (id: UUID, patch: Partial<Project>): Promise<Project | null> =>
+      ipcRenderer.invoke('project:patch', id, patch),
+    remove: (id: UUID): Promise<Project[]> => ipcRenderer.invoke('project:remove', id)
+  },
+
+  fs: {
+    reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:reveal', path)
+  },
+
   events: {
     onWorkspaceChanged: (cb: (p: { workspaceId: UUID }) => void): Unsubscribe =>
       on('workspace:changed', cb),
     onConnectionStatus: (cb: (p: { id: UUID; status: string }) => void): Unsubscribe =>
-      on('connection:status', cb)
+      on('connection:status', cb),
+    onScanProgress: (
+      cb: (p: { scanId: UUID; scannedDirs: number; found: number; currentPath: string; elapsedMs: number }) => void
+    ): Unsubscribe => on('project:scan-progress', cb),
+    onScanDone: (
+      cb: (p: { scanId: UUID; added: number; updated: number; archived: number; stopped: string }) => void
+    ): Unsubscribe => on('project:scan-done', cb),
+    onProjectsChanged: (cb: (p: { ids: UUID[] }) => void): Unsubscribe => on('project:changed', cb)
   }
 }
 

@@ -22,6 +22,7 @@ export const paths = {
   preferences: () => join(dataDir(), 'preferences.json'),
   manifest: () => join(dataDir(), 'manifest.json'),
   routines: () => join(dataDir(), 'routines.json'),
+  projects: () => join(dataDir(), 'projects.json'),
   workspacesDir: () => join(dataDir(), 'workspaces'),
   rolesDir: () => join(dataDir(), 'roles'),
   roleFile: (id: UUID) => join(dataDir(), 'roles', `${id}.json`),

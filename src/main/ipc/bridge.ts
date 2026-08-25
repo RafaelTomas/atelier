@@ -4,6 +4,7 @@
  * O renderer NUNCA toca em disco, em PTY ou em socket: tudo passa por aqui,
  * o que preserva a regra do app nativo de que toda I/O é centralizada.
  */
+import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
@@ -27,7 +28,10 @@ import {
 import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir } from '../core/persistence/paths'
+import { resolveAllowedPath } from '../core/projects/fs-access'
+import { scanController } from '../core/projects/scan-controller'
 import { appState } from '../core/state/app-state'
+import { projectIndex } from '../core/state/project-store'
 import { roles } from '../core/state/role-store'
 import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manager'
 import { interAgentServer } from '../core/interagent/server'
@@ -119,6 +123,7 @@ export function registerIPC(): void {
     serverPort: interAgentServer.port,
     socketPath: ipcSocketPath(),
     dataDir: dataDir(),
+    homeDir: homedir(),
     platform: process.platform,
     needsRecovery: appState.needsRecovery
   }))
@@ -259,6 +264,62 @@ export function registerIPC(): void {
       }
     }
     return roles.all
+  })
+
+  // ─── Projetos ───────────────────────────────────────────────────────────────
+  // O índice é GLOBAL: não pertence a workspace nenhum, e por isso estes canais
+  // não recebem workspaceId (exceto o que cria nó no canvas).
+
+  ipcMain.handle('project:list', () => projectIndex.all)
+
+  ipcMain.handle('project:scan-start', (_e, input: { mode: 'folder' | 'home'; path?: string; maxDepth?: number }) =>
+    scanController.start(input)
+  )
+
+  ipcMain.handle('project:scan-cancel', (_e, scanId?: UUID) => {
+    scanController.cancel(scanId)
+  })
+
+  ipcMain.handle('project:scan-status', () => scanController.active)
+
+  ipcMain.handle('project:patch', async (_e, id: UUID, patch: Record<string, unknown>) => {
+    const updated = await projectIndex.patch(id, patch)
+    if (updated) notifyRenderer('project:changed', { ids: [id] })
+    return updated
+  })
+
+  ipcMain.handle('project:remove', async (_e, id: UUID) => {
+    await projectIndex.remove(id)
+    notifyRenderer('project:changed', { ids: [id] })
+    return projectIndex.all
+  })
+
+  // ─── Sistema de arquivos (árvore do nó de projeto) ──────────────────────────
+
+  /**
+   * Raízes que o renderer pode ler: os projetos do índice, o diretório do
+   * workspace ativo e o rootPath de cada nó de árvore aberto. Recalculado a
+   * cada chamada de propósito — ver fs-access.ts.
+   */
+  function allowedRoots(): { roots: string[] } {
+    const roots = projectIndex.all.map((p) => p.path)
+    const ws = appState.activeWorkspace
+    if (ws) {
+      if (ws.payload.workingDirectory) roots.push(ws.payload.workingDirectory)
+      for (const node of ws.nodes) {
+        if (node.content.type === 'fileTree' && node.content.value.rootPath) {
+          roots.push(node.content.value.rootPath)
+        }
+      }
+    }
+    return { roots }
+  }
+
+  ipcMain.handle('fs:reveal', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return false
+    shell.showItemInFolder(allowed.path)
+    return true
   })
 
   // ─── Diálogos nativos ───────────────────────────────────────────────────────

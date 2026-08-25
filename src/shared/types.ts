@@ -322,6 +322,8 @@ export interface Preferences {
   fontFamily: string
   theme: string
   sidebarCollapsed: boolean
+  /** Largura do painel lateral em px. Ver SIDEBAR_WIDTH em renderer/sidebar.tsx. */
+  sidebarWidth: number
   /** Temas de terminal criados pelo usuário (os embutidos não ficam aqui). */
   terminalThemes: TerminalTheme[]
 }

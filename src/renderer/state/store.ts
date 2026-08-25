@@ -530,6 +530,15 @@ class Store {
   }
 
   /** Otimista: a UI reage na hora, o preferences.json é gravado em seguida. */
+  /**
+   * Largura do painel. Chamada UMA vez, no fim do arrasto — durante o gesto
+   * quem manda na largura é o CSS var, escrito direto no documento.
+   */
+  async setSidebarWidth(sidebarWidth: number): Promise<void> {
+    const prefs = await window.atelier.prefs.set({ sidebarWidth })
+    this.set({ prefs })
+  }
+
   toggleSidebar(): void {
     const collapsed = !this.state.sidebarCollapsed
     this.set({ sidebarCollapsed: collapsed })

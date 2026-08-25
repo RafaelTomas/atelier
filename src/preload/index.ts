@@ -11,6 +11,7 @@ import type {
   BootInfo,
   CanvasNode,
   Connection,
+  DiscoveredProject,
   Drawing,
   FsEntry,
   Point,
@@ -153,6 +154,11 @@ const api = {
     list: (): Promise<Project[]> => ipcRenderer.invoke('project:list'),
     addFolder: (path: string): Promise<{ project: Project } | { error: string }> =>
       ipcRenderer.invoke('project:add-folder', path),
+    candidates: (): Promise<DiscoveredProject[]> => ipcRenderer.invoke('project:candidates'),
+    acceptCandidates: (paths: string[]): Promise<Project[]> =>
+      ipcRenderer.invoke('project:accept-candidates', paths),
+    ignoreCandidates: (paths: string[]): Promise<void> =>
+      ipcRenderer.invoke('project:ignore-candidates', paths),
     scanStart: (input: { mode: 'folder' | 'home'; path?: string; maxDepth?: number }): Promise<{ scanId: UUID } | { error: string }> =>
       ipcRenderer.invoke('project:scan-start', input),
     scanCancel: (scanId?: UUID): Promise<void> => ipcRenderer.invoke('project:scan-cancel', scanId),
@@ -191,7 +197,9 @@ const api = {
     onScanDone: (
       cb: (p: { scanId: UUID; added: number; updated: number; archived: number; stopped: string }) => void
     ): Unsubscribe => on('project:scan-done', cb),
-    onProjectsChanged: (cb: (p: { ids: UUID[] }) => void): Unsubscribe => on('project:changed', cb)
+    onProjectsChanged: (cb: (p: { ids: UUID[] }) => void): Unsubscribe => on('project:changed', cb),
+    onProjectCandidates: (cb: (p: { candidates: DiscoveredProject[] }) => void): Unsubscribe =>
+      on('project:candidates', cb)
   }
 }
 

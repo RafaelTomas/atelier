@@ -32,7 +32,7 @@ import { listDirectory, readIgnoreNames } from '../core/projects/file-tree'
 import { resolveAllowedPath } from '../core/projects/fs-access'
 import { addProjectFolder } from '../core/projects/add-folder'
 import { startScannerAgent } from '../core/projects/scanner-agent'
-import { scanController } from '../core/projects/scan-controller'
+import { candidates, clearCandidates, scanController } from '../core/projects/scan-controller'
 import { appState } from '../core/state/app-state'
 import { projectIndex } from '../core/state/project-store'
 import { roles } from '../core/state/role-store'
@@ -274,6 +274,23 @@ export function registerIPC(): void {
   // não recebem workspaceId (exceto o que cria nó no canvas).
 
   ipcMain.handle('project:list', () => projectIndex.all)
+
+  // A varredura do boot deixa os candidatos no main; o renderer pergunta quando
+  // monta, para não depender de ter chegado a tempo no evento.
+  ipcMain.handle('project:candidates', () => candidates())
+
+  ipcMain.handle('project:accept-candidates', async (_e, paths: string[]) => {
+    const chosen = candidates().filter((c) => paths.includes(c.path))
+    for (const disc of chosen) await projectIndex.add(disc)
+    clearCandidates(paths)
+    if (chosen.length > 0) notifyRenderer('project:changed', { ids: [] })
+    return projectIndex.all
+  })
+
+  ipcMain.handle('project:ignore-candidates', async (_e, paths: string[]) => {
+    await projectIndex.ignore(paths)
+    clearCandidates(paths)
+  })
 
   ipcMain.handle('project:add-folder', async (_e, path: string) => {
     const result = await addProjectFolder(path)

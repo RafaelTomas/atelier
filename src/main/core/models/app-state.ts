@@ -109,6 +109,7 @@ export function makePreferences(): Preferences {
     theme: 'system',
     sidebarCollapsed: false,
     sidebarWidth: 220,
+    autoScanOnLaunch: true,
     terminalThemes: []
   }
 }
@@ -135,6 +136,7 @@ export function decodePreferences(value: unknown): Preferences {
     sidebarCollapsed: bool(o.sidebarCollapsed, base.sidebarCollapsed),
     // Ausente em preferences.json escrito antes do painel redimensionável
     sidebarWidth: num(o.sidebarWidth, base.sidebarWidth),
+    autoScanOnLaunch: bool(o.autoScanOnLaunch, base.autoScanOnLaunch),
     // Ausente em preferences.json escrito antes dos temas de terminal
     terminalThemes: Array.isArray(o.terminalThemes)
       ? o.terminalThemes.map(decodeTerminalTheme)

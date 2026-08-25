@@ -23,6 +23,13 @@ export interface MergeScope {
    * ausência de nada, então não pode arquivar.
    */
   archiveMissing: boolean
+  /**
+   * Projeto novo entra direto? A varredura do boot passa `false`: ela atualiza
+   * o que já é conhecido e ARQUIVA o que sumiu, mas nada entra no índice sem o
+   * usuário dizer que sim. Um scan pedido à mão passa `true` — quem clicou já
+   * disse sim.
+   */
+  addNew?: boolean
 }
 
 export interface MergeSummary {
@@ -133,6 +140,12 @@ class ProjectStore {
       const existingId = this.byPathKey.get(key)
 
       if (!existingId) {
+        if (scope.addNew === false) {
+          // Não entrou no índice, então também não conta como "visto": deixar
+          // de fora de seenKeys é irrelevante aqui (nada a arquivar), mas o
+          // candidato precisa continuar aparecendo para quem perguntar.
+          continue
+        }
         this.index.projects.push(makeProject(disc))
         summary.added++
         continue

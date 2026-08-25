@@ -10,7 +10,7 @@
  * sobrescrevem, com resultado dependente de quem terminasse por último.
  */
 import { homedir } from 'node:os'
-import type { UUID } from '@shared/types'
+import type { DiscoveredProject, UUID } from '@shared/types'
 import { uuid } from '../coding'
 import { log } from '../logger'
 import { notifyRenderer } from '../../ipc/notify'
@@ -19,6 +19,14 @@ import { projectIndex } from '../state/project-store'
 import { scanForProjects, type ScanStop } from './scanner'
 
 export type ScanMode = 'folder' | 'home'
+
+/**
+ * Projetos achados na varredura do boot que ainda não estão no índice. Ficam
+ * aqui até o usuário responder — o main é quem guarda, e não o renderer, para
+ * a resposta sobreviver a um F5 e para o renderer poder perguntar quando montar
+ * em vez de depender de ter chegado a tempo no evento.
+ */
+let pendingCandidates: DiscoveredProject[] = []
 
 export interface ActiveScan {
   scanId: UUID
@@ -120,3 +128,54 @@ class ScanController {
 
 export const scanController = new ScanController()
 
+/**
+ * A varredura de cada boot.
+ *
+ * Diferente do scan pedido à mão em dois pontos que importam: **nada entra no
+ * índice sem o usuário dizer que sim** (`addNew: false`) e ela não emite
+ * progresso — ninguém pediu, então ela não pode aparecer na tela como trabalho
+ * acontecendo. O que já é conhecido é atualizado e o que sumiu é arquivado,
+ * porque isso é manutenção do que o usuário já aceitou.
+ */
+export async function scanOnLaunch(): Promise<DiscoveredProject[]> {
+  const known = projectIndex.snapshot
+  // Se o usuário já escolheu onde varrer, respeita a escolha; senão, a home.
+  const roots = known.scanRoots.length > 0 ? known.scanRoots : [homedir()]
+
+  const result = await scanForProjects({
+    roots,
+    descendRoots: true,
+    maxDepth: DEFAULT_DEPTH.home,
+    maxDurationMs: MAX_DURATION_MS,
+    maxDirs: MAX_DIRS,
+    excludedPaths: [dataDir()]
+  })
+
+  await projectIndex.mergeScan(result.projects, {
+    roots,
+    archiveMissing: result.stopped === 'done',
+    addNew: false
+  })
+
+  pendingCandidates = result.projects.filter(
+    (p) => !projectIndex.byPath(p.path) && !projectIndex.isIgnored(p.path)
+  )
+  log.info(
+    'scan',
+    `boot: ${result.projects.length} no disco, ${pendingCandidates.length} novo(s) para oferecer`
+  )
+  if (pendingCandidates.length > 0) {
+    notifyRenderer('project:candidates', { candidates: pendingCandidates })
+  }
+  return pendingCandidates
+}
+
+export function candidates(): DiscoveredProject[] {
+  return pendingCandidates
+}
+
+/** Tira da fila de oferta — o usuário já respondeu sobre estes. */
+export function clearCandidates(paths: string[]): void {
+  const gone = new Set(paths)
+  pendingCandidates = pendingCandidates.filter((c) => !gone.has(c.path))
+}

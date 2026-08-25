@@ -35,7 +35,7 @@ interface Progress {
 const MAX_VISIBLE = 200
 
 export function ProjectPanel(): JSX.Element {
-  const { projects, projectQuery, scanning, workspace } = useStore()
+  const { projects, projectQuery, scanning, workspace, prefs } = useStore()
   const [progress, setProgress] = useState<Progress | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [scannerError, setScannerError] = useState<string | null>(null)
@@ -280,6 +280,18 @@ export function ProjectPanel(): JSX.Element {
             }}
           >
             {scanning ? 'Escaneando…' : 'Escanear projetos…'}
+          </button>
+
+          <div className="context-menu-sep" />
+
+          <button
+            type="button"
+            onClick={() => {
+              setMoreMenu(null)
+              void store.setAutoScanOnLaunch(!prefs?.autoScanOnLaunch)
+            }}
+          >
+            {prefs?.autoScanOnLaunch ? '✓ ' : '\u2007 '}Varrer ao abrir o app
           </button>
 
           {DESCRIBE_PROJECTS_ENABLED && (

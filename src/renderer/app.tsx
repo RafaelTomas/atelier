@@ -4,6 +4,7 @@ import { CanvasView } from './canvas/canvas-view'
 import { viewport } from './canvas/viewport'
 import { NewTerminalDialog } from './dialogs/new-terminal-dialog'
 import { ScanDialog } from './dialogs/scan-dialog'
+import { ProjectCandidates } from './project-candidates'
 import { Sidebar } from './sidebar'
 import { store, useStore } from './state/store'
 import { Toolbar } from './toolbar'
@@ -39,10 +40,18 @@ export function App(): JSX.Element {
     const offStatus2 = window.atelier.terminal.onStatus(({ id, status }) => {
       store.setTerminalStatus(id, status)
     })
+    // A varredura do boot roda uns segundos depois da janela abrir. Assinamos o
+    // evento E perguntamos: o evento cobre o caso normal, a pergunta cobre um
+    // F5 no renderer, que perderia o evento e deixaria o aviso sumido.
+    const offCandidates = window.atelier.events.onProjectCandidates(({ candidates }) =>
+      store.setCandidates(candidates)
+    )
+    void store.loadCandidates()
     return () => {
       offWorkspace()
       offStatus()
       offStatus2()
+      offCandidates()
     }
   }, [])
 
@@ -126,6 +135,8 @@ export function App(): JSX.Element {
       )}
 
       {scanDialogOpen && <ScanDialog />}
+
+      <ProjectCandidates />
     </div>
   )
 }

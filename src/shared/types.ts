@@ -324,6 +324,8 @@ export interface Preferences {
   sidebarCollapsed: boolean
   /** Largura do painel lateral em px. Ver SIDEBAR_WIDTH em renderer/sidebar.tsx. */
   sidebarWidth: number
+  /** Varrer atrás de projetos novos a cada boot. O aviso sempre oferece desligar. */
+  autoScanOnLaunch: boolean
   /** Temas de terminal criados pelo usuário (os embutidos não ficam aqui). */
   terminalThemes: TerminalTheme[]
 }
@@ -452,7 +454,11 @@ export interface ProjectIndex {
   projects: Project[]
   lastScanAt: string | null
   scanRoots: string[]
-  /** Caminhos que a varredura deve pular, além da poda padrão. */
+  /**
+   * Caminhos que o usuário mandou não oferecer de novo. A varredura do boot os
+   * acha e os descarta em silêncio — é o que impede o aviso de reaparecer a
+   * cada abertura oferecendo o mesmo projeto recusado.
+   */
   excludedPaths: string[]
 }
 

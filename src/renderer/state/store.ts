@@ -13,6 +13,7 @@ import type {
   AgentStatus,
   CanvasNode,
   Connection,
+  DiscoveredProject,
   Drawing,
   Preferences,
   Project,
@@ -108,6 +109,8 @@ export interface AppSnapshot {
    */
   scanning: boolean
   scanDialogOpen: boolean
+  /** Projetos que a varredura do boot achou e que aguardam resposta do usuário. */
+  candidates: DiscoveredProject[]
   /**
    * Ao fim da varredura, sobe o agente que descreve os projetos. Hoje sempre
    * false — ver DESCRIBE_PROJECTS_ENABLED em renderer/feature-flags.ts.
@@ -143,6 +146,7 @@ const initial: AppSnapshot = {
   projectQuery: '',
   scanning: false,
   scanDialogOpen: false,
+  candidates: [],
   autoDescribe: DESCRIBE_PROJECTS_ENABLED,
   prefs: null,
   notice: null,
@@ -379,6 +383,45 @@ class Store {
     if ('error' in result) return { error: result.error }
     await this.loadProjects()
     return { added: result.project }
+  }
+
+  // ─── Projetos novos achados no boot ────────────────────────────────────────
+
+  setCandidates(candidates: DiscoveredProject[]): void {
+    this.set({ candidates })
+  }
+
+  async loadCandidates(): Promise<void> {
+    this.set({ candidates: await window.atelier.project.candidates() })
+  }
+
+  async acceptCandidates(paths: string[]): Promise<void> {
+    const projects = await window.atelier.project.acceptCandidates(paths)
+    // O card fecha inteiro: quem desmarcou um item já respondeu sobre ele. O
+    // desmarcado não é ignorado — volta a ser oferecido na próxima abertura.
+    this.set({ projects, candidates: [] })
+  }
+
+  async ignoreCandidates(): Promise<void> {
+    await window.atelier.project.ignoreCandidates(this.state.candidates.map((c) => c.path))
+    this.set({ candidates: [] })
+  }
+
+  /** Fecha sem responder: a próxima abertura pergunta de novo. */
+  dismissCandidates(): void {
+    this.set({ candidates: [] })
+  }
+
+  async setAutoScanOnLaunch(autoScanOnLaunch: boolean): Promise<void> {
+    const prefs = await window.atelier.prefs.set({ autoScanOnLaunch })
+    this.set({ prefs })
+  }
+
+  /** O botão do aviso: desliga e fecha, com o caminho de volta na mensagem. */
+  async disableAutoScan(): Promise<void> {
+    await this.setAutoScanOnLaunch(false)
+    this.set({ candidates: [] })
+    this.showNotice('varredura automática desligada — religa no menu ⋮ da aba Projetos')
   }
 
   openScanDialog(): void {

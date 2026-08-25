@@ -33,6 +33,7 @@ Commands:
   check "Agent" [lines]             View agent's recent output
   note <read|write|create>          Read/write connected notes
   role [list]                       Your assigned responsibility
+  projects <list|info|describe>     The user's indexed projects
   debug                             Diagnose connection issues
 
 Environment:

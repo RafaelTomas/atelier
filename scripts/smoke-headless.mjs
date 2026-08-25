@@ -622,6 +622,60 @@ await test('projects.json sobrevive ao reload com UUID e datas no dialeto', asyn
   assert.equal(raw.schemaVersion, 1)
 })
 
+await test('atelier projects list mostra o índice pelo socket', async () => {
+  const out = await cli(['projects', 'list'], terminalId)
+  assert.match(out, /project\(s\) in the index/)
+  assert.match(out, /nested/)
+})
+
+await test('atelier projects --pending é a fila de trabalho do Scanner', async () => {
+  const antes = await cli(['projects', 'list', '--pending'], terminalId)
+  assert.match(antes, /awaiting a description/)
+
+  const escrita = await cli(
+    ['projects', 'describe', 'nested', 'Serviço Java de exemplo', '--stack', 'Java,Maven', '--role', 'api'],
+    terminalId
+  )
+  assert.match(escrita, /Updated 'nested'/)
+
+  const info = await cli(['projects', 'info', 'nested'], terminalId)
+  assert.match(info, /Serviço Java de exemplo/)
+  assert.match(info, /Java, Maven/)
+
+  // e o descrito sai da fila
+  const depois = await cli(['projects', 'list', '--pending'], terminalId)
+  assert.ok(!depois.includes('nested'), 'projeto descrito continuou pendente')
+})
+
+await test('describe sobrevive ao reload do índice', async () => {
+  await projectIndex.load()
+  assert.equal(projectIndex.byName('nested').description, 'Serviço Java de exemplo')
+  assert.equal(projectIndex.byName('nested').role, 'api')
+})
+
+await test('projects recusa subcomando desconhecido sem derrubar o servidor', async () => {
+  const out = await cli(['projects', 'destruir'], terminalId)
+  assert.match(out, /unknown subcommand/)
+  assert.match(await cli(['projects', 'list'], terminalId), /index/)
+})
+
+await test('describe recusa nome ambíguo em vez de descrever o errado', async () => {
+  const a = projectIndex.byName('b')
+  const c = projectIndex.byName('nested')
+  await projectIndex.patch(a.id, { name: 'backend' })
+  await projectIndex.patch(c.id, { name: 'backend' })
+
+  const ambiguo = await cli(['projects', 'describe', 'backend', 'qualquer coisa'], terminalId)
+  assert.match(ambiguo, /matches 2 projects/)
+  assert.ok(ambiguo.includes(a.path), 'a recusa não mostrou os caminhos para desambiguar')
+
+  // Com o caminho completo, funciona
+  const ok = await cli(['projects', 'describe', a.path, 'pelo caminho'], terminalId)
+  assert.match(ok, /Updated 'backend'/)
+  assert.equal(projectIndex.get(a.id).description, 'pelo caminho')
+  assert.notEqual(projectIndex.get(c.id).description, 'pelo caminho', 'descreveu o projeto errado')
+})
+
 await test('isPathAllowed barra caminho fora das raízes permitidas', async () => {
   const permitido = { roots: [projectTree] }
   assert.equal(await isPathAllowed('/etc/passwd', permitido), false)

@@ -8,7 +8,7 @@ import { store, useStore } from './state/store'
 import { Toolbar } from './toolbar'
 
 export function App(): JSX.Element {
-  const { loading, bootError, workspace, sidebarCollapsed, newTerminalOpen, editTerminalId } =
+  const { loading, bootError, workspace, sidebarCollapsed, newTerminalOpen, newTerminalFrame, editTerminalId } =
     useStore()
   const [boot, setBoot] = useState<BootInfo | null>(null)
 
@@ -36,9 +36,20 @@ export function App(): JSX.Element {
     }
   }, [])
 
-  /** Nasce centrado na viewport (560×360 é o tamanho que o main dá ao nó). */
+  /**
+   * Nasce na área que o usuário desenhou antes de abrir o diálogo. Sem área
+   * (criação por outro caminho), cai no centro da viewport.
+   */
   const createTerminal = (draft: TerminalDraft): void => {
+    const frame = newTerminalFrame
     store.closeNewTerminal()
+    if (frame) {
+      void store.createTerminal(draft, { x: frame.x, y: frame.y }, {
+        width: frame.width,
+        height: frame.height
+      })
+      return
+    }
     const c = viewport.toCanvas({ x: viewport.width / 2, y: viewport.height / 2 })
     void store.createTerminal(draft, { x: c.x - 280, y: c.y - 180 })
   }

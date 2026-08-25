@@ -155,6 +155,11 @@ button { font: inherit; color: inherit; }
 
 .toolbar-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
 
+.connecting-hint.is-notice {
+  background: var(--rope-error); border: 0; cursor: pointer;
+  font-family: inherit;
+}
+
 .connecting-hint {
   position: absolute; top: 52px; left: 50%; transform: translateX(-50%);
   background: var(--accent); color: #fff;
@@ -241,6 +246,27 @@ button { font: inherit; color: inherit; }
   border: 1px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
+
+/* Área sendo desenhada para um componente novo: tracejada, para não se
+   confundir com a seleção em área, que é sólida. */
+.marquee.is-placement {
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* Medida da área, no canto de dentro: o usuário vê o tamanho que vai receber —
+   inclusive quando o piso do tipo segura o retângulo. */
+.placement-size {
+  position: absolute; right: 4px; bottom: 3px;
+  font-size: 10px; font-variant-numeric: tabular-nums;
+  color: #fff; background: var(--accent);
+  padding: 1px 5px; border-radius: 4px;
+}
+
+/* Modo "desenhe a área": o cursor precisa dizer que o clique não seleciona. */
+.canvas-host.is-placing { cursor: crosshair; }
+.canvas-host.is-placing .nodes-layer { pointer-events: none; }
 
 .canvas-hud {
   position: absolute; right: 10px; bottom: 10px;

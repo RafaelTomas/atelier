@@ -10,7 +10,7 @@ const THEMES: { id: ThemeMode; icon: string; label: string }[] = [
 ]
 
 export function Toolbar(): JSX.Element {
-  const { workspace, connectingFrom, sidebarCollapsed, theme } = useStore()
+  const { workspace, connectingFrom, placing, notice, sidebarCollapsed, theme } = useStore()
   const [themeMenu, setThemeMenu] = useState(false)
 
   useEffect(() => {
@@ -85,6 +85,25 @@ export function Toolbar(): JSX.Element {
           clique no nó de destino para conectar · Esc cancela
         </div>
       )}
+
+      {notice && (
+        <button type="button" className="connecting-hint is-notice" onClick={() => store.dismissNotice()}>
+          {notice}
+        </button>
+      )}
+
+      {placing && (
+        <div className="connecting-hint">
+          arraste no canvas para definir a área {articleFor(placing.label)} · clique só
+          usa o tamanho padrão · Esc cancela
+        </div>
+      )}
     </header>
   )
+}
+
+/** "da nota" / "do terminal" — o rótulo do item vem sem artigo. */
+function articleFor(label: string): string {
+  const feminine = /^(nota|legenda|árvore)/.test(label)
+  return `${feminine ? 'da' : 'do'} ${label}`
 }

@@ -156,8 +156,8 @@ que está ligado.
 | Seleção em área | Arrastar no vazio |
 | Apagar | `Delete` |
 | Ações do terminal | Selecionar — a barra sobe acima do nó |
-| Criar nota | Botão direito no vazio |
-| Criar terminal | Ícone de terminal na dock |
+| Criar nota rápida | Botão direito no vazio |
+| Criar qualquer componente | Escolher na dock, depois arrastar a área no canvas |
 
 Só o que está na tela (mais 200px de margem) existe no DOM — o canvas aguenta
 centenas de nós sem engasgar.
@@ -170,6 +170,14 @@ centenas de nós sem engasgar.
 | **Nota** | Um arquivo `.md` em disco, editável no canvas e legível pelos agentes |
 | **Texto** | Rótulo solto no canvas, para organizar visualmente |
 | **Portal** | Um navegador embutido (`<webview>`), com barra de endereço e sessão isolada por nó |
+| **Documento PDF** | Um Portal apontando para `file://` — quem renderiza é o visor de PDF do Chromium |
+
+Nada nasce no clique da dock: o item arma o modo **desenhe a área** e o próximo
+arrasto no canvas define onde e de que tamanho o componente vai nascer — vale
+para terminal, nota, documento, PDF, árvore de arquivos, navegador e texto. Um
+clique seco, sem arrasto, usa o tamanho padrão daquele item no ponto clicado, e
+`Esc` cancela. No terminal e no PDF a área vem antes do diálogo: primeiro o
+espaço, depois o que vai dentro dele.
 
 Selecionar um nó desenha um anel tracejado azul em volta dele. No terminal, a
 seleção também traz uma barra logo acima do card com quatro ações: **ligar**
@@ -327,6 +335,24 @@ janela solta dentro do app.
 
 Ainda não portado: o comando `atelier portal` do CLI, que segue respondendo
 "não implementado".
+
+### PDF no canvas
+
+**Nota → Documento PDF** abre um seletor de arquivo e larga o PDF no canvas. Não
+é um tipo de nó novo: é um Portal com `currentURL` em `file://` e a barra de
+endereço escondida — quem desenha as páginas é o visor de PDF do Chromium, com
+os controles dele (zoom, busca, impressão) dentro do próprio nó.
+
+Reaproveitar o Portal não é economia de código, é restrição de formato: o disco
+tem oito tipos de nó, fixados pelo `Codable` do app nativo, e um nono tipo
+quebraria o round-trip que o teste de codec garante. Como Portal, o nó vai e
+volta intacto — o app nativo abre o mesmo arquivo.
+
+A URL do arquivo é montada com `pathToFileURL` no processo principal, e não
+concatenada no renderer: é o que faz espaço, acento e letra de unidade do
+Windows virarem URL válida. O caminho fica salvo no workspace, então o nó reabre
+no mesmo documento; se o arquivo tiver sumido, aparece o mesmo aviso de falha
+dos outros portais.
 
 ### Desenho no canvas
 

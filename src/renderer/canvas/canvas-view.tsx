@@ -30,12 +30,14 @@ type Interaction =
   | { kind: 'dragging'; id: UUID; start: Point; frame: Rect }
   | { kind: 'resizing'; id: UUID; start: Point; frame: Rect }
   | { kind: 'marquee'; start: Point; current: Point }
+  | { kind: 'placing'; start: Point }
   | { kind: 'drawing' }
 
 const DRAG_THRESHOLD = 3 // px de tela antes de virar arrasto de verdade
+const CLICK_SLOP = 12 // px de tela: abaixo disso o gesto de área é só um clique
 
 export function CanvasView(): JSX.Element {
-  const { workspace, selection, connectingFrom, tool, pen, roles, prefs, terminalStatus } =
+  const { workspace, selection, connectingFrom, placing, tool, pen, roles, prefs, terminalStatus } =
     useStore()
   const hostRef = useRef<HTMLDivElement>(null)
   const nodesRef = useRef<HTMLDivElement>(null)
@@ -48,6 +50,8 @@ export function CanvasView(): JSX.Element {
   const strokeTick = useRef(0)
   const [visibleIds, setVisibleIds] = useState<Set<UUID>>(new Set())
   const [marquee, setMarquee] = useState<Rect | null>(null)
+  /** Retângulo da área sendo desenhada para um componente novo. */
+  const [placeBox, setPlaceBox] = useState<Rect | null>(null)
   /** Menu do modo desenho, ancorado no ponto clicado. null = fechado. */
   const [drawMenu, setDrawMenu] = useState<DrawMenuState | null>(null)
   /** Espaço segurado: o canvas vira mão e qualquer arrasto é pan. */
@@ -183,6 +187,16 @@ export function CanvasView(): JSX.Element {
     }
     if (e.button !== 0) return
 
+    // Modo "desenhe a área": o clique não seleciona nem cria nada ainda, só
+    // começa o retângulo. Vem antes do hit test para funcionar por cima de
+    // qualquer nó — o componente novo pode nascer sobreposto, é escolha do usuário.
+    if (placing) {
+      const start = viewport.toCanvas(screenPoint(e))
+      interaction.current = { kind: 'placing', start }
+      setPlaceBox({ x: start.x, y: start.y, width: 0, height: 0 })
+      return
+    }
+
     const target = e.target as HTMLElement
     const sp = screenPoint(e)
     const cp = viewport.toCanvas(sp)
@@ -299,6 +313,11 @@ export function CanvasView(): JSX.Element {
           setMarquee(normalizeRect(state.start, cp))
           break
         }
+        case 'placing': {
+          const pending = store.getSnapshot().placing
+          setPlaceBox(clampToMin(normalizeRect(state.start, cp), pending?.minSize))
+          break
+        }
         case 'drawing': {
           const stroke = liveStroke.current
           if (stroke) {
@@ -357,6 +376,22 @@ export function CanvasView(): JSX.Element {
           setMarquee(null)
           break
         }
+        case 'placing': {
+          setPlaceBox(null)
+          const raw = normalizeRect(state.start, cp)
+          const pending = store.getSnapshot().placing
+          if (!pending) break
+          // Clique seco (sem arrasto de verdade) vale como "use o tamanho
+          // padrão aqui" — senão um clique acidental criaria um nó de 3px.
+          const dragged = Math.max(raw.width, raw.height) * viewport.zoom > CLICK_SLOP
+          const [w, h] = pending.defaultSize
+          store.completePlacing(
+            dragged
+              ? clampToMin(raw, pending.minSize)
+              : { x: raw.x - w / 2, y: raw.y - h / 2, width: w, height: h }
+          )
+          break
+        }
         case 'drawing': {
           const stroke = liveStroke.current
           liveStroke.current = null
@@ -409,6 +444,8 @@ export function CanvasView(): JSX.Element {
         for (const id of selection) void store.removeNode(id)
       }
       if (e.key === 'Escape') {
+        store.cancelPlacing()
+        setPlaceBox(null)
         store.startConnecting(null)
         setDrawMenu(null)
         store.setTool('select')
@@ -496,6 +533,7 @@ export function CanvasView(): JSX.Element {
       className={[
         'canvas-host',
         spacePan ? 'is-space-pan' : '',
+        placing ? 'is-placing' : '',
         connectingFrom ? 'is-connecting' : '',
         tool !== 'select' ? `tool-${tool}` : ''
       ]
@@ -551,6 +589,22 @@ export function CanvasView(): JSX.Element {
         />
       )}
 
+      {placeBox && (
+        <div
+          className="marquee is-placement"
+          style={{
+            left: (placeBox.x - viewport.origin.x) * viewport.zoom,
+            top: (placeBox.y - viewport.origin.y) * viewport.zoom,
+            width: placeBox.width * viewport.zoom,
+            height: placeBox.height * viewport.zoom
+          }}
+        >
+          <span className="placement-size">
+            {Math.round(placeBox.width)} × {Math.round(placeBox.height)}
+          </span>
+        </div>
+      )}
+
       {formatTarget && <FormatBar key={formatTarget.id} node={formatTarget} />}
 
       {actionTarget && <NodeActionBar key={actionTarget.id} node={actionTarget} />}
@@ -582,6 +636,12 @@ function pointSegmentDistance(p: Point, x1: number, y1: number, x2: number, y2: 
   // t = projeção normalizada do ponto no segmento, presa em [0,1]
   const t = Math.max(0, Math.min(1, ((p.x - x1) * dx + (p.y - y1) * dy) / lenSq))
   return Math.hypot(p.x - (x1 + t * dx), p.y - (y1 + t * dy))
+}
+
+/** Não deixa a área cair abaixo do piso do tipo, mantendo o canto de origem. */
+function clampToMin(rect: Rect, min?: [number, number]): Rect {
+  if (!min) return rect
+  return { ...rect, width: Math.max(rect.width, min[0]), height: Math.max(rect.height, min[1]) }
 }
 
 function normalizeRect(a: Point, b: Point): Rect {

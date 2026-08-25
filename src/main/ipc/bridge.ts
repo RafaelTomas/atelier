@@ -4,6 +4,7 @@
  * O renderer NUNCA toca em disco, em PTY ou em socket: tudo passa por aqui,
  * o que preserva a regra do app nativo de que toda I/O é centralizada.
  */
+import { pathToFileURL } from 'node:url'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
   AgentRole,
@@ -74,6 +75,25 @@ function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeConte
         type: 'fileTree',
         value: makeFileTreeContent(String(opts.name ?? 'Files'), String(opts.rootPath ?? ''))
       }
+  }
+}
+
+/**
+ * Piso por tipo. A área é desenhada pelo usuário, e um retângulo de 20px
+ * criaria um terminal onde nem o cabeçalho cabe.
+ */
+function minSize(kind: NewNodeKind): { width: number; height: number } {
+  switch (kind) {
+    case 'terminal':
+      return { width: Constants.terminalMinWidth, height: Constants.terminalMinHeight }
+    case 'note':
+      return { width: Constants.noteMinWidth, height: Constants.noteMinHeight }
+    case 'portal':
+      return { width: 240, height: 180 }
+    case 'fileTree':
+      return { width: 180, height: 140 }
+    case 'text':
+      return { width: 80, height: 32 }
   }
 }
 
@@ -155,12 +175,20 @@ export function registerIPC(): void {
       workspaceId: UUID,
       kind: NewNodeKind,
       position: Point,
-      opts: Record<string, unknown> = {}
+      opts: Record<string, unknown> = {},
+      // Área desenhada pelo usuário antes de criar o nó; sem ela vale o padrão.
+      requested?: { width: number; height: number }
     ): Promise<CanvasNode | null> => {
       const ws = appState.workspaces.get(workspaceId)
       if (!ws) return null
 
-      const size = defaultSize(kind)
+      const floor = minSize(kind)
+      const size = requested
+        ? {
+            width: Math.max(requested.width, floor.width),
+            height: Math.max(requested.height, floor.height)
+          }
+        : defaultSize(kind)
       const content = contentFor(kind, opts)
       const node = makeCanvasNode({ x: position.x, y: position.y, ...size }, content)
       ws.addNode(node)
@@ -245,6 +273,21 @@ export function registerIPC(): void {
       ? await dialog.showOpenDialog(win, options)
       : await dialog.showOpenDialog(options)
     return result.canceled ? null : result.filePaths[0] ?? null
+  })
+
+  /**
+   * Escolhe um arquivo e devolve também a URL `file://` dele — a conversão fica
+   * aqui porque `pathToFileURL` resolve espaço, acento e letra de unidade do
+   * Windows, que uma concatenação no renderer erraria.
+   */
+  ipcMain.handle('dialog:choose-file', async (e, filters?: Electron.FileFilter[]) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const options: Electron.OpenDialogOptions = { properties: ['openFile'], filters }
+    const result = win
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options)
+    const path = result.canceled ? null : result.filePaths[0] ?? null
+    return path ? { path, url: pathToFileURL(path).href } : null
   })
 
   // ─── Conexões ───────────────────────────────────────────────────────────────

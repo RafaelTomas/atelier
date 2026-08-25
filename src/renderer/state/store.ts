@@ -42,6 +42,23 @@ export interface PenSettings {
   lineWidth: number
 }
 
+/**
+ * Intenção de criar um componente, pendurada até o usuário desenhar a área.
+ *
+ * O `finish` vem de quem pediu (a dock): assim o canvas só cuida do gesto, e
+ * cada item continua dono da própria receita de criação — inclusive as que
+ * abrem diálogo depois da área, como Terminal e Documento PDF.
+ */
+export interface Placement {
+  /** Aparece na dica: "arraste para definir a área do terminal". */
+  label: string
+  /** Tamanho usado quando o gesto é um clique, sem arrasto. */
+  defaultSize: [number, number]
+  /** Piso do tipo: área menor que isto é elevada antes de virar nó. */
+  minSize: [number, number]
+  finish: (frame: Rect) => void
+}
+
 export interface AppSnapshot {
   entries: WorkspaceEntry[]
   activeId: UUID | null
@@ -49,6 +66,8 @@ export interface AppSnapshot {
   selection: UUID[]
   /** Nó de origem enquanto o usuário arrasta uma conexão nova. */
   connectingFrom: UUID | null
+  /** Componente esperando o usuário desenhar a área onde vai nascer. */
+  placing: Placement | null
   /** Sidebar recolhida — espelha preferences.sidebarCollapsed. */
   sidebarCollapsed: boolean
   /** Tema escolhido — espelha preferences.theme. */
@@ -60,6 +79,8 @@ export interface AppSnapshot {
   roles: AgentRole[]
   /** Diálogo "Novo Terminal" aberto — a dock dispara, o App renderiza. */
   newTerminalOpen: boolean
+  /** Área desenhada antes do diálogo abrir — o terminal nasce nela. */
+  newTerminalFrame: Rect | null
   /** Terminal aberto no diálogo em modo edição. null = ninguém editando. */
   editTerminalId: UUID | null
   /**
@@ -71,6 +92,8 @@ export interface AppSnapshot {
   terminalStatus: Record<UUID, AgentStatus>
   /** Espelho de preferences.json — hoje lido para os temas de terminal. */
   prefs: Preferences | null
+  /** Aviso passageiro na barra — some sozinho. */
+  notice: string | null
   loading: boolean
   bootError: string | null
 }
@@ -81,16 +104,19 @@ const initial: AppSnapshot = {
   workspace: null,
   selection: [],
   connectingFrom: null,
+  placing: null,
   sidebarCollapsed: false,
   theme: 'system',
   tool: 'select',
   pen: { color: '#e0245e', lineWidth: 3 },
   roles: [],
   newTerminalOpen: false,
+  newTerminalFrame: null,
   editTerminalId: null,
   terminalEpoch: {},
   terminalStatus: {},
   prefs: null,
+  notice: null,
   loading: true,
   bootError: null
 }
@@ -98,6 +124,7 @@ const initial: AppSnapshot = {
 class Store {
   private state: AppSnapshot = initial
   private listeners = new Set<() => void>()
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null
 
   getSnapshot = (): AppSnapshot => this.state
 
@@ -183,15 +210,27 @@ class Store {
   async addNode(
     kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree',
     position: { x: number; y: number },
-    opts: Record<string, unknown> = {}
+    opts: Record<string, unknown> = {},
+    size?: { width: number; height: number }
   ): Promise<CanvasNode | null> {
     const id = this.workspaceId
     if (!id) return null
-    const node = await window.atelier.node.add(id, kind, position, opts)
-    if (node) {
-      this.mutateWorkspace((ws) => ws.nodes.push(node))
-      this.set({ selection: [node.id] })
+    const created = await window.atelier.node.add(id, kind, position, opts, size)
+    if (!created) return null
+
+    // O renderer é quem manda no tamanho: ele já aplicou o piso do tipo antes
+    // de pedir. Se o nó voltou com outra medida, a ponte não entendeu o pedido
+    // (é o que acontece com um preload velho, em dev sem reiniciar) — corrige
+    // em vez de deixar o usuário com um nó do tamanho errado.
+    let node = created
+    if (size && (created.frame.width !== size.width || created.frame.height !== size.height)) {
+      const frame = { ...created.frame, width: size.width, height: size.height }
+      await window.atelier.node.setFrame(id, created.id, frame)
+      node = { ...created, frame }
     }
+
+    this.mutateWorkspace((ws) => ws.nodes.push(node))
+    this.set({ selection: [node.id] })
     return node
   }
 
@@ -279,12 +318,12 @@ class Store {
    * e backdrop-filter, e os dois viram bloco contedor de `position: fixed` —
    * o overlay ficaria preso dentro da pill.
    */
-  openNewTerminal(): void {
-    this.set({ newTerminalOpen: true })
+  openNewTerminal(frame: Rect | null = null): void {
+    this.set({ newTerminalOpen: true, newTerminalFrame: frame })
   }
 
   closeNewTerminal(): void {
-    this.set({ newTerminalOpen: false })
+    this.set({ newTerminalOpen: false, newTerminalFrame: null })
   }
 
   /**
@@ -292,8 +331,12 @@ class Store {
    * qualquer outro nó — o main é que valida a responsabilidade e monta o
    * TerminalContent.
    */
-  async createTerminal(draft: TerminalDraft, position: { x: number; y: number }): Promise<CanvasNode | null> {
-    return this.addNode('terminal', position, { ...draft })
+  async createTerminal(
+    draft: TerminalDraft,
+    position: { x: number; y: number },
+    size?: { width: number; height: number }
+  ): Promise<CanvasNode | null> {
+    return this.addNode('terminal', position, { ...draft }, size)
   }
 
   openEditTerminal(nodeId: UUID): void {
@@ -324,6 +367,24 @@ class Store {
     const status = { ...this.state.terminalStatus }
     delete status[nodeId]
     this.set({ terminalEpoch: { ...epoch, [nodeId]: (epoch[nodeId] ?? 0) + 1 }, terminalStatus: status })
+  }
+
+  /**
+   * Mostra um aviso na barra por alguns segundos.
+   *
+   * Existe porque falha de IPC no renderer não tem para onde ir: sem isto, uma
+   * chamada que rejeita vira `void` engolido e o usuário fica achando que o
+   * clique não fez nada.
+   */
+  showNotice(text: string): void {
+    this.set({ notice: text })
+    if (this.noticeTimer) clearTimeout(this.noticeTimer)
+    this.noticeTimer = setTimeout(() => this.set({ notice: null }), 7000)
+  }
+
+  dismissNotice(): void {
+    if (this.noticeTimer) clearTimeout(this.noticeTimer)
+    this.set({ notice: null })
   }
 
   setTerminalStatus(nodeId: UUID, status: AgentStatus): void {
@@ -411,7 +472,25 @@ class Store {
   }
 
   startConnecting(from: UUID | null): void {
-    this.set({ connectingFrom: from })
+    // Os dois modos disputam o mesmo clique no canvas: entrar num cancela o outro.
+    this.set({ connectingFrom: from, placing: from ? null : this.state.placing })
+  }
+
+  /** Liga o modo "desenhe a área": o próximo arrasto no canvas cria o nó. */
+  startPlacing(placing: Placement): void {
+    this.set({ placing, connectingFrom: null, selection: [] })
+  }
+
+  cancelPlacing(): void {
+    if (this.state.placing) this.set({ placing: null })
+  }
+
+  /** Chamado pelo canvas quando a área ficou pronta. */
+  completePlacing(frame: Rect): void {
+    const placing = this.state.placing
+    if (!placing) return
+    this.set({ placing: null })
+    placing.finish(frame)
   }
 
   /** Recarrega do main — usado quando o CLI muda o canvas por fora. */

@@ -56,9 +56,10 @@ const api = {
       workspaceId: UUID,
       kind: NewNodeKind,
       position: Point,
-      opts?: Record<string, unknown>
+      opts?: Record<string, unknown>,
+      size?: { width: number; height: number }
     ): Promise<CanvasNode | null> =>
-      ipcRenderer.invoke('node:add', workspaceId, kind, position, opts ?? {}),
+      ipcRenderer.invoke('node:add', workspaceId, kind, position, opts ?? {}, size),
     remove: (workspaceId: UUID, nodeId: UUID): Promise<void> =>
       ipcRenderer.invoke('node:remove', workspaceId, nodeId),
     setFrame: (workspaceId: UUID, nodeId: UUID, frame: Rect): Promise<void> =>
@@ -83,7 +84,12 @@ const api = {
 
   dialog: {
     chooseDirectory: (current?: string): Promise<string | null> =>
-      ipcRenderer.invoke('dialog:choose-directory', current)
+      ipcRenderer.invoke('dialog:choose-directory', current),
+    /** Arquivo + a URL `file://` pronta para o <webview>. null = cancelou. */
+    chooseFile: (
+      filters?: { name: string; extensions: string[] }[]
+    ): Promise<{ path: string; url: string } | null> =>
+      ipcRenderer.invoke('dialog:choose-file', filters)
   },
 
   connection: {

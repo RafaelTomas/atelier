@@ -45,10 +45,17 @@ export function normalizeURL(input: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(raw)}`
 }
 
-/** Rótulo curto para o header: o host, sem `www.`. */
+/**
+ * Rótulo curto: o host sem `www.` — ou o nome do arquivo, quando o portal está
+ * mostrando um documento local (`file://`), onde host é string vazia.
+ */
 function hostLabel(url: string): string {
   try {
-    return new URL(url).host.replace(/^www\./, '')
+    const parsed = new URL(url)
+    if (parsed.protocol === 'file:') {
+      return decodeURIComponent(parsed.pathname.split('/').pop() || url)
+    }
+    return parsed.host.replace(/^www\./, '')
   } catch {
     return url
   }

@@ -1738,3 +1738,28 @@ button { font: inherit; color: inherit; }
   color: var(--text-dim); overflow-wrap: anywhere;
 }
 .git-popover-feedback.is-error { color: var(--rope-error); border-color: var(--rope-error); }
+
+/* ─── Minimapa ────────────────────────────────────────────────────────────── */
+
+/* Canto inferior direito: a dock ocupa o centro da base e a sidebar a
+   esquerda. O `bottom` alinha com a dock (18px) para os dois assentarem na
+   mesma linha. */
+.minimap {
+  /* z-index 50: acima da prévia de conexão (40), abaixo das barras de nó e do
+     aviso de projetos (60) — uma barra ancorada num nó do canto de baixo tem
+     de continuar clicável por cima do mapa. */
+  position: absolute; right: 14px; bottom: 18px; z-index: 50;
+  padding: 6px; border-radius: 10px;
+  border: 1px solid var(--dock-border);
+  background: var(--dock-bg);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 20px rgb(0 0 0 / .22);
+  cursor: pointer;
+  /* O mapa é alvo de arrasto: sem isto o gesto seleciona a página em volta. */
+  user-select: none;
+}
+.minimap:hover { border-color: var(--dock-fg); }
+
+/* block: o <canvas> é inline por padrão, e a linha de base deixaria uma
+   faixa de alguns pixels embaixo, desalinhando o padding. */
+.minimap canvas { display: block; border-radius: 5px; background: var(--canvas-bg); }

@@ -21,6 +21,7 @@ import { Dock } from '../dock'
 import { CanvasBackground } from './background'
 import { DrawingsLayer, type LiveStroke } from './drawings-layer'
 import { DrawMenu, type DrawMenuState } from './draw-menu'
+import { Minimap } from './minimap'
 import { ConnectionsLayer } from './connections-layer'
 import { ConnectionPreview, canLink } from './connection-preview'
 import { CULL_MARGIN, rectsIntersect, viewport } from './viewport'
@@ -660,6 +661,10 @@ export function CanvasView(): JSX.Element {
           </span>
         </div>
       )}
+
+      {/* Fora da .nodes-layer: o minimapa é UI de tela, não conteúdo do
+          canvas — dentro dela ele seria transformado junto no pan e no zoom. */}
+      <Minimap />
 
       {formatTarget && <FormatBar key={formatTarget.id} node={formatTarget} />}
 

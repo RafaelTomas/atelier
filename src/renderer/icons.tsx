@@ -88,6 +88,51 @@ export function IconFolder(p: IconProps): JSX.Element {
   )
 }
 
+/**
+ * Quatro quadros numa grade 2×2 — a mesma leitura do logo do Windows, que é o
+ * ícone universal de "os seus espaços, escolha um". Vazado como o resto do
+ * conjunto: preenchido, brigaria com o azul do estado ativo.
+ */
+export function IconWindows(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+    </Svg>
+  )
+}
+
+/**
+ * Caixa fechada — o projeto como unidade, não como pasta. A distinção importa
+ * porque a aba ao lado é justamente a de pastas e arquivos.
+ */
+export function IconCube(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M12 3 20.5 7.5v9L12 21l-8.5-4.5v-9z" />
+      <path d="m3.5 7.5 8.5 4.5 8.5-4.5M12 12v9" />
+    </Svg>
+  )
+}
+
+/**
+ * Ramo saindo do tronco e voltando — o glifo que todo mundo já lê como Git.
+ * Os três círculos são commits; sem eles a forma vira só uma chave.
+ */
+export function IconBranch(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <circle cx="7" cy="5.5" r="2.2" />
+      <circle cx="7" cy="18.5" r="2.2" />
+      <circle cx="17" cy="7.5" r="2.2" />
+      <path d="M7 7.7v8.6" />
+      <path d="M17 9.7v1.8a4 4 0 0 1-4 4H7" />
+    </Svg>
+  )
+}
+
 export function IconGlobe(p: IconProps): JSX.Element {
   return (
     <Svg {...p}>

@@ -1,5 +1,5 @@
 /**
- * Codec de workspace.json (schemaVersion 2, formato Maestri).
+ * Codec de workspace.json (schemaVersion 3, formato Maestri).
  *
  * Em disco as conexões vivem em SEIS arrays separados, cada um com nomes de
  * campo próprios. Em memória normalizamos tudo num único Connection[] com um
@@ -225,11 +225,27 @@ function decodeDrawings(value: unknown): Drawing[] {
 
 // ─── WorkspacePayload ─────────────────────────────────────────────────────────
 
-export function decodeWorkspacePayload(value: unknown): WorkspacePayload {
+/**
+ * Contagem do que o decoder DESCARTOU — a rede contra a perda silenciosa.
+ *
+ * Um nó cuja variante este binário não conhece (porque veio de uma versão mais
+ * nova, ou de um arquivo editado à mão) é filtrado aqui e sumiria de vez no
+ * primeiro autosave. Contar é o que permite ao app perceber isso e travar a
+ * escrita antes de destruir o arquivo — ver o modo seguro em app-state.ts.
+ */
+export interface DecodeDiagnostics {
+  /** Nós lidos do arquivo que não sobreviveram à decodificação. */
+  droppedNodes: number
+}
+
+export function decodeWorkspacePayload(
+  value: unknown,
+  diagnostics?: DecodeDiagnostics
+): WorkspacePayload {
   const raw = asRecord(value)
-  const nodes = Array.isArray(raw.nodes)
-    ? raw.nodes.map(decodeCanvasNode).filter((n): n is CanvasNode => n !== null)
-    : []
+  const rawNodes = Array.isArray(raw.nodes) ? raw.nodes : []
+  const nodes = rawNodes.map(decodeCanvasNode).filter((n): n is CanvasNode => n !== null)
+  if (diagnostics) diagnostics.droppedNodes += rawNodes.length - nodes.length
 
   return {
     id: normalizeUUID(raw.id),
@@ -301,12 +317,17 @@ export function makeWorkspacePayload(name: string, workingDirectory: string): Wo
 
 export function decodeWorkspaceDocument(value: unknown): {
   payload: WorkspacePayload
+  /** A versão que ESTAVA no arquivo, antes de qualquer migração. */
   schemaVersion: number
+  droppedNodes: number
 } {
   const raw = asRecord(value)
+  const diagnostics: DecodeDiagnostics = { droppedNodes: 0 }
+  const payload = decodeWorkspacePayload(raw.payload, diagnostics)
   return {
-    payload: decodeWorkspacePayload(raw.payload),
-    schemaVersion: num(raw.schemaVersion, 1)
+    payload,
+    schemaVersion: num(raw.schemaVersion, 1),
+    droppedNodes: diagnostics.droppedNodes
   }
 }
 

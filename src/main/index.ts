@@ -18,6 +18,7 @@ import { installSkillsIfNeeded } from './core/connection/skill-injector'
 import { appState } from './core/state/app-state'
 import { scanOnLaunch } from './core/projects/scan-controller'
 import { terminals } from './core/terminal/terminal-manager'
+import { fileWatcher } from './core/projects/file-watcher'
 import { registerIPC } from './ipc/bridge'
 import { createMainWindow } from './window'
 
@@ -117,6 +118,7 @@ app.on('before-quit', (event) => {
     try {
       interAgentServer.stop()
       terminals.killAll()
+      await fileWatcher.closeAll()
       await appState.shutdown()
     } catch (err) {
       log.error('boot', 'erro no shutdown', err)

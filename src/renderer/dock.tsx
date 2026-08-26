@@ -25,7 +25,9 @@ import {
   IconText
 } from './icons'
 import { HOME_URL } from './nodes/portal-node'
+import { truncateStart } from './paths'
 import { store, useStore } from './state/store'
+import { PDF_NODE_SIZE } from './pdf-viewer'
 
 /**
  * Piso por tipo, em pontos de canvas. Mora aqui, e não só no processo
@@ -48,7 +50,7 @@ interface MenuItem {
 }
 
 export function Dock(): JSX.Element {
-  const { tool } = useStore()
+  const { tool, workspace } = useStore()
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const dockRef = useRef<HTMLDivElement>(null)
 
@@ -148,10 +150,11 @@ export function Dock(): JSX.Element {
       hint: 'abre um arquivo e renderiza no canvas',
       run: () => {
         setOpenMenu(null)
-        // Proporção de página em pé como padrão do clique seco.
+        // Página em pé, e estreita o bastante para o visor do Chromium não
+        // abrir a barra de miniaturas — ver pdf-viewer.ts.
         store.startPlacing({
           label: 'documento PDF',
-          defaultSize: [560, 720],
+          defaultSize: PDF_NODE_SIZE,
           minSize: MIN_SIZE.portal,
           finish: (frame) => void openPDF(frame)
         })
@@ -188,13 +191,69 @@ export function Dock(): JSX.Element {
     create('portal', frame, { url: chosen.url, name }, { chromeHidden: true })
   }
 
+  /**
+   * A pasta vem do seletor do sistema, DEPOIS da área — o mesmo compasso do
+   * Documento PDF.
+   *
+   * O item que existia aqui prometia "a pasta do workspace" e não passava
+   * rootPath nenhum: o nó nascia vazio, com a mensagem de "nenhuma pasta
+   * definida", e não havia como consertá-lo a não ser apagando. Escolher a
+   * pasta é o que o item sempre deveria ter feito.
+   */
+  const openPickedTree = async (frame: Rect): Promise<void> => {
+    const picker = window.atelier.dialog.chooseDirectory
+    if (typeof picker !== 'function') {
+      store.showNotice('seletor de pasta indisponível — reinicie o app (npm run dev)')
+      return
+    }
+    let chosen: string | null = null
+    try {
+      chosen = await picker(workspace?.workingDirectory || undefined)
+    } catch (err) {
+      store.showNotice(`não foi possível abrir o seletor: ${(err as Error).message}`)
+      return
+    }
+    if (!chosen) return // cancelou: nada de nó vazio
+    create('fileTree', frame, { name: folderName(chosen), rootPath: chosen })
+  }
+
   const FILE_MENU: MenuItem[] = [
     {
-      id: 'tree',
-      label: 'Árvore de arquivos',
-      hint: 'a pasta do workspace',
-      run: () => add('fileTree', [300, 420], {}, undefined, 'árvore de arquivos')
+      id: 'tree-pick',
+      label: 'Escolher pasta…',
+      hint: 'abre o seletor do sistema',
+      run: () => {
+        setOpenMenu(null)
+        store.startPlacing({
+          label: 'árvore de arquivos',
+          defaultSize: [300, 420],
+          minSize: MIN_SIZE.fileTree,
+          finish: (frame) => void openPickedTree(frame)
+        })
+      }
     },
+    // Só aparece quando há diretório de trabalho: sem ele o item criaria
+    // exatamente o nó vazio que este conserto veio eliminar.
+    ...(workspace?.workingDirectory
+      ? [
+          {
+            id: 'tree-ws',
+            label: 'Pasta do workspace',
+            hint: truncateStart(workspace.workingDirectory, 26),
+            run: () =>
+              add(
+                'fileTree',
+                [300, 420],
+                {
+                  name: folderName(workspace.workingDirectory),
+                  rootPath: workspace.workingDirectory
+                },
+                undefined,
+                'árvore de arquivos'
+              )
+          }
+        ]
+      : []),
     {
       id: 'tree-home',
       label: 'Árvore na home',
@@ -413,4 +472,9 @@ function DockMenuButton({ label, items, open, onToggle, children }: DockMenuButt
       )}
     </div>
   )
+}
+
+/** Último componente do caminho — vira o nome do nó. */
+function folderName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() || 'Arquivos'
 }

@@ -272,6 +272,9 @@ atelier check "Codex" 40                  # últimas 40 linhas da saída dele
 atelier note read "Spec"                  # lê uma nota conectada
 atelier note write "Spec" "conteúdo"      # reescreve
 atelier note create "rascunho"            # cria já conectada a mim
+atelier portal open localhost:5173        # abre um navegador já conectado a mim
+atelier portal read "Dev"                 # o texto visível da página
+atelier portal shot "Dev"                 # captura em PNG, devolve o caminho
 atelier role                              # qual é a minha responsabilidade?
 atelier role list                         # as responsabilidades disponíveis
 atelier projects list [--pending]         # o índice de projetos do usuário
@@ -289,9 +292,9 @@ descrever o projeto errado em silêncio.
 `check` em vez de reenviar o prompt** — reenviar interrompe quem ainda está
 trabalhando.
 
-Comandos do app nativo que ainda não foram portados (`portal`, `recruit`,
-`dismiss`, `connect`, `preset`) respondem com uma mensagem explícita de
-"não implementado" em vez de falhar em silêncio.
+Comandos do app nativo que ainda não foram portados (`recruit`, `dismiss`,
+`connect`, `preset`) respondem com uma mensagem explícita de "não
+implementado" em vez de falhar em silêncio.
 
 ### Como isso funciona por baixo
 
@@ -389,8 +392,25 @@ entre portais). A URL é persistida a cada navegação concluída, então o nó 
 onde parou. Popups (`target=_blank`) vão para o navegador do sistema, não abrem
 janela solta dentro do app.
 
-Ainda não portado: o comando `atelier portal` do CLI, que segue respondendo
-"não implementado".
+E o que um agente conectado faz com isso: `atelier portal open <url>` cria um
+portal já ligado ao terminal, `read` devolve o texto visível da página, `html`
+o markup (com seletor opcional), `shot` grava um PNG e imprime o caminho. Um
+portal fora da viewport ou com o zoom no fundo é **acordado** para a leitura e
+solto depois — o webview só existe enquanto montado, e manter todos de pé
+custaria um processo de renderização por nó. Não há `eval`: essas sessões
+costumam estar logadas como o usuário.
+
+Popup abre **dentro do canvas**. Um `target=_blank` ou `window.open` vira um nó
+Portal novo, ligado ao pai pelo cabo portal↔portal e **herdando a partição** —
+sem isso ele nasceria com sessão vazia, e o link autenticado que o usuário
+clicou abriria na tela de login. A preferência `portalPopups` troca esse padrão
+por navegar no próprio nó (`same`) ou mandar para o navegador do sistema
+(`system`).
+
+Detalhe de arquitetura que custou o bug: o `setWindowOpenHandler` da janela
+principal **não** vale para o `<webview>`, que roda num `webContents` convidado
+e não herda handler nenhum do host. O handler é armado no guest, do lado do
+main, assim que o nó se registra.
 
 ### PDF no canvas
 

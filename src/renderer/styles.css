@@ -28,6 +28,15 @@
   /* Largura do painel lateral. Escrita aqui pelo arrasto (ver sidebar.tsx) e
      relida das preferências no boot. */
   --sidebar-width: 220px;
+  /* Geometria do canto do canvas. O minimapa e a barra de zoom têm a MESMA
+     altura e a mesma linha de base, então ela mora num token só — dois números
+     soltos acabariam divergindo no primeiro ajuste. O 132 é a altura do
+     <canvas> do mapa (ver HEIGHT em canvas/minimap.tsx); o resto é padding
+     e borda. */
+  --corner-height: 146px;
+  --corner-gap: 8px;
+  --corner-inset: 14px;
+  --zoom-bar-width: 38px;
 }
 
 /* Modo sistema: escuro só quando o SO pede E o usuário não forçou claro. */
@@ -1748,9 +1757,15 @@ button { font: inherit; color: inherit; }
   /* z-index 50: acima da prévia de conexão (40), abaixo das barras de nó e do
      aviso de projetos (60) — uma barra ancorada num nó do canto de baixo tem
      de continuar clicável por cima do mapa. */
-  /* `right` deixa a coluna da barra de zoom livre: 14 da borda + 34 de largura
-     + 8 de respiro. Os dois compartilham a mesma linha de base. */
-  position: absolute; right: 56px; bottom: 18px; z-index: 50;
+  /* `right` deixa a coluna da barra de zoom livre. Os dois compartilham a
+     mesma linha de base e a mesma altura (--corner-height). */
+  position: absolute; z-index: 50;
+  right: calc(var(--corner-inset) + var(--zoom-bar-width) + var(--corner-gap));
+  bottom: 18px;
+  /* Altura fixada no mesmo token da barra de zoom, e não deixada a cargo do
+     <canvas> de dentro: assim mudar o tamanho do mapa não desalinha os dois
+     em silêncio. box-sizing garante que o padding não some por fora. */
+  box-sizing: border-box; height: var(--corner-height);
   padding: 6px; border-radius: 10px;
   border: 1px solid var(--dock-border);
   background: var(--dock-bg);
@@ -1791,10 +1806,16 @@ button { font: inherit; color: inherit; }
    faixa estreita encostada na borda: em linha, ela empurraria o mapa para o
    meio da tela. */
 .zoom-bar {
-  position: absolute; right: 14px; bottom: 18px; z-index: 50;
-  width: 34px;
-  display: flex; flex-direction: column; align-items: stretch; gap: 2px;
-  padding: 4px; border-radius: 10px;
+  position: absolute; z-index: 50;
+  right: var(--corner-inset); bottom: 18px;
+  width: var(--zoom-bar-width);
+  /* Mesma altura do minimapa: os dois formam um bloco, alinhados em cima e
+     embaixo. `space-between` distribui os quatro controles nela em vez de
+     empilhá-los no topo e deixar uma sobra morta embaixo. */
+  height: var(--corner-height);
+  display: flex; flex-direction: column; align-items: stretch;
+  justify-content: space-between;
+  padding: 4px; border-radius: 12px;
   border: 1px solid var(--dock-border);
   background: var(--dock-bg);
   backdrop-filter: blur(12px);
@@ -1812,22 +1833,25 @@ button { font: inherit; color: inherit; }
 .zoom-level:hover { background: var(--dock-hover); color: var(--dock-fg-strong); }
 .zoom-btn:disabled { opacity: .35; cursor: default; }
 
-.zoom-btn { height: 26px; font-size: 15px; }
+/* flex:1 divide a altura disponível entre os três botões; o rótulo e o
+   separador têm tamanho fixo e ficam de fora da divisão. */
+.zoom-btn { flex: 1; min-height: 24px; font-size: 16px; }
 
 /* Tabular-nums: sem isso o rótulo muda de largura entre "100%" e "75%" e a
    coluna inteira treme durante o zoom. */
 .zoom-level {
-  height: 22px; font-size: 10px; font-weight: 600;
+  flex-shrink: 0; height: 20px; font-size: 9px; font-weight: 600;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
   color: var(--dock-fg-strong);
 }
 
-.zoom-sep { height: 1px; margin: 2px 4px; background: var(--dock-border); }
+.zoom-sep { flex-shrink: 0; height: 1px; margin: 3px 6px; background: var(--dock-border); }
 
 /* Janela estreita: o dock é centrado e cresce para os dois lados, e abaixo de
    ~860px ele alcança o canto. Quem cede é o minimapa — a barra de zoom precisa
    continuar alcançável, e o mapa é o item de conveniência dos dois.
-   O canto passa a ter só a coluna de 34px, que o dock não alcança. */
+   O canto passa a ter só a coluna da barra de zoom, que o dock não alcança. */
 @media (max-width: 860px) {
   .minimap { display: none; }
 }

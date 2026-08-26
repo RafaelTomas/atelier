@@ -31,10 +31,44 @@ type Interaction =
   | { kind: 'panning'; last: Point }
   | { kind: 'mayDrag'; id: UUID; start: Point; frame: Rect }
   | { kind: 'dragging'; id: UUID; start: Point; frame: Rect }
-  | { kind: 'resizing'; id: UUID; start: Point; frame: Rect }
+  | { kind: 'resizing'; id: UUID; start: Point; frame: Rect; edge: ResizeEdge }
   | { kind: 'marquee'; start: Point; current: Point }
   | { kind: 'placing'; start: Point }
   | { kind: 'drawing' }
+
+/**
+ * De qual borda o redimensionamento partiu. As letras se combinam: 'nw' é a
+ * quina superior esquerda, e o teste é por `includes`, não por igualdade.
+ */
+type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
+
+/** Piso do nó ao redimensionar. Abaixo disto nem o cabeçalho cabe. */
+const MIN_NODE_WIDTH = 120
+const MIN_NODE_HEIGHT = 60
+
+/**
+ * O frame novo a partir da borda arrastada.
+ *
+ * A regra que faz o gesto parecer natural: a borda OPOSTA à arrastada não se
+ * move. Por isso puxar pela esquerda muda `x` e `width` juntos — e o clamp do
+ * mínimo entra na largura ANTES de recalcular `x`, senão a borda direita
+ * escorregaria ao encostar no piso.
+ */
+function resizeFrame(frame: Rect, edge: ResizeEdge, dx: number, dy: number): Rect {
+  let { x, y, width, height } = frame
+
+  if (edge.includes('e')) width = Math.max(MIN_NODE_WIDTH, frame.width + dx)
+  if (edge.includes('s')) height = Math.max(MIN_NODE_HEIGHT, frame.height + dy)
+  if (edge.includes('w')) {
+    width = Math.max(MIN_NODE_WIDTH, frame.width - dx)
+    x = frame.x + frame.width - width
+  }
+  if (edge.includes('n')) {
+    height = Math.max(MIN_NODE_HEIGHT, frame.height - dy)
+    y = frame.y + frame.height - height
+  }
+  return { x, y, width, height }
+}
 
 const DRAG_THRESHOLD = 3 // px de tela antes de virar arrasto de verdade
 const CLICK_SLOP = 12 // px de tela: abaixo disso o gesto de área é só um clique
@@ -319,7 +353,7 @@ export function CanvasView(): JSX.Element {
     // Cliques dentro do conteúdo do nó (terminal, editor) são do nó, não do canvas
     if (target.closest('[data-node-interactive]')) return
 
-    const handle = target.closest('[data-resize-handle]')
+    const handle = target.closest('[data-resize-handle]') as HTMLElement | null
     const nodeEl = target.closest('[data-node-id]') as HTMLElement | null
     const nodeId = nodeEl?.dataset.nodeId as UUID | undefined
     const node = nodeId ? nodes.find((n) => n.id === nodeId) : hitTest(cp)
@@ -343,7 +377,15 @@ export function CanvasView(): JSX.Element {
       if (!selection.includes(node.id)) store.select(e.shiftKey ? [...selection, node.id] : [node.id])
       void store.bringToFront(node.id)
       interaction.current = handle
-        ? { kind: 'resizing', id: node.id, start: cp, frame: { ...node.frame } }
+        ? {
+            kind: 'resizing',
+            id: node.id,
+            start: cp,
+            frame: { ...node.frame },
+            // Sem valor no atributo vale a quina de sempre — assim uma alça
+            // antiga no DOM continua funcionando durante um hot reload.
+            edge: (handle.dataset.resizeHandle as ResizeEdge) || 'se'
+          }
         : { kind: 'mayDrag', id: node.id, start: cp, frame: { ...node.frame } }
       return
     }
@@ -386,10 +428,13 @@ export function CanvasView(): JSX.Element {
         case 'resizing': {
           const el = nodesRef.current?.querySelector<HTMLElement>(`[data-node-id="${state.id}"]`)
           if (el) {
-            const w = Math.max(120, state.frame.width + (cp.x - state.start.x))
-            const h = Math.max(60, state.frame.height + (cp.y - state.start.y))
-            el.style.width = `${w}px`
-            el.style.height = `${h}px`
+            const next = resizeFrame(state.frame, state.edge, cp.x - state.start.x, cp.y - state.start.y)
+            // Escreve as quatro: puxar pela esquerda ou pelo topo move o nó
+            // além de mudar o tamanho.
+            el.style.left = `${next.x}px`
+            el.style.top = `${next.y}px`
+            el.style.width = `${next.width}px`
+            el.style.height = `${next.height}px`
           }
           break
         }
@@ -447,11 +492,10 @@ export function CanvasView(): JSX.Element {
           break
         }
         case 'resizing': {
-          void store.commitFrame(state.id, {
-            ...state.frame,
-            width: Math.max(120, state.frame.width + (cp.x - state.start.x)),
-            height: Math.max(60, state.frame.height + (cp.y - state.start.y))
-          })
+          void store.commitFrame(
+            state.id,
+            resizeFrame(state.frame, state.edge, cp.x - state.start.x, cp.y - state.start.y)
+          )
           break
         }
         case 'marquee': {

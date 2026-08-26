@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CanvasNode, Point, Rect, UUID } from '@shared/types'
 import { ContextMenu } from '../context-menu'
-import { PROJECT_DRAG_TYPE } from '../drag'
+import { FILE_DRAG_TYPE, PROJECT_DRAG_TYPE, readFileDrag } from '../drag'
 import { store, useStore } from '../state/store'
 import { NodeShell } from '../nodes/node-shell'
 import { FormatBar } from '../nodes/format-bar'
@@ -198,21 +198,42 @@ export function CanvasView(): JSX.Element {
 
   // ─── Projeto arrastado do painel ────────────────────────────────────────────
 
-  /** Só aceita o nosso tipo: arquivo, link ou texto de outro app não são drop. */
+  /**
+   * Só os nossos dois tipos: arquivo do gerenciador, link do navegador ou texto
+   * de outro app continuam não sendo drop.
+   */
   const onDragOver = (e: React.DragEvent): void => {
-    if (!e.dataTransfer.types.includes(PROJECT_DRAG_TYPE)) return
+    const types = e.dataTransfer.types
+    if (!types.includes(PROJECT_DRAG_TYPE) && !types.includes(FILE_DRAG_TYPE)) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copy'
   }
 
   const onDrop = (e: React.DragEvent): void => {
+    const canvas = viewport.toCanvas(screenPoint(e))
+
+    // Arquivo e pasta agem DIRETO, sem menu: foi o pedido. Um arquivo abre o
+    // editor no ponto solto; uma pasta vira nó de árvore, que é o análogo.
+    const dragged = e.dataTransfer.getData(FILE_DRAG_TYPE)
+    if (dragged) {
+      e.preventDefault()
+      const payload = readFileDrag(dragged)
+      if (!payload) return
+
+      if (payload.isDirectory) void store.addFolderTreeToWorkspace(payload.path, payload.name, canvas)
+      else void store.openFileInWorkspace(payload.path, canvas)
+      return
+    }
+
+    // Projeto continua perguntando: as duas ações possíveis (adicionar árvore,
+    // subir um agente ali) são igualmente razoáveis, e adivinhar erraria metade.
     const id = e.dataTransfer.getData(PROJECT_DRAG_TYPE)
     if (!id) return
     e.preventDefault()
     setDropped({
       id: id as UUID,
       screen: { x: e.clientX, y: e.clientY },
-      canvas: viewport.toCanvas(screenPoint(e))
+      canvas
     })
   }
 

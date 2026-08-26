@@ -1738,6 +1738,31 @@ button { font: inherit; color: inherit; }
   color: var(--text-dim); overflow-wrap: anywhere;
 }
 .git-popover-feedback.is-error { color: var(--rope-error); border-color: var(--rope-error); }
+/* ─── Árvore: renomear inline, alvo de arrasto e confirmação ───────────────── */
+
+.file-tree-row.is-drop-target {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  outline: 1px solid var(--accent); outline-offset: -1px;
+}
+.file-tree-row.is-renaming { cursor: default; }
+.file-tree-rename {
+  flex: 1; min-width: 0; font: inherit; font-size: 11px;
+  padding: 0 3px; border-radius: 3px;
+  border: 1px solid var(--accent); background: var(--surface); color: var(--text);
+}
+
+.context-menu button.is-danger { color: var(--rope-error); }
+
+/* Confirmação curta: sem lista, sem scroll — só a pergunta e as duas saídas. */
+.modal.is-compact { min-width: 320px; max-width: 420px; }
+.modal.is-compact .modal-title { margin-bottom: 10px; font-size: 16px; }
+.trash-name {
+  margin: 0 0 8px; font-family: ui-monospace, monospace; font-size: 12px;
+  color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.trash-warning { margin: 0 0 8px; font-size: 12px; color: var(--rope-error); }
+.trash-hint { margin: 0 0 14px; font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+
 /* ─── Nó Editor de Código ──────────────────────────────────────────────────── */
 
 .code-editor {

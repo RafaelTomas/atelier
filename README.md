@@ -412,6 +412,43 @@ Windows virarem URL válida. O caminho fica salvo no workspace, então o nó rea
 no mesmo documento; se o arquivo tiver sumido, aparece o mesmo aviso de falha
 dos outros portais.
 
+### Editor de código e as ações da árvore
+
+A árvore de arquivos é o **mesmo componente** no nó de canvas e na aba Arquivos
+(`renderer/file-tree.tsx`), então tudo abaixo funciona igual nos dois lugares:
+botão direito com menu por tipo, renomear inline (é uma palavra, não merece
+diálogo), duplicar no primeiro nome livre (`app copy.ts`, `app copy 2.ts`),
+mover para a **lixeira do sistema** com confirmação — nunca `unlink` —, e
+arrastar: para outra pasta move, para o canvas abre. Depois de cada mutação só o
+**diretório afetado** é relido: o estado de expansão é do usuário.
+
+Duplo clique num arquivo (ou soltá-lo no canvas) abre um nó de **Editor de
+Código**, CodeMirror 6 com destaque por extensão. Soltar o arquivo **dentro de
+um terminal** faz outra coisa: cola o caminho na linha de comando, sem Enter —
+o agente já está no repositório do arquivo, e o que falta ali é o caminho para
+completar o comando. Vai absoluto de propósito: o `workingDirectory` gravado é
+onde o PTY nasceu, e um `cd` depois disso tornaria um caminho relativo uma
+mentira silenciosa. As gramáticas são carregadas
+sob demanda — treze linguagens importadas de forma estática entrariam no bundle
+mesmo num canvas que só abriu um `.md`. `⌘/Ctrl+S` salva; fechar com alteração
+pendente pergunta; o nó guarda apenas o `filePath`.
+
+Ler arquivo é a capacidade que este app deliberadamente **não** tinha, e por um
+motivo: a janela roda com `webviewTag: true`. O que repõe a barreira é a
+allowlist, agora sem exceção — todo canal novo (`fs:read-file`, `fs:write-file`,
+`fs:rename`, `fs:duplicate`, `fs:trash`, `fs:watch`) resolve o caminho por
+`resolveAllowedPath`, que faz `realpath` dos dois lados, então symlink não
+escapa. Somam-se a isso um teto de 2 MB, recusa de arquivo com byte nulo nos
+primeiros 8 KB, e mover que não atravessa raiz nem sobrescreve destino
+existente. Arquivo acima do teto é **erro**, não leitura parcial: o editor grava
+o buffer inteiro no save, e um texto truncado editável destruiria o arquivo.
+
+O arquivo aberto é vigiado individualmente (`chokidar`, um caminho por
+assinatura, nunca uma árvore — watch recursivo no Linux estoura o limite de
+inotify). Sem alteração local, o editor recarrega sozinho quando o agente do
+canvas mexe no arquivo ao lado; com alteração pendente, avisa e deixa a decisão
+com o usuário.
+
 ### Desenho no canvas
 
 Caneta (`P`), marca-texto (`M`) e borracha (`E`) — `V` volta para a seleção,

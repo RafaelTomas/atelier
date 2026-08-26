@@ -377,6 +377,20 @@ class Store {
     await this.addNode('codeEditor', at, { filePath: path })
   }
 
+
+  /** Pasta solta no canvas: o análogo natural é o nó de árvore. */
+  async addFolderTreeToWorkspace(
+    path: string,
+    name: string,
+    position?: { x: number; y: number }
+  ): Promise<void> {
+    if (!this.workspaceId) {
+      this.showNotice('nenhum workspace aberto para receber a pasta')
+      return
+    }
+    await this.addNode('fileTree', position ?? centerOfViewport(300, 420), { name, rootPath: path })
+  }
+
   /**
    * O arquivo mudou de lugar (renomeado ou arrastado para outra pasta): o
    * editor aberto nele segue o caminho novo em vez de virar um nó quebrado.

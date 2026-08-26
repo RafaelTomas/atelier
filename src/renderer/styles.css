@@ -353,7 +353,7 @@
   border: 1px solid var(--accent); background: var(--surface); color: var(--text);
 }
 
-.context-menu button.is-danger { color: var(--rope-error); }
+.context-menu > button.is-danger { color: var(--rope-error); }
 
 /* Confirmação curta: sem lista, sem scroll — só a pergunta e as duas saídas. */
 .modal.is-compact { min-width: 320px; max-width: 420px; }
@@ -414,12 +414,16 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   border-radius: var(--r-pill);
   border: 1px solid var(--dock-border);
 }
-.vc-group button {
+/* Idem: `>` porque o cluster hospeda componentes inteiros (o menu do Git é um
+   deles), e um botão dentro de um filho não é um botão DO cluster. Era isto
+   que obrigava .git-menu-btn e os botões do popover a se qualificarem com um
+   seletor extra só para vencer esta regra. */
+.vc-group > button {
   border: 0; background: transparent; color: var(--dock-fg);
   height: 24px; min-width: 26px; padding: 0 9px; margin: 0 1px;
   border-radius: var(--r-pill); cursor: pointer; font: inherit; font-size: var(--fs-md);
 }
-.vc-group button:hover { background: var(--dock-hover); color: var(--dock-fg-strong); }
+.vc-group > button:hover { background: var(--dock-hover); color: var(--dock-fg-strong); }
 /* O ⤢ é um glifo mais alto que os sinais de − e +; sem o ajuste ele estica a
    pílula e desalinha a linha de base do grupo. */
 .vc-fit { font-size: var(--fs-md); }
@@ -657,7 +661,7 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   color: var(--text-dim);
 }
 
-.dock-menu button {
+.dock-menu > button {
   display: flex; align-items: center; gap: 8px;
   width: 100%; text-align: left;
   padding: 6px 9px;
@@ -665,8 +669,8 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   background: transparent; color: var(--text);
   font: inherit; cursor: pointer;
 }
-.dock-menu button:hover { background: var(--dock-hover); }
-.dock-menu button.is-danger:hover {
+.dock-menu > button:hover { background: var(--dock-hover); }
+.dock-menu > button.is-danger:hover {
   background: color-mix(in srgb, var(--rope-error) 16%, transparent);
   color: var(--rope-error);
 }
@@ -1338,9 +1342,8 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 }
 
 /* Pílula, não botão retangular: é status com ação junto, e a borda arredondada
-   é o que a separa dos controles de vista ao lado. A especificidade de dois
-   seletores vence o botão genérico do cluster sem precisar de !important. */
-.view-controls .git-menu-btn {
+   é o que a separa dos controles de vista ao lado. */
+.git-menu-btn {
   display: flex; align-items: center; gap: 6px;
   max-width: 220px;
   border: 1px solid var(--border); border-radius: var(--r-pill);
@@ -1348,8 +1351,8 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   padding: 3px 10px;
   cursor: pointer; font: inherit; font-size: var(--fs-sm);
 }
-.view-controls .git-menu-btn:hover { background: var(--dock-hover); }
-.view-controls .git-menu-btn.is-open { border-color: var(--accent); }
+.git-menu-btn:hover { background: var(--dock-hover); }
+.git-menu-btn.is-open { border-color: var(--accent); }
 
 .git-menu-dot {
   flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
@@ -1377,7 +1380,12 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 .git-menu-caret { color: var(--text-dim); font-size: var(--fs-xs); line-height: 1; }
 
 /* Superfície própria, e NÃO .context-menu: aquela classe traz
-   `.context-menu button { border: 0; background: transparent }`, que atinge
+   `/* Filho DIRETO, e isso não é detalhe: enquanto era `.context-menu button` a
+   regra atingia qualquer botão em qualquer profundidade, e foi ela que
+   transformou Pull/Push em texto solto quando o popover do Git tentou reusar
+   esta superfície (ver o comentário do .git-popover). Um menu tem seus itens
+   como filhos diretos — sempre —, então o `>` não perde nada e fecha a porta. */
+.context-menu > button { border: 0; background: transparent }`, que atinge
    todo botão descendente e transformava Pull/Push em texto solto.
    Alinhado à direita porque o cluster encosta na borda da janela. */
 .git-popover {
@@ -1402,14 +1410,14 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 }
 
 /* Link e não botão: é navegação para o painel completo, não uma ação de git. */
-.git-popover button.git-popover-link {
+.git-popover-link {
   flex-shrink: 0;
   border: 0; background: transparent; color: var(--accent);
   padding: 0; font: inherit; font-size: var(--fs-xs);
   cursor: pointer; text-decoration: underline;
 }
-.git-popover button.git-popover-link:hover { opacity: .75; }
-.git-popover button.git-popover-link:disabled { opacity: .4; cursor: default; text-decoration: none; }
+.git-popover-link:hover { opacity: .75; }
+.git-popover-link:disabled { opacity: .4; cursor: default; text-decoration: none; }
 
 .git-popover-empty { margin: 2px 0; font-size: var(--fs-sm); color: var(--text-dim); }
 
@@ -1417,14 +1425,14 @@ button.canvas-chip:hover { background: var(--dock-hover); }
    forma, mesmo comportamento — só o espaçamento externo muda. */
 .git-popover .git-tabs { padding: 0 0 2px; }
 
-.git-popover button.git-popover-branch {
+.git-popover-branch {
   display: flex; align-items: center; gap: 6px; width: 100%;
   border: 1px solid var(--border); border-radius: var(--r-md);
   background: var(--surface); color: var(--text);
   padding: 6px 9px; cursor: pointer;
   font: inherit; font-size: var(--fs-sm); text-align: left;
 }
-.git-popover button.git-popover-branch:hover { background: var(--border); }
+.git-popover-branch:hover { background: var(--border); }
 .git-popover-branch-name {
   flex: 1; min-width: 0; font-family: ui-monospace, monospace;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1484,14 +1492,14 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   font-family: ui-monospace, monospace;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.git-popover button.git-popover-file-btn {
+.git-popover-file-btn {
   flex-shrink: 0; width: 20px;
   border: 0; background: transparent; color: var(--text-dim);
   border-radius: var(--r-sm); padding: 1px 0; cursor: pointer;
   font: inherit; font-size: var(--fs-base); line-height: 1.1;
 }
-.git-popover button.git-popover-file-btn:hover { background: var(--surface-2); color: var(--text); }
-.git-popover button.git-popover-file-btn:disabled { opacity: .35; cursor: default; }
+.git-popover-file-btn:hover { background: var(--surface-2); color: var(--text); }
+.git-popover-file-btn:disabled { opacity: .35; cursor: default; }
 
 .git-popover-commit {
   display: flex; flex-direction: column; gap: 2px;
@@ -1579,14 +1587,14 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   border: 1px solid var(--border); background: var(--surface-2);
   box-shadow: 0 8px 24px rgb(0 0 0 / .28);
 }
-.context-menu button {
+.context-menu > button {
   display: block; width: 100%; text-align: left;
   border: 0; background: transparent; color: var(--text);
   padding: 6px 10px; border-radius: var(--r-sm); cursor: pointer; font: inherit;
 }
-.context-menu button:hover { background: var(--border); }
-.context-menu button:disabled { opacity: .4; cursor: default; }
-.context-menu button:disabled:hover { background: transparent; }
+.context-menu > button:hover { background: var(--border); }
+.context-menu > button:disabled { opacity: .4; cursor: default; }
+.context-menu > button:disabled:hover { background: transparent; }
 .context-menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 .context-menu-label {
   padding: 5px 10px 3px; font-size: var(--fs-xs); letter-spacing: .04em;

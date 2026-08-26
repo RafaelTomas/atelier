@@ -19,6 +19,7 @@ import {
   IconDraw,
   IconFolder,
   IconGlobe,
+  IconHand,
   IconNote,
   IconTerminal,
   IconText
@@ -225,16 +226,19 @@ export function Dock(): JSX.Element {
 
   return (
     <div className="dock" ref={dockRef} onMouseDown={(e) => e.stopPropagation()}>
+      {/* Um botão, dois modos: ponteiro seleciona, mão move o quadro. Clicar
+          de novo volta ao ponteiro — o ícone é o que diz em qual dos dois se
+          está, então ele troca junto. */}
       <DockButton
-        label="Selecionar"
-        hint="V"
-        active={tool === 'select'}
+        label={tool === 'pan' ? 'Mover o canvas' : 'Selecionar'}
+        hint={tool === 'pan' ? 'clique para voltar a selecionar' : 'clique para mover o canvas'}
+        active={tool === 'select' || tool === 'pan'}
         onClick={() => {
-          store.setTool('select')
+          store.setTool(tool === 'pan' ? 'select' : 'pan')
           setOpenMenu(null)
         }}
       >
-        <IconCursor />
+        {tool === 'pan' ? <IconHand /> : <IconCursor />}
       </DockButton>
 
       <span className="dock-sep" />
@@ -312,10 +316,13 @@ export function Dock(): JSX.Element {
       <DockButton
         label="Desenhar"
         hint="clique no canvas para escolher o que fazer"
-        active={tool !== 'select'}
+        active={tool !== 'select' && tool !== 'pan'}
         onClick={() => {
           setOpenMenu(null)
-          store.setTool(tool === 'select' ? 'draw' : 'select')
+          // 'pan' conta como "não estou desenhando": vindo da mão, o clique
+          // entra no modo desenho em vez de cair no toggle de volta.
+          const drawing = tool !== 'select' && tool !== 'pan'
+          store.setTool(drawing ? 'select' : 'draw')
         }}
       >
         <IconDraw />

@@ -37,6 +37,22 @@ export function IconCursor(p: IconProps): JSX.Element {
   )
 }
 
+/**
+ * Mão aberta — o modo em que o arrasto move o quadro em vez de selecionar.
+ * Outline, ao contrário do IconCursor: os dois se alternam no mesmo botão da
+ * dock, e o contraste cheio/vazado deixa claro qual está ativo.
+ */
+export function IconHand(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M9 11V4.75a1.25 1.25 0 0 1 2.5 0V11" />
+      <path d="M11.5 10.5V3.75a1.25 1.25 0 0 1 2.5 0V11" />
+      <path d="M14 11V5.75a1.25 1.25 0 0 1 2.5 0V13" />
+      <path d="M9 11V9.75a1.25 1.25 0 0 0-2.5 0V14c0 3.6 2.4 6.5 5.75 6.5S18.5 17.6 18.5 14v-3.25a1.25 1.25 0 0 0-2.5 0" />
+    </Svg>
+  )
+}
+
 export function IconTerminal(p: IconProps): JSX.Element {
   return (
     <Svg {...p}>

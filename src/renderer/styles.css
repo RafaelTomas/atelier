@@ -487,14 +487,14 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 /* Ferramenta mão: a mesma coisa que o espaço segurado, e por isso a mesma
    regra — mão aberta, fechada no arrasto, e a camada de nós transparente ao
    mouse para o pan valer mesmo em cima de um terminal ou de um portal. */
-.canvas-host.tool-pan { cursor: grab; }
-.canvas-host.tool-pan:active { cursor: grabbing; }
-.canvas-host.tool-pan .nodes-layer { pointer-events: none; }
-.canvas-host.tool-pen, .canvas-host.tool-highlighter { cursor: crosshair; }
-.canvas-host.tool-eraser { cursor: cell; }
+.canvas-host[data-tool='pan'] { cursor: grab; }
+.canvas-host[data-tool='pan']:active { cursor: grabbing; }
+.canvas-host[data-tool='pan'] .nodes-layer { pointer-events: none; }
+.canvas-host[data-tool='pen'], .canvas-host[data-tool='highlighter'] { cursor: crosshair; }
+.canvas-host[data-tool='eraser'] { cursor: cell; }
 /* Modo desenho: o clique abre um menu, então context-menu comunica melhor que
    crosshair — não é o cursor de quem já está desenhando. */
-.canvas-host.tool-draw { cursor: context-menu; }
+.canvas-host[data-tool='draw'] { cursor: context-menu; }
 
 /* Espaço segurado: a seta vira mão e o arrasto move o quadro. Vem DEPOIS dos
    cursores de ferramenta de propósito — mesma especificidade, ganha por ordem.
@@ -535,9 +535,9 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   animation: rope-march .5s linear infinite;
 }
 /* Sobre um alvo que aceita o cabo: mais grosso e com brilho */
-.rope-preview.is-valid { stroke-width: 3; filter: drop-shadow(0 0 5px var(--accent)); }
+.rope-preview[data-target='valid'] { stroke-width: 3; filter: drop-shadow(0 0 5px var(--accent)); }
 /* Sobre um alvo que não aceita: para de marchar e fica vermelho */
-.rope-preview.is-invalid { stroke: var(--rope-error); animation: none; }
+.rope-preview[data-target='invalid'] { stroke: var(--rope-error); animation: none; }
 
 @keyframes rope-march { to { stroke-dashoffset: -11; } }
 
@@ -834,17 +834,21 @@ button.canvas-chip:hover { background: var(--dock-hover); }
    fora: era nele que se mirava, e ele não respondia.
    As quinas vêm depois das bordas no DOM, então vencem a sobreposição — é nelas
    que o gesto diagonal precisa cair. */
-.resize-handle { position: absolute; z-index: 5; }
+/* O seletor é o data-attribute e não uma classe: o atributo já existia para o
+   hit-test (ver `closest('[data-resize-handle]')` em canvas/canvas-view.tsx), e
+   manter uma classe montada por template ao lado dele era guardar a mesma
+   informação duas vezes — com o risco de as duas discordarem. */
+[data-resize-handle] { position: absolute; z-index: 5; }
 
-.resize-handle.is-n { top: -4px; left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
-.resize-handle.is-s { bottom: -4px; left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
-.resize-handle.is-w { left: -4px; top: 14px; bottom: 14px; width: 8px; cursor: ew-resize; }
-.resize-handle.is-e { right: -4px; top: 14px; bottom: 14px; width: 8px; cursor: ew-resize; }
+[data-resize-handle='n'] { top: -4px; left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
+[data-resize-handle='s'] { bottom: -4px; left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
+[data-resize-handle='w'] { left: -4px; top: 14px; bottom: 14px; width: 8px; cursor: ew-resize; }
+[data-resize-handle='e'] { right: -4px; top: 14px; bottom: 14px; width: 8px; cursor: ew-resize; }
 
-.resize-handle.is-nw { top: -4px; left: -4px; width: 18px; height: 18px; cursor: nwse-resize; }
-.resize-handle.is-ne { top: -4px; right: -4px; width: 18px; height: 18px; cursor: nesw-resize; }
-.resize-handle.is-sw { bottom: -4px; left: -4px; width: 18px; height: 18px; cursor: nesw-resize; }
-.resize-handle.is-se { bottom: -4px; right: -4px; width: 18px; height: 18px; cursor: nwse-resize; }
+[data-resize-handle='nw'] { top: -4px; left: -4px; width: 18px; height: 18px; cursor: nwse-resize; }
+[data-resize-handle='ne'] { top: -4px; right: -4px; width: 18px; height: 18px; cursor: nesw-resize; }
+[data-resize-handle='sw'] { bottom: -4px; left: -4px; width: 18px; height: 18px; cursor: nesw-resize; }
+[data-resize-handle='se'] { bottom: -4px; right: -4px; width: 18px; height: 18px; cursor: nwse-resize; }
 
 /* ─── Header do nó: ícone, badges ──────────────────────────────────────────── */
 
@@ -1065,9 +1069,9 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   background-size: 12px 1.5px, 8px 1.5px, 12px 1.5px;
   background-repeat: no-repeat;
 }
-.fb-align-left .fb-align-glyph { background-position: left 0, left 3.75px, left 7.5px; }
-.fb-align-center .fb-align-glyph { background-position: center 0, center 3.75px, center 7.5px; }
-.fb-align-right .fb-align-glyph { background-position: right 0, right 3.75px, right 7.5px; }
+[data-align='left'] .fb-align-glyph { background-position: left 0, left 3.75px, left 7.5px; }
+[data-align='center'] .fb-align-glyph { background-position: center 0, center 3.75px, center 7.5px; }
+[data-align='right'] .fb-align-glyph { background-position: right 0, right 3.75px, right 7.5px; }
 
 /* Popovers */
 .fb-pop-host { position: relative; display: flex; }
@@ -1102,10 +1106,10 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 .fb-row.is-on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
 
 /* Cada opção de fonte é exibida na própria fonte — espelha FONT_STACKS. */
-.fb-row-sans { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif; }
-.fb-row-serif { font-family: ui-serif, Georgia, 'Iowan Old Style', 'Times New Roman', serif; }
-.fb-row-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.fb-row-rounded { font-family: 'SF Pro Rounded', ui-rounded, Nunito, 'Avenir Next', system-ui, sans-serif; }
+.fb-row[data-family='sans'] { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif; }
+.fb-row[data-family='serif'] { font-family: ui-serif, Georgia, 'Iowan Old Style', 'Times New Roman', serif; }
+.fb-row[data-family='mono'] { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.fb-row[data-family='rounded'] { font-family: 'SF Pro Rounded', ui-rounded, Nunito, 'Avenir Next', system-ui, sans-serif; }
 
 .fb-swatches {
   display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
@@ -1260,11 +1264,11 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   flex-shrink: 0; width: 12px; text-align: center;
   font-family: ui-monospace, monospace; font-size: var(--fs-sm); font-weight: 600;
 }
-.git-code-mod { color: var(--accent); }
-.git-code-new { color: var(--rope-active); }
-.git-code-del { color: var(--rope-error); }
-.git-code-move { color: var(--text-dim); }
-.git-code-conflict { color: var(--rope-error); }
+.git-code[data-status='mod'] { color: var(--accent); }
+.git-code[data-status='new'] { color: var(--rope-active); }
+.git-code[data-status='del'] { color: var(--rope-error); }
+.git-code[data-status='move'] { color: var(--text-dim); }
+.git-code[data-status='conflict'] { color: var(--rope-error); }
 
 /* Só aparecem no hover: em repositório com dezenas de arquivos alterados, uma
    coluna de botões sempre visível vira ruído — e o ↺ apaga trabalho. */
@@ -1351,12 +1355,12 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
   background: var(--text-dim);
 }
-.git-menu-dot.is-clean { background: var(--rope-active); }
+.git-menu-dot[data-state='clean'] { background: var(--rope-active); }
 /* Âmbar: há trabalho não commitado. Não é erro — é o estado normal de quem
    está no meio de alguma coisa —, então não usa a cor de erro. */
-.git-menu-dot.is-dirty { background: #e0a030; }
-.git-menu-dot.is-warn { background: var(--rope-error); }
-.git-menu-dot.is-off { background: var(--text-dim); opacity: .5; }
+.git-menu-dot[data-state='dirty'] { background: #e0a030; }
+.git-menu-dot[data-state='warn'] { background: var(--rope-error); }
+.git-menu-dot[data-state='off'] { background: var(--text-dim); opacity: .5; }
 
 .git-menu-icon { color: var(--text-dim); font-size: var(--fs-md); }
 

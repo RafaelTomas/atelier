@@ -176,7 +176,7 @@ export function NodeShell({
       </div>
 
       {RESIZE_EDGES.map((edge) => (
-        <div key={edge} data-resize-handle={edge} className={`resize-handle is-${edge}`} />
+        <div key={edge} data-resize-handle={edge} />
       ))}
     </div>
   )

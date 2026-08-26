@@ -465,7 +465,7 @@ function FileSection({
                   title={file.from ? `${file.from} → ${file.path}` : file.path}
                   onClick={() => onOpenDiff(file)}
                 >
-                  <span className={`git-code git-code-${statusClass(file)}`}>{statusCode(file)}</span>
+                  <span className="git-code" data-status={statusClass(file)}>{statusCode(file)}</span>
                   <span className="git-file-path">{truncateStart(file.path, 30)}</span>
                 </button>
                 <span className="git-file-actions">

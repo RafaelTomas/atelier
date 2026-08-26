@@ -338,7 +338,8 @@ function AlignGroup({
         <button
           key={o.value}
           type="button"
-          className={`icon-btn fb-btn fb-align fb-align-${o.value}${value === o.value ? ' is-on' : ''}`}
+          className={`icon-btn fb-btn${value === o.value ? ' is-on' : ''}`}
+          data-align={o.value}
           title={o.title}
           onClick={() => onPick(o.value)}
         >
@@ -378,7 +379,8 @@ function FontPicker({
               <button
                 key={o.value}
                 type="button"
-                className={`fb-row fb-row-${o.value}${family === o.value ? ' is-on' : ''}`}
+                className={`fb-row${family === o.value ? ' is-on' : ''}`}
+                data-family={o.value}
                 onClick={() => onFamily(o.value)}
               >
                 {o.label}

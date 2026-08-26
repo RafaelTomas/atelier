@@ -119,7 +119,7 @@ export function GitMenu(): JSX.Element | null {
       >
         {/* O ponto é o estado num relance: limpo, sujo, ou algo errado. É a
             única coisa aqui que se lê sem parar para ler. */}
-        <span className={`git-menu-dot is-${dotKind(error, dirty, status?.operation ?? null)}`} />
+        <span className="git-menu-dot" data-state={dotKind(error, dirty, status?.operation ?? null)} />
         <span className="git-menu-icon">⑂</span>
         <span className="git-menu-label">{label}</span>
         {status && (status.ahead > 0 || status.behind > 0) && (
@@ -292,7 +292,8 @@ export function GitMenu(): JSX.Element | null {
                       {status?.files.map((file) => (
                         <li key={file.path} className="git-popover-file">
                           <span
-                            className={`git-code git-code-${file.isConflicted ? 'conflict' : file.isUntracked ? 'new' : 'mod'}`}
+                            className="git-code"
+                            data-status={file.isConflicted ? 'conflict' : file.isUntracked ? 'new' : 'mod'}
                           >
                             {file.isConflicted ? '!' : file.isUntracked ? '?' : (file.isStaged ? file.index : file.worktree).trim() || 'M'}
                           </span>

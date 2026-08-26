@@ -692,11 +692,11 @@ export function CanvasView(): JSX.Element {
         'canvas-host',
         spacePan ? 'is-space-pan' : '',
         placing ? 'is-placing' : '',
-        connectingFrom ? 'is-connecting' : '',
-        `tool-${tool}`
+        connectingFrom ? 'is-connecting' : ''
       ]
         .filter(Boolean)
         .join(' ')}
+      data-tool={tool}
       onMouseDown={onMouseDown}
       onWheel={onWheel}
       onContextMenu={onContextMenu}

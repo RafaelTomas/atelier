@@ -301,6 +301,33 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 /* Largura fixa: sem ela o cluster inteiro dança a cada passo de zoom. */
 .vc-zoom { min-width: 46px; font-variant-numeric: tabular-nums; }
 
+/* O dial: uma linha TRACEJADA, no mesmo vocabulário do anel de seleção do nó.
+   O range nativo desenha uma barra grossa com trilho claro, que no vidro do
+   cluster vira um bloco branco — daí `appearance: none` e o trilho refeito com
+   um gradiente repetido, que é como se faz tracejado em background.
+   Sem preenchimento até o polegar: aqui a linha é a RÉGUA, não uma barra de
+   progresso; quem diz o valor é o número ao lado. */
+.vc-dial {
+  width: 96px; height: 24px; margin: 0 4px 0 8px;
+  -webkit-appearance: none; appearance: none;
+  background: transparent; cursor: pointer;
+}
+.vc-dial::-webkit-slider-runnable-track {
+  height: 2px; border-radius: 2px;
+  background: repeating-linear-gradient(
+    to right,
+    var(--dock-fg) 0 3px,
+    transparent 3px 7px
+  );
+}
+.vc-dial::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 10px; height: 10px; margin-top: -4px;
+  border-radius: 50%; background: var(--accent);
+  border: 2px solid var(--dock-bg);
+}
+.vc-dial:hover::-webkit-slider-thumb { transform: scale(1.15); }
+
 /* Avisos passageiros: no topo ao centro, entre o chip e os controles. */
 .canvas-hint {
   position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 101;

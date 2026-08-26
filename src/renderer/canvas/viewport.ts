@@ -34,6 +34,37 @@ const ZOOM_STOPS = [
 /** Folga na comparação: o zoom da roda cai em valores como 0.9999999. */
 const EPSILON = 0.001
 
+/**
+ * O dial de zoom: 0 a 100 na tela, MIN_ZOOM a MAX_ZOOM no canvas.
+ *
+ * A escala é LOGARÍTMICA, e isso não é preciosismo. Linear, o trecho de 10% a
+ * 100% — que é metade da faixa útil — caberia no primeiro terço do curso, e o
+ * resto seria dominado pelos zooms grandes, onde poucos trabalham. Em log,
+ * cada pixel percorrido muda o zoom na mesma PROPORÇÃO, que é como o olho
+ * percebe, e é a mesma razão por trás da escada dos degraus.
+ */
+const LOG_MIN = Math.log(MIN_ZOOM)
+const LOG_MAX = Math.log(MAX_ZOOM)
+
+export function zoomToDial(zoom: number): number {
+  return ((Math.log(zoom) - LOG_MIN) / (LOG_MAX - LOG_MIN)) * 100
+}
+
+/**
+ * O valor sai arredondado para múltiplos de 5 pontos percentuais.
+ *
+ * O dial tem 100 posições numa faixa de 10% a 300%, o que dá ~3,5% por posição
+ * perto de 100% — fino demais para a mão: um pixel de tremor já mudava o
+ * número. Com a grade de 5, várias posições vizinhas caem no MESMO zoom, e é
+ * isso que dá firmeza ao gesto. De quebra, 100% deixa de precisar de encaixe
+ * especial: sendo múltiplo de 5, ele é um dos valores da grade.
+ */
+export function dialToZoom(dial: number): number {
+  const bruto = Math.exp(LOG_MIN + (dial / 100) * (LOG_MAX - LOG_MIN))
+  const emGrade = Math.round(bruto * 20) / 20
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, emGrade))
+}
+
 /** Quanto de zoom por pixel de roda. Ver zoomByWheel para a conta. */
 const WHEEL_SENSITIVITY = 0.0015
 /** Teto por evento: nenhuma batida sozinha muda o zoom em mais de ~20%. */

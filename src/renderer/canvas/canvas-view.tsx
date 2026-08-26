@@ -554,11 +554,18 @@ export function CanvasView(): JSX.Element {
   // ─── Roda: pan por padrão, zoom com ⌘/Ctrl (convenção de trackpad) ──────────
 
   const onWheel = (e: React.WheelEvent): void => {
+    // Zoom é gesto do CANVAS e vale em qualquer lugar: o modificador já diz
+    // que a intenção não é rolar o conteúdo sob o cursor.
     if (e.ctrlKey || e.metaKey) {
       viewport.zoomByWheel(screenPoint(e), e.deltaY, e.deltaMode)
-    } else {
-      viewport.panBy(-e.deltaX, -e.deltaY)
+      return
     }
+    // Rolar dentro do conteúdo de um nó é DO nó — a mesma regra que o clique
+    // já seguia logo acima, com o mesmo marcador. Sem ela o canvas panorâmica
+    // junto com a lista, e quando a lista chega ao fim sobra só o canvas
+    // andando, que é o efeito que se nota.
+    if ((e.target as HTMLElement).closest('[data-node-interactive]')) return
+    viewport.panBy(-e.deltaX, -e.deltaY)
   }
 
   // ─── Teclado ────────────────────────────────────────────────────────────────

@@ -1,0 +1,139 @@
+/* Primitivas: as peças que mais de um componente monta.
+
+   Elas vivem numa camada que PERDE de qualquer regra de componente, então
+   ajustar uma delas num lugar específico é só escrever a diferença — sem
+   seletor mais forte, sem !important. Cada componente compõe:
+   `className="icon-btn node-btn"` — a primitiva traz o comportamento, o nome
+   do componente traz a geometria.
+
+   O critério para algo entrar aqui é ser montado por TRÊS componentes ou mais.
+   Duas telas que se parecem não fazem uma primitiva; fazem uma coincidência. */
+
+/* ─── Botão de ícone ─────────────────────────────────────────────────────────
+   Antes desta primitiva o mesmo botão estava descrito cinco vezes — .ghost-btn,
+   .node-btn, .portal-btn, .action-btn, .fb-btn — cada um repetindo borda zero,
+   fundo transparente, centralização e o par hover/disabled. As cinco divergiam
+   justamente no que não deveria divergir: duas apagavam no hover para
+   --border, duas para --surface-2, e só uma tratava :disabled.
+
+   A cor de hover aqui é --border, que é o que a maioria dos casos usa (botão
+   sobre cabeçalho de card ou painel). As barras flutuantes, que já têm fundo
+   --surface, pedem o hover mais discreto e o redefinem no próprio arquivo. */
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; padding: 0; background: transparent;
+  color: var(--text-dim);
+  border-radius: var(--r-sm);
+  line-height: 1; cursor: pointer;
+}
+.icon-btn:hover:not(:disabled) { background: var(--border); color: var(--text); }
+.icon-btn:disabled { opacity: .3; cursor: default; }
+.icon-btn.is-active { color: var(--accent); background: var(--border); }
+/* Ação destrutiva: só o hover muda de cor — em repouso ela não deve gritar. */
+.icon-btn.is-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--rope-error) 16%, transparent);
+  color: var(--rope-error);
+}
+
+/* ─── Botão com rótulo ───────────────────────────────────────────────────── */
+
+.btn {
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  /* 14px na horizontal fica FORA da escala de propósito: é uma medida ajustada
+     ao rótulo, e o passo mais próximo (12 ou 16) estreitaria ou alargaria todo
+     botão do app — mudança maior que a que esta refatoração se propôs. */
+  padding: var(--s-2) 14px; border-radius: var(--r-md); cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: var(--border); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.is-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.is-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn.is-danger { color: var(--rope-error); }
+
+/* ─── Superfície flutuante ───────────────────────────────────────────────────
+   O vidro que fica sobre o canvas: dock, sidebar, minimapa, chips do topo,
+   cápsulas de controle e o aviso de projetos. Todos repetiam o mesmo par
+   fundo/blur — e o `backdrop-filter` duas vezes, porque o prefixo -webkit-
+   ainda é o que o Chromium honra em alguns caminhos de composição.
+
+   O grau de blur varia com o TAMANHO da peça: quanto maior a superfície, mais
+   blur ela precisa para o texto por cima continuar legível. Daí os custom
+   properties — quem monta ajusta o grau sem reescrever a regra. O padrão é o
+   das peças pequenas, que são a maioria.
+
+   A BORDA fica de fora de propósito: a sidebar tem borda só à direita, o grupo
+   do Git não tem nenhuma, e os outros têm as quatro. Um valor padrão aqui só
+   criaria um `border: 0` para desfazer em dois lugares. */
+.floating {
+  --floating-bg: var(--dock-bg);
+  --floating-blur: 12px;
+  --floating-saturate: 1;
+  background: var(--floating-bg);
+  backdrop-filter: blur(var(--floating-blur)) saturate(var(--floating-saturate));
+  -webkit-backdrop-filter: blur(var(--floating-blur)) saturate(var(--floating-saturate));
+}
+
+/* ─── Abas em cápsula ────────────────────────────────────────────────────────
+   Nasce nos diálogos e reaparece na sidebar (onde os segmentos viram ícones e
+   dividem a largura) — dois donos independentes, e por isso vive aqui. */
+
+.segmented {
+  display: flex; align-self: center; gap: 2px;
+  padding: 3px; border-radius: var(--r-lg); background: var(--surface-2);
+  border: 1px solid var(--border);
+  width: fit-content; margin: 0 auto;
+}
+.segmented.is-small { font-size: var(--fs-md); margin: 0; }
+
+.segment {
+  border: 0; background: transparent; cursor: pointer;
+  padding: 5px var(--s-5); border-radius: var(--r-md); color: var(--text);
+}
+.segment:hover { background: var(--border); }
+.segment.is-active { background: var(--accent); color: #fff; }
+
+/* ─── Vocabulário de formulário ──────────────────────────────────────────────
+   Compartilhado pelos três diálogos (novo terminal, scan, editor de agente) e
+   pelo painel de projetos. */
+
+.section-label {
+  display: block;
+  font-size: var(--fs-sm); color: var(--text-dim);
+  margin-bottom: var(--s-3);
+}
+
+.field-row { display: flex; align-items: center; gap: 10px; }
+
+.field-label { color: var(--text-dim); flex-shrink: 0; }
+
+.field-hint {
+  margin: 2px 0 0; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-dim);
+}
+
+.field-input {
+  flex: 1; min-width: 0;
+  padding: var(--s-3) var(--s-4); border-radius: var(--r-lg);
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  user-select: text;
+}
+.field-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.field-input.is-large { padding: 11px 14px; }
+.field-input.is-narrow { flex: 0 0 80px; }
+
+.field-textarea {
+  padding: 10px var(--s-4); border-radius: var(--r-lg); resize: vertical;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  font: inherit; user-select: text;
+}
+
+.check-row { display: flex; align-items: center; gap: var(--s-3); cursor: pointer; }
+.check-row input { width: 15px; height: 15px; accent-color: var(--accent); }
+.check-row input:disabled { cursor: not-allowed; }
+
+/* Checkbox com legenda em duas linhas, como o do diálogo de scan. */
+.check-row.is-stacked { align-items: flex-start; }
+.check-row.is-stacked input { margin-top: 2px; }
+.check-row.is-stacked span { display: flex; flex-direction: column; gap: 2px; }
+.check-row.is-stacked em { font-style: normal; font-size: var(--fs-sm); color: var(--text-dim); }
+
+.spacer { flex: 1; }

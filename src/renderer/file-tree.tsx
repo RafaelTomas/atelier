@@ -425,18 +425,18 @@ export function FileTree({ root }: Props): JSX.Element {
         <div className="file-tree-actions">
           <button
             type="button"
-            className="ghost-btn"
+            className="icon-btn ghost-btn"
             title="Novo agente nesta pasta"
             onClick={() => store.openNewTerminal(null, selectedDir(selected, root))}
           >
             ⌘
           </button>
-          <button type="button" className="ghost-btn" title="Recarregar" onClick={refresh}>
+          <button type="button" className="icon-btn ghost-btn" title="Recarregar" onClick={refresh}>
             ⟳
           </button>
           <button
             type="button"
-            className="ghost-btn"
+            className="icon-btn ghost-btn"
             title="Revelar no sistema"
             onClick={() => void window.atelier.fs.reveal(selected?.path ?? root)}
           >

@@ -231,7 +231,7 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
         <div className="code-editor-actions">
           <button
             type="button"
-            className="ghost-btn"
+            className="icon-btn ghost-btn"
             title="Salvar (⌘S)"
             disabled={!dirty || saving || error !== null}
             onClick={() => void save()}
@@ -240,7 +240,7 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
           </button>
           <button
             type="button"
-            className="ghost-btn"
+            className="icon-btn ghost-btn"
             title="Revelar no sistema"
             onClick={() => void window.atelier.fs.reveal(path)}
           >

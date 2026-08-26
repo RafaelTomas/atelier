@@ -284,7 +284,7 @@ export function Dock(): JSX.Element {
   ]
 
   return (
-    <div className="dock" ref={dockRef} onMouseDown={(e) => e.stopPropagation()}>
+    <div className="floating dock" ref={dockRef} onMouseDown={(e) => e.stopPropagation()}>
       {/* Um botão, dois modos: ponteiro seleciona, mão move o quadro. Clicar
           de novo volta ao ponteiro — o ícone é o que diz em qual dos dois se
           está, então ele troca junto. */}

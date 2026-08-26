@@ -43,7 +43,7 @@ export function NodeActionBar({ node }: Props): JSX.Element {
     >
       <button
         type="button"
-        className="action-btn"
+        className="icon-btn action-btn"
         title="Ligar a outro nó"
         onClick={() => store.startConnecting(node.id)}
       >
@@ -51,7 +51,7 @@ export function NodeActionBar({ node }: Props): JSX.Element {
       </button>
       <button
         type="button"
-        className="action-btn"
+        className="icon-btn action-btn"
         title="Editar terminal"
         onClick={() => store.openEditTerminal(node.id)}
       >
@@ -59,7 +59,7 @@ export function NodeActionBar({ node }: Props): JSX.Element {
       </button>
       <button
         type="button"
-        className="action-btn"
+        className="icon-btn action-btn"
         title="Recarregar — mata o processo e sobe outro"
         onClick={() => void store.restartTerminal(node.id)}
       >
@@ -68,7 +68,7 @@ export function NodeActionBar({ node }: Props): JSX.Element {
       <span className="action-sep" />
       <button
         type="button"
-        className="action-btn is-danger"
+        className="icon-btn action-btn is-danger"
         title="Excluir terminal"
         onClick={() => void store.removeNode(node.id)}
       >

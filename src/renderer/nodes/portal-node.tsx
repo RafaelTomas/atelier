@@ -18,7 +18,7 @@ import type { CanvasNode, PortalContent, UUID } from '@shared/types'
 import { viewport } from '../canvas/viewport'
 import { store } from '../state/store'
 
-const FREEZE_ZOOM = 0.4
+const FREEZE_ZOOM = 0.1
 
 /** Página inicial de um portal novo e destino da busca. */
 export const HOME_URL = 'https://www.google.com'
@@ -182,7 +182,7 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
         <div className="portal-chrome">
           <button
             type="button"
-            className="portal-btn"
+            className="icon-btn portal-btn"
             title="Voltar"
             disabled={!nav.back}
             onClick={() => viewRef.current?.goBack()}
@@ -191,7 +191,7 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
           </button>
           <button
             type="button"
-            className="portal-btn"
+            className="icon-btn portal-btn"
             title="Avançar"
             disabled={!nav.forward}
             onClick={() => viewRef.current?.goForward()}
@@ -200,7 +200,7 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
           </button>
           <button
             type="button"
-            className="portal-btn"
+            className="icon-btn portal-btn"
             title={loading ? 'Parar' : 'Recarregar'}
             onClick={() => (loading ? viewRef.current?.stop() : viewRef.current?.reload())}
           >
@@ -209,7 +209,7 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
 
           <button
             type="button"
-            className="portal-btn"
+            className="icon-btn portal-btn"
             title="Página inicial"
             onClick={() => go(HOME_URL)}
           >
@@ -238,7 +238,7 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
 
           <button
             type="button"
-            className="portal-btn"
+            className="icon-btn portal-btn"
             title="Abrir no navegador do sistema"
             disabled={!content.currentURL}
             onClick={() => void window.atelier.portal.openExternal(content.currentURL)}

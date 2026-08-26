@@ -252,7 +252,7 @@ export function Minimap(): JSX.Element | null {
       // Com o aviso de projetos aberto, o mapa desliza para o lado em vez de
       // sumir: eles dividem o canto, e sumir de vez tirava a navegação da
       // pessoa por causa de um aviso que ela ainda nem leu.
-      className={candidates.length > 0 ? 'minimap is-raised' : 'minimap'}
+      className={candidates.length > 0 ? 'floating minimap is-raised' : 'floating minimap'}
       title="Clique ou arraste para mover o quadro"
       // Enquanto o ponteiro estiver em cima, o mapa não some — e chegar perto
       // dele já o traz de volta, que é como se pega um mapa que acabou de

@@ -1,0 +1,148 @@
+/* Tokens. Duas famílias, com regras diferentes:
+
+   COR — tema por token, três estados: 'system' segue o prefers-color-scheme do
+   SO, 'light'/'dark' forçam via data-theme no <html> (ver renderer/theme.ts).
+   Regra: nenhuma cor tem sua ÚNICA definição dentro de um @media — o bloco
+   claro abaixo é sempre a base, os outros só redefinem. O bloco escuro aparece
+   duas vezes de propósito (o SO e a escolha explícita são gatilhos distintos, e
+   CSS não tem "herdar um bloco"); `scripts/test-tokens.mjs` compara as chaves
+   dos dois e falha se divergirem, que é o modo de falha real aqui.
+
+   GEOMETRIA — uma escala só, igual nos três temas: raio, espaçamento, corpo de
+   texto e duração. Não vive num tema porque não muda com ele.
+   Um token novo de geometria só nasce quando TRÊS ocorrências o pedem; abaixo
+   disso o literal é mais legível que a indireção. */
+
+:root {
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #fafafa;
+  --border: #d8d8dd;
+  --text: #1a1a1a;
+  --text-dim: #6b6b70;
+  --accent: #007aff;
+  --canvas-bg: #ffffff;
+  --canvas-grid: #e8e8ec;
+  --rope: #9a9aa2;
+  --rope-active: #2ecc71;
+  --rope-error: #e74c3c;
+  --term-bg: #f7f7f9;
+  --term-fg: #1a1a1a;
+  --dock-bg: rgb(255 255 255 / .82);
+  /* A sidebar é maior que o dock e fica sobre a grade: mais aberta que ele,
+     e o blur maior é o que segura a legibilidade do texto por cima. */
+  --sidebar-bg: rgb(255 255 255 / .58);
+  --dock-border: #d3d3da;
+  --dock-fg: #55555c;
+  --dock-fg-strong: #1a1a1a;
+  --dock-hover: rgb(0 0 0 / .06);
+}
+
+/* Modo sistema: escuro só quando o SO pede E o usuário não forçou claro. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #1b1b1f;
+    --surface: #232328;
+    --surface-2: #2a2a30;
+    --border: #3a3a42;
+    --text: #ececf0;
+    --text-dim: #9a9aa4;
+    --canvas-bg: #17171a;
+    --canvas-grid: #26262c;
+    --rope: #5a5a64;
+    --term-bg: #101014;
+    --term-fg: #e6e6e6;
+    --dock-bg: rgb(30 30 35 / .86);
+    --sidebar-bg: rgb(27 27 32 / .52);
+    --dock-border: #3d3d46;
+    --dock-fg: #b6b6c0;
+    --dock-fg-strong: #f2f2f6;
+    --dock-hover: rgb(255 255 255 / .09);
+  }
+}
+
+/* Escuro explícito: vence o SO nos dois sentidos. */
+:root[data-theme='dark'] {
+  --bg: #1b1b1f;
+  --surface: #232328;
+  --surface-2: #2a2a30;
+  --border: #3a3a42;
+  --text: #ececf0;
+  --text-dim: #9a9aa4;
+  --canvas-bg: #17171a;
+  --canvas-grid: #26262c;
+  --rope: #5a5a64;
+  --term-bg: #101014;
+  --term-fg: #e6e6e6;
+  --dock-bg: rgb(30 30 35 / .86);
+  --sidebar-bg: rgb(27 27 32 / .52);
+  --dock-border: #3d3d46;
+  --dock-fg: #b6b6c0;
+  --dock-fg-strong: #f2f2f6;
+  --dock-hover: rgb(255 255 255 / .09);
+}
+
+:root {
+  /* ── Raio ────────────────────────────────────────────────────────────────
+     Quatro papéis, não treze valores. Antes desta escala havia 2, 3, 4, 5, 6,
+     7, 8, 9, 10, 12 e 16px na mesma base — o que é deriva de cópia, não
+     intenção: ninguém decide que um botão tem 7px e o vizinho 6px.
+       sm   detalhe dentro de um controle (chip, código, campo inline)
+       md   controle: botão, campo, item de lista, linha de menu
+       lg   superfície: card, popover, nó, painel flutuante
+       xl   só o modal — é a única superfície que não encosta em nada, e ela
+            pede raio maior que um popover; um token para um uso, mas o uso é
+            distinto o bastante para não caber no lg.
+     `50%` continua literal onde aparece: aquilo é a FORMA (círculo), não um
+     raio na escala — trocar por token só esconderia a intenção. */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-xl: 16px;
+  --r-pill: 999px;
+
+  /* ── Espaçamento ─────────────────────────────────────────────────────────
+     A escala que o arquivo já usava de fato (4, 6, 8, 12, 16, 24 cobrem a
+     grande maioria das ocorrências). Nasce aqui para as primitivas e os
+     componentes novos; os paddings antigos não foram reescritos em massa de
+     propósito — ver PLANO-estilos.md. */
+  --s-1: 4px;
+  --s-2: 6px;
+  --s-3: 8px;
+  --s-4: 12px;
+  --s-5: 16px;
+  --s-6: 24px;
+
+  /* ── Corpo de texto ──────────────────────────────────────────────────────
+     Cinco tamanhos, e é o que o app usa: 13px é o corpo (herdado do body),
+     12px o texto de controle, 11px o de painel, 10px o auxiliar e 9px o da
+     etiqueta em caixa alta (badge do nó, tipo do projeto, tag do git). */
+  --fs-2xs: 9px;
+  --fs-xs: 10px;
+  --fs-sm: 11px;
+  --fs-md: 12px;
+  --fs-base: 13px;
+
+  /* ── Duração ─────────────────────────────────────────────────────────────
+     Duas: a que acompanha um gesto e a que anuncia uma superfície nova. */
+  --dur-fast: 140ms;
+  --dur-base: 220ms;
+
+  /* Largura do painel lateral. Escrita aqui pelo arrasto (ver sidebar.tsx) e
+     relida das preferências no boot. */
+  --sidebar-width: 220px;
+
+  /* Geometria do canto do canvas, hoje só do minimapa. A altura vem daqui e
+     não do <canvas> de dentro: assim mudar o tamanho do mapa não desalinha
+     nada em silêncio. O 132 é a altura do <canvas> (ver HEIGHT em
+     canvas/minimap.tsx); o resto é padding e borda. */
+  --corner-height: 146px;
+  --corner-inset: 14px;
+
+  /* No macOS a janela é `hiddenInset` (ver main/window.ts): os semáforos
+     flutuam sobre a página. Nos outros sistemas a moldura é nativa e a faixa
+     tem largura zero. */
+  --window-controls-width: 0px;
+}
+
+:root[data-platform='darwin'] { --window-controls-width: 72px; }

@@ -21,7 +21,8 @@
     "test:smoke": "node scripts/smoke-headless.mjs",
     "test:git": "node scripts/test-git.mjs && node scripts/test-git-hook.mjs",
     "test:minimap": "node scripts/test-minimap.mjs",
-    "test": "npm run test:codec && npm run test:git && npm run test:minimap && npm run test:smoke"
+    "test:tokens": "node scripts/test-tokens.mjs",
+    "test": "npm run test:codec && npm run test:git && npm run test:minimap && npm run test:tokens && npm run test:smoke"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",

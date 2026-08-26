@@ -37,12 +37,12 @@ export function ProjectCandidates(): JSX.Element | null {
       : `Encontrei ${candidates.length} projetos novos`
 
   return (
-    <aside className="candidates-card" role="dialog" aria-label={titulo}>
+    <aside className="floating candidates-card" role="dialog" aria-label={titulo}>
       <header className="candidates-head">
         <strong>{titulo}</strong>
         <button
           type="button"
-          className="ghost-btn"
+          className="icon-btn ghost-btn"
           title="Depois"
           onClick={() => store.dismissCandidates()}
         >

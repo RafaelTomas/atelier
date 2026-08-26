@@ -48,14 +48,14 @@ export function CanvasChrome(): JSX.Element {
         {sidebarCollapsed && (
           <button
             type="button"
-            className="canvas-chip is-icon"
+            className="floating canvas-chip is-icon"
             onClick={() => store.toggleSidebar()}
             title="Mostrar painel"
           >
             ☰
           </button>
         )}
-        <div className="canvas-chip" title={workspace?.workingDirectory || undefined}>
+        <div className="floating canvas-chip" title={workspace?.workingDirectory || undefined}>
           {workspace?.name ?? '—'}
         </div>
       </div>
@@ -122,11 +122,11 @@ function ViewControls({
     <div className="view-controls">
       {/* Git antes do zoom: é ação sobre o PROJETO, e as outras são sobre a
           vista. Junto delas, o commit ficaria a um clique do botão de zoom. */}
-      <div className="vc-group is-git">
+      <div className="floating vc-group is-git">
         <GitMenu />
       </div>
 
-      <div className="vc-group">
+      <div className="floating vc-group">
         {/* Dial em vez dos botões − e +: o zoom vira um curso contínuo, onde
             uma passada do dedo cobre o que antes eram seis cliques. Os degraus
             não sumiram — moram no ⌘+ e ⌘−, para o ajuste de um passo só.
@@ -167,7 +167,7 @@ function ViewControls({
         </button>
       </div>
 
-      <div className="vc-group theme-picker" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="floating vc-group theme-picker" onMouseDown={(e) => e.stopPropagation()}>
         <button
           type="button"
           title={`Tema: ${THEMES.find((t) => t.id === theme)?.label ?? 'Sistema'}`}
@@ -194,7 +194,7 @@ function ViewControls({
         )}
       </div>
 
-      <div className="vc-group">
+      <div className="floating vc-group">
         <button type="button" onClick={() => void store.saveNow()}>
           Salvar
         </button>

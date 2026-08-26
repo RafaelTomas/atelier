@@ -397,7 +397,7 @@ function GitHeader({
         <div className="sidebar-header-actions">
           <button
             type="button"
-            className={busy ? 'ghost-btn is-active' : 'ghost-btn'}
+            className={busy ? 'icon-btn ghost-btn is-active' : 'icon-btn ghost-btn'}
             onClick={onRefresh}
             title="Reler o status"
             disabled={busy}
@@ -447,7 +447,7 @@ function FileSection({
         <span>
           {title} {count > 0 && <em className="sidebar-count">{count}</em>}
         </span>
-        <button type="button" className="ghost-btn git-section-action" disabled={action.disabled} onClick={action.run}>
+        <button type="button" className="icon-btn ghost-btn git-section-action" disabled={action.disabled} onClick={action.run}>
           {action.label}
         </button>
       </div>
@@ -472,7 +472,7 @@ function FileSection({
                   {onDiscard && (
                     <button
                       type="button"
-                      className="ghost-btn git-discard"
+                      className="icon-btn ghost-btn git-discard"
                       title="Descartar — não tem desfazer"
                       disabled={busy}
                       onClick={() => onDiscard(file)}
@@ -482,7 +482,7 @@ function FileSection({
                   )}
                   <button
                     type="button"
-                    className="ghost-btn"
+                    className="icon-btn ghost-btn"
                     title={rowAction.title}
                     disabled={busy}
                     onClick={() => rowAction.run(file)}

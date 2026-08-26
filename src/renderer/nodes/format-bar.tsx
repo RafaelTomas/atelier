@@ -153,7 +153,7 @@ function TextControls({
 
       <button
         type="button"
-        className={`fb-btn${content.fontWeight === 'bold' ? ' is-on' : ''}`}
+        className={`icon-btn fb-btn${content.fontWeight === 'bold' ? ' is-on' : ''}`}
         title="Negrito"
         style={{ fontWeight: 700 }}
         onClick={() => patch({ fontWeight: content.fontWeight === 'bold' ? 'regular' : 'bold' })}
@@ -162,7 +162,7 @@ function TextControls({
       </button>
       <button
         type="button"
-        className={`fb-btn${content.isItalic ? ' is-on' : ''}`}
+        className={`icon-btn fb-btn${content.isItalic ? ' is-on' : ''}`}
         title="Itálico"
         style={{ fontStyle: 'italic', fontFamily: 'ui-serif, Georgia, serif' }}
         onClick={() => patch({ isItalic: !content.isItalic })}
@@ -171,7 +171,7 @@ function TextControls({
       </button>
       <button
         type="button"
-        className={`fb-btn${content.isUnderlined ? ' is-on' : ''}`}
+        className={`icon-btn fb-btn${content.isUnderlined ? ' is-on' : ''}`}
         title="Sublinhado"
         style={{ textDecoration: 'underline' }}
         onClick={() => patch({ isUnderlined: !content.isUnderlined })}
@@ -180,7 +180,7 @@ function TextControls({
       </button>
       <button
         type="button"
-        className={`fb-btn${content.isStrikethrough ? ' is-on' : ''}`}
+        className={`icon-btn fb-btn${content.isStrikethrough ? ' is-on' : ''}`}
         title="Riscado"
         style={{ textDecoration: 'line-through' }}
         onClick={() => patch({ isStrikethrough: !content.isStrikethrough })}
@@ -196,7 +196,7 @@ function TextControls({
 
       <button
         type="button"
-        className="fb-btn"
+        className="icon-btn fb-btn"
         title="Ajustar altura ao texto"
         onClick={() => void fitHeight(node, content)}
       >
@@ -295,7 +295,7 @@ function SizeStepper({
 }): JSX.Element {
   return (
     <div className="fb-stepper">
-      <button type="button" className="fb-btn" title="Diminuir" onClick={() => onSize(stepFontSize(size, -1))}>
+      <button type="button" className="icon-btn fb-btn" title="Diminuir" onClick={() => onSize(stepFontSize(size, -1))}>
         −
       </button>
       <select
@@ -313,7 +313,7 @@ function SizeStepper({
           </option>
         ))}
       </select>
-      <button type="button" className="fb-btn" title="Aumentar" onClick={() => onSize(stepFontSize(size, 1))}>
+      <button type="button" className="icon-btn fb-btn" title="Aumentar" onClick={() => onSize(stepFontSize(size, 1))}>
         +
       </button>
     </div>
@@ -338,7 +338,7 @@ function AlignGroup({
         <button
           key={o.value}
           type="button"
-          className={`fb-btn fb-align fb-align-${o.value}${value === o.value ? ' is-on' : ''}`}
+          className={`icon-btn fb-btn fb-align fb-align-${o.value}${value === o.value ? ' is-on' : ''}`}
           title={o.title}
           onClick={() => onPick(o.value)}
         >
@@ -367,7 +367,7 @@ function FontPicker({
   const label = FONT_FAMILY_OPTIONS.find((o) => o.value === family)?.label ?? 'Sans'
   return (
     <div className="fb-pop-host">
-      <button type="button" className={`fb-btn fb-wide${open ? ' is-on' : ''}`} title="Fonte" onClick={toggle}>
+      <button type="button" className={`icon-btn fb-btn fb-wide${open ? ' is-on' : ''}`} title="Fonte" onClick={toggle}>
         {label} <span className="fb-caret">▾</span>
       </button>
       {open && (
@@ -435,7 +435,7 @@ function ColorButton({
     <div className="fb-pop-host">
       <button
         type="button"
-        className={`fb-btn fb-color${open ? ' is-on' : ''}`}
+        className={`icon-btn fb-btn fb-color${open ? ' is-on' : ''}`}
         title={title}
         onClick={toggle}
       >

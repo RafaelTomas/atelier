@@ -166,12 +166,12 @@ export function ProjectPanel(): JSX.Element {
       <div className="sidebar-header">
         <span>Projetos {projects.length > 0 && <em className="sidebar-count">{projects.length}</em>}</span>
         <div className="sidebar-header-actions">
-          <button type="button" className="ghost-btn" onClick={() => void addFolder()} title="Adicionar projeto…">
+          <button type="button" className="icon-btn ghost-btn" onClick={() => void addFolder()} title="Adicionar projeto…">
             <IconPlus size={15} />
           </button>
           <button
             type="button"
-            className={searchOpen || projectQuery ? 'ghost-btn is-active' : 'ghost-btn'}
+            className={searchOpen || projectQuery ? 'icon-btn ghost-btn is-active' : 'icon-btn ghost-btn'}
             onClick={toggleSearch}
             title="Buscar projeto"
             disabled={projects.length === 0}
@@ -180,7 +180,7 @@ export function ProjectPanel(): JSX.Element {
           </button>
           <button
             type="button"
-            className={moreMenu ? 'ghost-btn is-active' : 'ghost-btn'}
+            className={moreMenu ? 'icon-btn ghost-btn is-active' : 'icon-btn ghost-btn'}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect()
               setMoreMenu(moreMenu ? null : { x: r.right, y: r.bottom + 4 })

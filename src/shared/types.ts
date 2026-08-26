@@ -483,3 +483,53 @@ export interface FsEntry {
   isDirectory: boolean
   isSymlink: boolean
 }
+
+// ─── Git ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Um arquivo no `git status`. Os dois códigos vêm crus do porcelain v1 — o
+ * painel os traduz — porque a combinação é que carrega o sentido: `MM` é
+ * "modificado, staged, e modificado de novo depois", coisa que um único campo
+ * "estado" não conseguiria dizer.
+ */
+export interface GitFileChange {
+  path: string
+  /** Caminho de origem num rename/copy; null no resto. */
+  from: string | null
+  /** Coluna X do porcelain: o que está no índice (staged). */
+  index: string
+  /** Coluna Y: o que está na árvore de trabalho. */
+  worktree: string
+  isStaged: boolean
+  isUntracked: boolean
+  isConflicted: boolean
+}
+
+/** Operação em curso que muda o que os botões podem fazer. */
+export type GitOperation = 'merge' | 'rebase' | 'cherry-pick' | 'revert' | null
+
+export interface GitStatus {
+  /** Raiz do repositório — não a pasta consultada, que pode ser subpasta. */
+  root: string
+  /** null quando o HEAD está solto (detached). */
+  branch: string | null
+  /** Ex.: `origin/main`. null quando o branch nunca foi publicado. */
+  upstream: string | null
+  ahead: number
+  behind: number
+  /** URL do remoto `origin`, quando existe. */
+  remote: string | null
+  operation: GitOperation
+  files: GitFileChange[]
+}
+
+export interface GitCommitEntry {
+  hash: string
+  author: string
+  relativeDate: string
+  subject: string
+}
+
+export interface GitLogResult {
+  commits: GitCommitEntry[]
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { viewport } from './canvas/viewport'
+import { GitMenu } from './git-menu'
 import { store, useStore } from './state/store'
 import type { ThemeMode } from './theme'
 
@@ -46,6 +47,12 @@ export function Toolbar(): JSX.Element {
       {/* Criar nós e desenhar mudaram para a dock (renderer/dock.tsx). Aqui
           fica só o que é da JANELA: zoom, tema e gravação. */}
       <div className="toolbar-actions">
+        {/* Git antes do zoom: é ação sobre o PROJETO, e as outras são sobre a
+            janela. Junto delas, o commit ficaria a um clique do botão de zoom. */}
+        <GitMenu />
+
+        <span className="toolbar-sep" />
+
         <button type="button" onClick={() => viewport.setZoom(viewport.zoom - 0.25)}>−</button>
         <button type="button" onClick={() => viewport.setZoom(1)}>100%</button>
         <button type="button" onClick={() => viewport.setZoom(viewport.zoom + 0.25)}>+</button>

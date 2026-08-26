@@ -353,6 +353,15 @@ export function ProjectPanel(): JSX.Element {
             type="button"
             onClick={() => {
               setMenu(null)
+              store.showProjectGit(selected.id)
+            }}
+          >
+            Ver Git
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMenu(null)
               void store.patchProject(selected.id, { isFavorite: !selected.isFavorite })
             }}
           >

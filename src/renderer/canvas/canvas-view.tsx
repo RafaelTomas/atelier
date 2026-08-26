@@ -231,6 +231,14 @@ export function CanvasView(): JSX.Element {
       interaction.current = { kind: 'panning', last: screenPoint(e) }
       return
     }
+    // Ferramenta mão: o espaço segurado, só que travado no botão da dock. Vem
+    // antes do hit test pelo mesmo motivo — a .nodes-layer está transparente ao
+    // mouse, então o arrasto move o quadro mesmo começando sobre um nó.
+    if (tool === 'pan' && e.button === 0) {
+      e.preventDefault()
+      interaction.current = { kind: 'panning', last: screenPoint(e) }
+      return
+    }
     if (e.button !== 0) return
 
     // Modo "desenhe a área": o clique não seleciona nem cria nada ainda, só
@@ -581,7 +589,7 @@ export function CanvasView(): JSX.Element {
         spacePan ? 'is-space-pan' : '',
         placing ? 'is-placing' : '',
         connectingFrom ? 'is-connecting' : '',
-        tool !== 'select' ? `tool-${tool}` : ''
+        `tool-${tool}`
       ]
         .filter(Boolean)
         .join(' ')}

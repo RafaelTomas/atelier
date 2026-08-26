@@ -30,19 +30,23 @@ import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
  * Ferramenta ativa do canvas. 'select' é o comportamento de sempre (arrastar
  * nó, marquee, pan); as outras capturam o arrasto para desenhar/apagar.
  *
+ * 'pan' é a mão travada: o mesmo que segurar espaço, mas sem segurar nada. O
+ * botão da dock alterna entre ele e 'select', e o arrasto em área vazia move o
+ * quadro em vez de abrir o marquee.
+ *
  * 'draw' é o MODO desenho da dock: não desenha sozinho — o clique no canvas
  * abre o menu que escolhe o que fazer naquele ponto (ver DrawMenu). É esse
  * passo intermediário que separa 'draw' de 'pen'/'highlighter'/'eraser', que
  * já são a ferramenta concreta e agem direto no arrasto.
  */
-export type Tool = 'select' | 'draw' | 'pen' | 'highlighter' | 'eraser'
+export type Tool = 'select' | 'pan' | 'draw' | 'pen' | 'highlighter' | 'eraser'
 
 /**
  * Aba aberta no painel lateral. Mora na store, e não no componente, porque
  * outras partes precisam mandar a aba mudar — o menu de contexto de um projeto
  * abre a árvore dele, e o vazio da aba Arquivos manda de volta para Projetos.
  */
-export type SidebarTab = 'workspaces' | 'projetos' | 'arquivos'
+export type SidebarTab = 'workspaces' | 'projetos' | 'arquivos' | 'git'
 
 /** Ferramentas que o menu de desenho oferece — subconjunto acionável de Tool. */
 export type DrawTool = Extract<Tool, 'pen' | 'highlighter' | 'eraser'>
@@ -330,8 +334,10 @@ class Store {
 
   setTool(tool: Tool): void {
     // Trocar de ferramenta limpa a seleção: com a caneta ativa a alça de resize
-    // e a borda de seleção só atrapalham.
-    this.set({ tool, selection: tool === 'select' ? this.state.selection : [] })
+    // e a borda de seleção só atrapalham. 'pan' é exceção — mover o quadro não
+    // é motivo para largar o que estava selecionado.
+    const keeps = tool === 'select' || tool === 'pan'
+    this.set({ tool, selection: keeps ? this.state.selection : [] })
   }
 
   setPen(patch: Partial<PenSettings>): void {
@@ -398,6 +404,11 @@ class Store {
   /** Seleciona e abre a árvore dele — o par que o menu de contexto usa. */
   showProjectFiles(id: UUID): void {
     this.set({ selectedProjectId: id, sidebarTab: 'arquivos' })
+  }
+
+  /** Abre o Git já apontado para este projeto — o menu de contexto usa isto. */
+  showProjectGit(id: UUID): void {
+    this.set({ selectedProjectId: id, sidebarTab: 'git' })
   }
 
   /**

@@ -75,6 +75,18 @@ export function guestIdFor(nodeId: UUID): number | null {
 }
 
 /**
+ * O caminho inverso: de qual nó é este guest?
+ *
+ * Existe porque o tratamento de popup se arma na CRIAÇÃO do webContents, antes
+ * do renderer ter dito de quem ele é — se esperasse o dom-ready, uma página que
+ * chama window.open no carregamento escaparia pela janela nativa.
+ */
+export function nodeIdForGuest(webContentsId: number): UUID | null {
+  for (const [nodeId, id] of guests) if (id === webContentsId) return nodeId
+  return null
+}
+
+/**
  * O guest vivo, ou null. Um id órfão (guest destruído sem o renderer avisar,
  * caso de crash da página) é descartado aqui em vez de virar erro no chamador.
  */

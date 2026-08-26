@@ -72,6 +72,10 @@ type WebviewEl = HTMLElement & {
 
 export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
   const viewRef = useRef<WebviewEl | null>(null)
+  /** URL da montagem: o `src` do webview é escrito uma vez e só. */
+  const initialURL = useRef(content.currentURL)
+  /** Última URL que veio DO webview — para não mandá-lo de volta para onde já está. */
+  const lastSeen = useRef(content.currentURL)
   // Acordado pelo agente: monta o webview mesmo com o zoom no fundo. É o mesmo
   // motivo do TerminalNode continuar vivo — só que aqui quem precisa do nó de pé
   // é quem está lendo a página, não quem está olhando.
@@ -118,6 +122,10 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
     const onNavigated = (e: Event): void => {
       const url = (e as Event & { url?: string }).url ?? el.getURL()
       if (!url || url === content.currentURL) return
+      // Antes do patch: senão o efeito de navegação externa leria esta mesma
+      // URL como se fosse ordem de fora e recarregaria a página.
+      lastSeen.current = url
+      initialURL.current = url
       setDraft(url)
       void store.patchContent(node.id, { currentURL: url, source: { kind: 'url', url } })
     }
@@ -166,6 +174,19 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
     }
   }, [asleep, node.id, content.currentURL])
 
+  /**
+   * URL mudada POR FORA (`atelier portal go`, outra sessão): navega de verdade.
+   * O que vem do próprio webview já passou por lastSeen e não chega aqui.
+   */
+  useEffect(() => {
+    const el = viewRef.current
+    if (asleep || !el || !content.currentURL) return
+    if (content.currentURL === lastSeen.current) return
+    lastSeen.current = content.currentURL
+    initialURL.current = content.currentURL
+    el.src = content.currentURL
+  }, [asleep, content.currentURL])
+
   // ─── Ações ──────────────────────────────────────────────────────────────────
 
   const go = (value: string): void => {
@@ -176,6 +197,8 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
     setDraft(url)
     // Escreve o conteúdo mesmo se o webview estiver congelado: ao voltar o zoom
     // ele monta já com o src certo.
+    lastSeen.current = url
+    initialURL.current = url
     void store.patchContent(node.id, { currentURL: url, source: { kind: 'url', url } })
     if (viewRef.current) viewRef.current.src = url
   }
@@ -265,14 +288,24 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
         <div className="portal-viewport">
           {/* `partition` isola cookies/sessão por nó — e um popup herda a do
               pai, senão nasceria deslogado (portalPartition, em shared/types).
-              Continua sem `allowpopups`: quem trata window.open é o main, no
-              setWindowOpenHandler armado sobre o guest deste webview
-              (core/portal/portal-popup.ts). Uma janela nativa solta dentro do
-              app nunca é a resposta certa aqui. */}
+
+              `allowpopups` NÃO abre janela solta: popup em webview vem
+              desligado de fábrica e o pedido morre antes de chegar a qualquer
+              handler, que é por que o clique caía no vazio. Com o atributo, o
+              pedido chega ao setWindowOpenHandler que o main arma sobre este
+              guest — e lá ele é negado e vira um nó no canvas
+              (core/portal/portal-popup.ts).
+
+              `src` é o valor INICIAL e mais nada: ligá-lo a content.currentURL
+              faria o React reatribuir o atributo a cada navegação gravada, o
+              que RECARREGA a página. Numa SPA autenticada isso derruba o estado
+              em memória e devolve o usuário para a tela de login. Navegação
+              depois da montagem é imperativa, no efeito abaixo. */}
           <webview
             ref={(el) => (viewRef.current = el as WebviewEl | null)}
-            src={content.currentURL}
+            src={initialURL.current}
             partition={portalPartition(content)}
+            allowpopups
           />
           {failure && (
             <div className="portal-error">

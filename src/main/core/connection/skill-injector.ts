@@ -14,6 +14,7 @@ import type { UUID } from '@shared/types'
 import { log } from '../logger'
 import { claudeSkillsDir } from '../persistence/paths'
 import { terminals } from '../terminal/terminal-manager'
+import { notifyRenderer } from '../../ipc/notify'
 
 const SKILL_NAME = 'atelier'
 
@@ -26,7 +27,7 @@ const OWNER_MARKER = '<!-- installed-by: atelier -->'
 
 const SKILL_MD = `---
 name: atelier
-description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', or 'describe the projects'.
+description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', or 'describe the projects'.
 ---
 
 ${OWNER_MARKER}
@@ -75,6 +76,35 @@ atelier note read "Note Name" [offset] [limit]
 atelier note write "Note Name" "content"
 atelier note edit "Note Name" "old text" "new text"
 \`\`\`
+
+## Portals
+
+A portal is a browser inside the canvas. Connected ones are yours to read — they
+are usually the page the user is looking at right now.
+
+\`\`\`
+atelier portal list
+atelier portal open <url> [name] [--session "Portal" | --shared]
+atelier portal go "Portal" <url>
+atelier portal read "Portal" [offset] [limit]
+atelier portal html "Portal" [selector]
+atelier portal shot "Portal" [path]
+atelier portal close "Portal"
+\`\`\`
+
+\`open\` creates a portal already connected to you; \`localhost:5173\` and bare
+domains work, exactly as in the address bar. **Same origin, same session**: if
+you are connected to a portal already on that host, the new one continues its
+session instead of landing on a login page. \`--session "Portal"\` forces a
+specific one; \`--shared\` uses the shared cookie pool. The reply tells you which
+session you got. \`read\` gives the visible TEXT of
+the page, with \`offset\`/\`limit\` in lines, like \`note read\`. For a PDF or an
+image there is no text to read — use \`shot\`, which writes a PNG and prints its
+path for you to open.
+
+A portal that is off-screen or zoomed out is woken up for the read, so the first
+one may take a second. You cannot run arbitrary JavaScript in a portal: these
+sessions are often logged in as the user.
 
 ## Projects
 
@@ -142,9 +172,16 @@ export async function installSkillsIfNeeded(): Promise<void> {
 const notified = new Set<UUID>()
 
 /**
- * Avisa o terminal, uma vez só, que ele ganhou acesso ao CLI. Escreve um
- * comentário de shell (linha iniciada por #) — inerte se o agente for um shell,
- * informativo se for um agente de IA lendo a tela.
+ * Avisa o terminal, uma vez só, que ele ganhou acesso ao CLI.
+ *
+ * NA TELA, NUNCA NO STDIN. A versão anterior escrevia no PTY, como o app
+ * nativo: num shell isso é um comentário inofensivo, mas num agente de IA a
+ * linha cai dentro do campo de digitação — e o `\r` do fim podia mandá-la como
+ * prompt. O aviso é para ser lido, não digitado.
+ *
+ * Ir pelo canal de dados do renderer resolve os dois lados: o texto aparece no
+ * xterm e some no próximo redesenho de quem tem interface de tela cheia, e não
+ * entra no scrollback (que é gravado a partir da saída do processo, no main).
  */
 export function injectSkillInto(terminalId: UUID): void {
   if (notified.has(terminalId)) return
@@ -152,10 +189,10 @@ export function injectSkillInto(terminalId: UUID): void {
   if (!session || session.exited) return
 
   notified.add(terminalId)
-  terminals.write(
-    terminalId,
-    '# atelier: connected — run `atelier list` to see connected agents and notes\r'
-  )
+  notifyRenderer('terminal:data', {
+    id: terminalId,
+    data: '\r\n\x1b[90m# atelier: conectado — `atelier list` mostra agentes, notas e portais\x1b[0m\r\n'
+  })
 }
 
 export function forgetTerminal(terminalId: UUID): void {

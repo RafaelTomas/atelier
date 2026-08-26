@@ -9,11 +9,12 @@ import { handleAsk } from './handlers/ask'
 import { handleCheck } from './handlers/check'
 import { handleList } from './handlers/list'
 import { handleNote } from './handlers/note'
+import { handlePortal } from './handlers/portal'
 import { handleProjects } from './handlers/projects'
 import { handleRole } from './handlers/role'
 import { interAgentServer } from './server'
 
-const COMMANDS = 'list ask check note role projects debug'
+const COMMANDS = 'list ask check note portal role projects debug'
 
 export async function routeCLI(args: string[], terminalId: UUID | null): Promise<string> {
   const command = args[0]
@@ -28,6 +29,8 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
       return handleCheck(args, terminalId)
     case 'note':
       return handleNote(args, terminalId)
+    case 'portal':
+      return handlePortal(args, terminalId)
     case 'role':
       return handleRole(args, terminalId)
     case 'projects':
@@ -36,7 +39,6 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
       return buildDebugInfo(terminalId)
 
     // Ainda não portados — respondem com mensagem honesta em vez de falhar mudo
-    case 'portal':
     case 'recruit':
     case 'dismiss':
     case 'connect':

@@ -17,6 +17,7 @@ export type RendererEvent =
   | 'project:candidates'
   | 'fs:file-changed'
   | 'fs:file-removed'
+  | 'portal:wake'
 
 /**
  * Import dinâmico do electron: fora do app (teste headless, CI) isto vira um

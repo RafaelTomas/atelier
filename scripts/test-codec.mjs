@@ -115,6 +115,26 @@ test('PortalSource.url mantém o embrulho _0', () => {
   assert.deepEqual(portal.content.portal._0.source, { url: { _0: 'https://example.com' } })
 })
 
+/**
+ * A partição herdada é o que mantém um popup LOGADO: o nó filho nasce com id
+ * novo, logo partição nova, logo sessão vazia — a menos que o storageScope
+ * carregue a partição do pai. Se o codec descartar esse valor, o popup volta a
+ * nascer na tela de login. Ver Decisão B do plano do Portal.
+ */
+test('storageScope com partição herdada sobrevive à ida e volta', () => {
+  const clone = structuredClone(raw)
+  const portalNode = clone.payload.nodes.find((n) => n.content.portal)
+  portalNode.content.portal._0.storageScope = 'persist:portal-ABC'
+
+  const { payload: p } = decodeWorkspaceDocument(clone)
+  const decoded = p.nodes.find((n) => n.content.type === 'portal')
+  assert.equal(decoded.content.value.storageScope, 'persist:portal-ABC')
+
+  const back = encodeWorkspaceDocument(p)
+  const encoded = back.payload.nodes.find((n) => n.content.portal)
+  assert.equal(encoded.content.portal._0.storageScope, 'persist:portal-ABC')
+})
+
 test('CGPoint dentro de stroke re-encoda como array', () => {
   const stroke = reencoded.payload.nodes.find((n) => n.content.stroke)
   assert.deepEqual(stroke.content.stroke._0.startPoint, [0, 0.5])

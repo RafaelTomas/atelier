@@ -82,6 +82,24 @@ export interface PortalContent {
   storageScope: string
 }
 
+/**
+ * Partição de sessão do `<webview>` de um portal.
+ *
+ * Três formas em `storageScope`, e a terceira é a que faz o popup funcionar:
+ *   'isolated'   → sessão só deste nó (padrão)
+ *   'shared'     → sessão comum a todos os portais
+ *   'persist:…'  → partição herdada de outro portal
+ *
+ * Sem a herança, um popup nasceria com `content.id` novo, logo partição nova,
+ * logo DESLOGADO: o usuário clica num link autenticado e recebe a tela de login.
+ * Ver a Decisão B do PLANO-portal.md.
+ */
+export function portalPartition(content: PortalContent): string {
+  if (content.storageScope.startsWith('persist:')) return content.storageScope
+  if (content.storageScope === 'shared') return 'persist:atelier-portal'
+  return `persist:portal-${content.id}`
+}
+
 export interface FileTreeContent {
   name: string
   rootPath: string
@@ -345,7 +363,18 @@ export interface Preferences {
   autoScanOnLaunch: boolean
   /** Temas de terminal criados pelo usuário (os embutidos não ficam aqui). */
   terminalThemes: TerminalTheme[]
+  /** O que fazer com um popup aberto de dentro de um portal. */
+  portalPopups: PortalPopupMode
 }
+
+/**
+ * 'node'   → nasce como nó novo no canvas, ligado ao pai (padrão)
+ * 'same'   → navega no próprio nó, para quem acha que popup é ruído
+ * 'system' → vai para o navegador do sistema
+ */
+export type PortalPopupMode = 'node' | 'same' | 'system'
+
+export const PORTAL_POPUP_MODES: PortalPopupMode[] = ['node', 'same', 'system']
 
 /**
  * Tema de terminal. Os três embutidos ('system', 'dark', 'light') são

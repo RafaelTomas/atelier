@@ -7,6 +7,7 @@ import { ScanDialog } from './dialogs/scan-dialog'
 import { ProjectCandidates } from './project-candidates'
 import { CanvasChrome } from './canvas-chrome'
 import { Sidebar } from './sidebar'
+import { listenForPortalWake } from './state/portal-wake'
 import { store, useStore } from './state/store'
 
 export function App(): JSX.Element {
@@ -58,12 +59,17 @@ export function App(): JSX.Element {
     const offFile = window.atelier.fs.onFileChanged(({ path }) => {
       void store.notifyFileChanged(path)
     })
+    // Agente pedindo para ler um portal que o zoom ou a virtualização
+    // desmontou. A assinatura fica aqui, e não no nó: um nó desmontado não tem
+    // como escutar o pedido para se montar.
+    const offWake = listenForPortalWake()
     return () => {
       offWorkspace()
       offStatus()
       offStatus2()
       offCandidates()
       offFile()
+      offWake()
     }
   }, [])
 

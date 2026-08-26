@@ -12,6 +12,82 @@ import type { Point, Rect } from '@shared/types'
 
 export const MIN_ZOOM = 0.1
 export const MAX_ZOOM = 3.0
+
+/**
+ * As paradas dos botões − e +.
+ *
+ * A escada é APERTADA perto de 100% e larga nos extremos, porque é assim que o
+ * olho percebe zoom: a diferença entre 90% e 100% é a mesma, para quem olha,
+ * que entre 200% e 250%. O passo aditivo que existia antes (0,25 fixo) errava
+ * nas duas pontas — de 100% para 75% era um salto grande demais para ajustar
+ * enquadramento, e lá embaixo o mesmo 0,25 pulava de 35% direto para o piso.
+ *
+ * Os números são redondos de propósito: quem lê "67%" reconhece o valor de
+ * qualquer navegador, e voltar a um zoom conhecido vale mais do que uma
+ * progressão geométrica exata.
+ */
+const ZOOM_STOPS = [
+  0.1, 0.15, 0.2, 0.25, 0.33, 0.4, 0.5, 0.6, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2,
+  2.5, 3
+]
+
+/** Folga na comparação: o zoom da roda cai em valores como 0.9999999. */
+const EPSILON = 0.001
+
+/**
+ * O dial de zoom: 0 a 100 na tela, MIN_ZOOM a MAX_ZOOM no canvas.
+ *
+ * A escala é LOGARÍTMICA, e isso não é preciosismo. Linear, o trecho de 10% a
+ * 100% — que é metade da faixa útil — caberia no primeiro terço do curso, e o
+ * resto seria dominado pelos zooms grandes, onde poucos trabalham. Em log,
+ * cada pixel percorrido muda o zoom na mesma PROPORÇÃO, que é como o olho
+ * percebe, e é a mesma razão por trás da escada dos degraus.
+ */
+const LOG_MIN = Math.log(MIN_ZOOM)
+const LOG_MAX = Math.log(MAX_ZOOM)
+
+export function zoomToDial(zoom: number): number {
+  return ((Math.log(zoom) - LOG_MIN) / (LOG_MAX - LOG_MIN)) * 100
+}
+
+/**
+ * O valor sai arredondado para múltiplos de 5 pontos percentuais.
+ *
+ * O dial tem 100 posições numa faixa de 10% a 300%, o que dá ~3,5% por posição
+ * perto de 100% — fino demais para a mão: um pixel de tremor já mudava o
+ * número. Com a grade de 5, várias posições vizinhas caem no MESMO zoom, e é
+ * isso que dá firmeza ao gesto. De quebra, 100% deixa de precisar de encaixe
+ * especial: sendo múltiplo de 5, ele é um dos valores da grade.
+ */
+export function dialToZoom(dial: number): number {
+  return snapZoom(Math.exp(LOG_MIN + (dial / 100) * (LOG_MAX - LOG_MIN)))
+}
+
+/**
+ * O zoom na grade de 5 pontos percentuais, preso na faixa permitida.
+ *
+ * Uma grade só, para os dois gestos: o que o dial mostra e o que a roda produz
+ * têm de ser os mesmos valores, senão 100% pelo dial e 100% pela roda seriam
+ * dois números diferentes com o mesmo rótulo.
+ */
+export function snapZoom(zoom: number): number {
+  const emGrade = Math.round(zoom / ZOOM_GRID) * ZOOM_GRID
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(emGrade.toFixed(2))))
+}
+
+/** O passo da grade: 5 pontos percentuais. */
+const ZOOM_GRID = 0.05
+/**
+ * Pixels de roda que fecham um degrau. 100 é a batida padrão do Chromium, então
+ * no mouse a conta é exata: uma batida, um degrau.
+ */
+const WHEEL_PIXELS_PER_STEP = 100
+/** Teto por evento: um `deltaMode` de página não vale uma dúzia de degraus. */
+const WHEEL_MAX_PIXELS = 140
+/** Pausa que descarta o resíduo: gesto novo começa do zero. */
+const WHEEL_IDLE_MS = 400
+/** `deltaMode: 1` conta LINHAS; esta é a altura suposta de cada uma. */
+const WHEEL_LINE_HEIGHT = 16
 export const CULL_MARGIN = 200
 
 export interface ViewportState {
@@ -58,6 +134,10 @@ class Viewport {
     this.schedule()
   }
 
+  /** Pixels de roda ainda não convertidos em degrau — ver zoomByWheel. */
+  private wheelPixels = 0
+  private wheelAt = 0
+
   panBy(dxScreen: number, dyScreen: number): void {
     this.origin = { x: this.origin.x - dxScreen / this.zoom, y: this.origin.y - dyScreen / this.zoom }
     this.schedule()
@@ -82,6 +162,65 @@ class Viewport {
   setZoom(zoom: number): void {
     const center = { x: this.width / 2, y: this.height / 2 }
     this.zoomAt(center, Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)) / this.zoom)
+  }
+
+  /**
+   * Zoom da roda com ⌘/Ctrl, ancorado no cursor: uma batida, um degrau de 5
+   * pontos — a MESMA grade do dial.
+   *
+   * O `deltaY` cru não serve de fator: depende do dispositivo E do
+   * `deltaMode`. Uma batida de roda no Chromium chega como 100px, e a
+   * sensibilidade que existia aqui (0,01) transformava isso em fator 0,37 —
+   * uma batida tirava 63% do zoom. Já um trackpad manda dezenas de eventos
+   * pequenos por segundo, onde o mesmo cálculo mal saía do lugar.
+   *
+   * Por isso o delta vira PIXELS e os pixels viram degraus, com o resto
+   * guardado: no mouse cada batida fecha um degrau exato; no trackpad, vários
+   * eventos pequenos se somam até fechar um. Sem esse acúmulo, o trackpad
+   * ficaria mudo — cada evento sozinho não move o suficiente para trocar de
+   * degrau, e o arredondamento devolveria sempre o mesmo valor.
+   *
+   * O resíduo é descartado depois de uma pausa: sobra de um gesto encerrado
+   * não pode empurrar o próximo.
+   */
+  zoomByWheel(screenPoint: Point, deltaY: number, deltaMode: number): void {
+    const pixels =
+      deltaMode === 1
+        ? deltaY * WHEEL_LINE_HEIGHT
+        : deltaMode === 2
+          ? deltaY * this.height
+          : deltaY
+
+    const agora = performance.now()
+    if (agora - this.wheelAt > WHEEL_IDLE_MS) this.wheelPixels = 0
+    this.wheelAt = agora
+    this.wheelPixels += Math.max(-WHEEL_MAX_PIXELS, Math.min(WHEEL_MAX_PIXELS, pixels))
+
+    // Para baixo o delta é positivo e o zoom diminui — daí o sinal invertido.
+    const degraus = Math.trunc(-this.wheelPixels / WHEEL_PIXELS_PER_STEP)
+    if (degraus === 0) return
+    this.wheelPixels += degraus * WHEEL_PIXELS_PER_STEP
+
+    const alvo = snapZoom(this.zoom + degraus * ZOOM_GRID)
+    if (alvo === this.zoom) return
+    this.zoomAt(screenPoint, alvo / this.zoom)
+  }
+
+  /**
+   * Um degrau para cima (+1) ou para baixo (-1) na escada de zoom.
+   *
+   * Anda até a PRÓXIMA parada acima ou abaixo do valor atual, e não até o
+   * vizinho de um índice: o zoom da roda é contínuo, então quase sempre o
+   * valor está entre duas paradas, e um índice fixo daria um salto para trás
+   * antes de andar para frente.
+   */
+  zoomStep(direction: 1 | -1): void {
+    const atual = this.zoom
+    const alvo =
+      direction > 0
+        ? ZOOM_STOPS.find((z) => z > atual + EPSILON)
+        : [...ZOOM_STOPS].reverse().find((z) => z < atual - EPSILON)
+    if (alvo !== undefined) this.setZoom(alvo)
   }
 
   /**

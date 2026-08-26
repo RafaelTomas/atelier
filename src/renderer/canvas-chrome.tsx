@@ -10,7 +10,7 @@
  * sem workspace aberto — que é justamente quando algo deu errado.
  */
 import { useEffect, useState } from 'react'
-import { nodesBounds, viewport } from './canvas/viewport'
+import { dialToZoom, nodesBounds, viewport, zoomToDial } from './canvas/viewport'
 import { GitMenu } from './git-menu'
 import { store, useStore } from './state/store'
 import type { CanvasNode } from '@shared/types'
@@ -127,19 +127,28 @@ function ViewControls({
       </div>
 
       <div className="vc-group">
-        <button type="button" title="Afastar" onClick={() => viewport.setZoom(viewport.zoom - 0.25)}>
-          −
-        </button>
+        {/* Dial em vez dos botões − e +: o zoom vira um curso contínuo, onde
+            uma passada do dedo cobre o que antes eram seis cliques. Os degraus
+            não sumiram — moram no ⌘+ e ⌘−, para o ajuste de um passo só.
+            A escala é logarítmica; a razão está em viewport.ts. */}
+        <input
+          type="range"
+          className="vc-dial"
+          min={0}
+          max={100}
+          step={1}
+          value={Math.round(zoomToDial(zoom))}
+          aria-label="Zoom"
+          title={`Zoom: ${Math.round(zoom * 100)}%`}
+          onChange={(e) => viewport.setZoom(dialToZoom(Number(e.target.value)))}
+        />
         <button
           type="button"
           className="vc-zoom"
-          title="Voltar a 100%"
+          title="Voltar a 100% (⌘0)"
           onClick={() => viewport.setZoom(1)}
         >
           {Math.round(zoom * 100)}%
-        </button>
-        <button type="button" title="Aproximar" onClick={() => viewport.setZoom(viewport.zoom + 0.25)}>
-          +
         </button>
         {/* Enquadrar tudo fecha o grupo: os três antes dele mudam o zoom em
             passos, e este resolve "me perdi" de uma vez. */}

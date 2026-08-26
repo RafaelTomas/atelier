@@ -46,6 +46,14 @@ function title(node: CanvasNode): string {
   }
 }
 
+/**
+ * As oito alças: quatro bordas e quatro quinas.
+ *
+ * Antes existia só a quina inferior direita, o que obrigava a arrastar o nó
+ * para perto do canto certo antes de poder encolhê-lo pelo outro lado.
+ */
+const RESIZE_EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
+
 /** Text é o único sem chrome — igual ao app nativo. */
 function isChromeless(node: CanvasNode): boolean {
   return node.content.type === 'text'
@@ -89,16 +97,16 @@ export function NodeShell({
   })()
 
   return (
+    /**
+     * Duas camadas, e a razão é o redimensionamento: o CARD recorta o próprio
+     * conteúdo (`overflow: hidden`, que é o que arredonda o cabeçalho e segura
+     * o terminal dentro da borda), e o que é recortado não é clicável. As alças
+     * precisam montar em cima da borda, metade para fora — então elas moram
+     * nesta moldura, que tem a mesma geometria e não recorta nada.
+     */
     <div
       data-node-id={node.id}
-      className={[
-        'node',
-        `node-${node.content.type}`,
-        selected ? 'is-selected' : '',
-        isChromeless(node) ? 'is-chromeless' : ''
-      ]
-        .filter(Boolean)
-        .join(' ')}
+      className="node-frame"
       style={{
         left: frame.x,
         top: frame.y,
@@ -107,56 +115,69 @@ export function NodeShell({
         zIndex: node.zIndex
       }}
     >
-      {!isChromeless(node) && (
-        <div className="node-header">
-          {terminal && (
-            <span className="node-icon" style={{ color: terminal.color }}>
-              <Icon name={terminal.icon} size={14} />
-            </span>
-          )}
-          <span className="node-title">{title(node)}</span>
-          {terminal?.isManager && (
-            <span className="node-badge is-manager" title="Maestro deste canvas">
-              maestro
-            </span>
-          )}
-          {role && (
-            <span className="node-badge" style={{ color: role.color }} title={role.instructions || role.name}>
-              {role.name}
-            </span>
-          )}
-          <div className="node-header-actions">
-            <button
-              type="button"
-              className="node-btn"
-              title="Conectar a outro nó"
-              onMouseDown={(e) => {
-                e.stopPropagation()
-                store.startConnecting(node.id)
-              }}
-            >
-              ⇄
-            </button>
-            <button
-              type="button"
-              className="node-btn"
-              title="Remover nó"
-              onMouseDown={(e) => {
-                e.stopPropagation()
-                void store.removeNode(node.id)
-              }}
-            >
-              ×
-            </button>
+      <div
+        className={[
+          'node',
+          `node-${node.content.type}`,
+          selected ? 'is-selected' : '',
+          isChromeless(node) ? 'is-chromeless' : ''
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
+        {!isChromeless(node) && (
+          <div className="node-header">
+            {terminal && (
+              <span className="node-icon" style={{ color: terminal.color }}>
+                <Icon name={terminal.icon} size={14} />
+              </span>
+            )}
+            <span className="node-title">{title(node)}</span>
+            {terminal?.isManager && (
+              <span className="node-badge is-manager" title="Maestro deste canvas">
+                maestro
+              </span>
+            )}
+            {role && (
+              <span className="node-badge" style={{ color: role.color }} title={role.instructions || role.name}>
+                {role.name}
+              </span>
+            )}
+            <div className="node-header-actions">
+              <button
+                type="button"
+                className="node-btn"
+                title="Conectar a outro nó"
+                onMouseDown={(e) => {
+                  e.stopPropagation()
+                  store.startConnecting(node.id)
+                }}
+              >
+                ⇄
+              </button>
+              <button
+                type="button"
+                className="node-btn"
+                title="Remover nó"
+                onMouseDown={(e) => {
+                  e.stopPropagation()
+                  void store.removeNode(node.id)
+                }}
+              >
+                ×
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="node-body">{body}</div>
+        <div className="node-body">{body}</div>
 
-      {terminal && status && <AgentStatusFooter status={status} />}
+        {terminal && status && <AgentStatusFooter status={status} />}
+      </div>
 
-      <div data-resize-handle className="resize-handle" />
+      {RESIZE_EDGES.map((edge) => (
+        <div key={edge} data-resize-handle={edge} className={`resize-handle is-${edge}`} />
+      ))}
     </div>
   )
 }

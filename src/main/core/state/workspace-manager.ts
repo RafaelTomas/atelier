@@ -15,14 +15,42 @@ import type {
 } from '@shared/types'
 import { connectionKindForTypes } from '@shared/types'
 import { nowISO } from '../coding'
+import { Constants } from '../constants'
 import { makeConnection } from '../models/workspace'
 
 export class WorkspaceManager {
   payload: WorkspacePayload
   isDirty = false
+  /**
+   * Versão que estava no arquivo em disco. Enquanto for menor que a do app, o
+   * próximo save grava antes um backup — ver PersistenceManager.saveWorkspace.
+   */
+  fileSchemaVersion: number
+  /** Nós que o decoder não entendeu e descartou ao abrir. */
+  droppedNodes: number
 
-  constructor(payload: WorkspacePayload) {
+  constructor(payload: WorkspacePayload, integrity?: { fileSchemaVersion?: number; droppedNodes?: number }) {
     this.payload = payload
+    this.fileSchemaVersion = integrity?.fileSchemaVersion ?? Constants.schemaVersion
+    this.droppedNodes = integrity?.droppedNodes ?? 0
+  }
+
+  /**
+   * Modo seguro: o arquivo em disco tem conteúdo que este binário não entende,
+   * e gravar por cima o apagaria. Autosave e shutdown pulam este workspace; só
+   * um save pedido pelo usuário passa por cima, e a faixa na UI diz o custo.
+   */
+  get isSafeMode(): boolean {
+    return this.droppedNodes > 0 || this.fileSchemaVersion > Constants.schemaVersion
+  }
+
+  /** O que a UI mostra na faixa de aviso. */
+  integrity(): { safeMode: boolean; droppedNodes: number; fileSchemaVersion: number } {
+    return {
+      safeMode: this.isSafeMode,
+      droppedNodes: this.droppedNodes,
+      fileSchemaVersion: this.fileSchemaVersion
+    }
   }
 
   get id(): UUID {

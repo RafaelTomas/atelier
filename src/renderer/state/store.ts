@@ -138,6 +138,12 @@ export interface AppSnapshot {
   prefs: Preferences | null
   /** Aviso passageiro na barra — some sozinho. */
   notice: string | null
+  /**
+   * Integridade do arquivo do workspace aberto. `safeMode` significa que o
+   * decoder descartou nós que não entendeu: o autosave está desligado e salvar
+   * apagaria esses nós. null = ainda não consultado.
+   */
+  integrity: { safeMode: boolean; droppedNodes: number; fileSchemaVersion: number } | null
   loading: boolean
   bootError: string | null
 }
@@ -170,6 +176,7 @@ const initial: AppSnapshot = {
   autoDescribe: DESCRIBE_PROJECTS_ENABLED,
   prefs: null,
   notice: null,
+  integrity: null,
   loading: true,
   bootError: null
 }
@@ -204,12 +211,14 @@ class Store {
       ])
       const id = activeId ?? entries[0]?.id ?? null
       const workspace = id ? await window.atelier.workspace.open(id) : null
+      const integrity = id ? await window.atelier.workspace.integrity(id) : null
       const theme = isThemeMode(prefs.theme) ? prefs.theme : 'system'
       applyTheme(theme)
       this.set({
         entries,
         activeId: id,
         workspace,
+        integrity,
         roles,
         prefs,
         sidebarCollapsed: prefs.sidebarCollapsed,
@@ -223,7 +232,19 @@ class Store {
 
   async openWorkspace(id: UUID): Promise<void> {
     const workspace = await window.atelier.workspace.open(id)
-    this.set({ workspace, activeId: id, selection: [] })
+    const integrity = await window.atelier.workspace.integrity(id)
+    this.set({ workspace, integrity, activeId: id, selection: [] })
+  }
+
+  /**
+   * O botão Salvar da barra. É a ÚNICA porta que grava um workspace em modo
+   * seguro — por isso ele reconsulta a integridade depois: uma vez gravado, o
+   * arquivo já não tem o que não era entendido, e a faixa some.
+   */
+  async saveNow(): Promise<void> {
+    await window.atelier.workspace.saveNow()
+    const id = this.state.activeId
+    if (id) this.set({ integrity: await window.atelier.workspace.integrity(id) })
   }
 
   async createWorkspace(name: string): Promise<void> {

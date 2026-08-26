@@ -21,6 +21,7 @@ import type {
 import { Constants } from '../core/constants'
 import { log } from '../core/logger'
 import {
+  makeCodeEditorContent,
   makeFileTreeContent,
   makePortalContent,
   makeStickyNoteContent,
@@ -47,7 +48,7 @@ import { onConnectionCreated, restoreConnections } from '../core/connection/conn
 import { forgetTerminal } from '../core/connection/skill-injector'
 import { notifyRenderer } from './notify'
 
-type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree'
+type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor'
 
 function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeContent {
   switch (kind) {
@@ -87,6 +88,8 @@ function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeConte
         type: 'fileTree',
         value: makeFileTreeContent(String(opts.name ?? 'Files'), String(opts.rootPath ?? ''))
       }
+    case 'codeEditor':
+      return { type: 'codeEditor', value: makeCodeEditorContent(String(opts.filePath ?? '')) }
   }
 }
 
@@ -104,6 +107,8 @@ function minSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: 240, height: 180 }
     case 'fileTree':
       return { width: 180, height: 140 }
+    case 'codeEditor':
+      return { width: 240, height: 160 }
     case 'text':
       return { width: 80, height: 32 }
   }
@@ -121,6 +126,8 @@ function defaultSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: 640, height: 440 }
     case 'fileTree':
       return { width: 300, height: 420 }
+    case 'codeEditor':
+      return { width: 620, height: 440 }
   }
 }
 
@@ -173,7 +180,22 @@ export function registerIPC(): void {
     return appState.manifest.workspaces
   })
 
-  ipcMain.handle('workspace:save-now', async () => appState.saveDirtyWorkspaces())
+  /**
+   * O botão Salvar da barra. `force` porque é ação explícita do usuário: é o
+   * único caminho que grava um workspace em modo seguro, e a faixa na tela já
+   * disse o que se perde.
+   */
+  ipcMain.handle('workspace:save-now', async () => appState.saveDirtyWorkspaces(true))
+
+  /**
+   * O que a UI precisa para decidir se mostra a faixa de modo seguro. Fica fora
+   * do payload do workspace de propósito: não é dado do canvas, é estado da
+   * leitura do arquivo.
+   */
+  ipcMain.handle('workspace:integrity', (_e, id: UUID) => {
+    const ws = appState.workspaces.get(id)
+    return ws ? ws.integrity() : null
+  })
 
   ipcMain.handle('viewport:set', (_e, id: UUID, origin: Point, zoom: number) => {
     appState.workspaces.get(id)?.setViewport(origin, zoom)

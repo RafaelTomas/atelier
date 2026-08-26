@@ -26,7 +26,7 @@ import type {
   WorkspacePayload
 } from '@shared/types'
 
-type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree'
+type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor'
 
 /** `ok` diz se a ação passou; `message` é o que o git respondeu, resumido. */
 interface GitActionResult {
@@ -59,6 +59,11 @@ const api = {
       ipcRenderer.invoke('workspace:rename', id, name),
     remove: (id: UUID): Promise<WorkspaceEntry[]> => ipcRenderer.invoke('workspace:delete', id),
     saveNow: (): Promise<number> => ipcRenderer.invoke('workspace:save-now'),
+    /** Modo seguro: o arquivo tem nós que este binário não entende. */
+    integrity: (
+      id: UUID
+    ): Promise<{ safeMode: boolean; droppedNodes: number; fileSchemaVersion: number } | null> =>
+      ipcRenderer.invoke('workspace:integrity', id),
     setViewport: (id: UUID, origin: Point, zoom: number): Promise<void> =>
       ipcRenderer.invoke('viewport:set', id, origin, zoom)
   },

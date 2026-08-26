@@ -61,9 +61,10 @@ const reencoded = encodeWorkspaceDocument(payload)
 
 console.log('\ncodec de compatibilidade Maestri\n')
 
-test('decodifica os 8 tipos de nó', () => {
+test('decodifica os 9 tipos de nó', () => {
   const types = payload.nodes.map((n) => n.content.type).sort()
   assert.deepEqual(types, [
+    'codeEditor',
     'fileTree',
     'freehand',
     'portal',
@@ -73,6 +74,13 @@ test('decodifica os 8 tipos de nó', () => {
     'terminal',
     'text'
   ])
+})
+
+test('codeEditor guarda o caminho e MAIS NADA', () => {
+  // Campo extra em conteúdo de nó é descartado na releitura (aqui e no app
+  // nativo): o que se deriva do disco não pode morar no workspace.json.
+  const editor = reencoded.payload.nodes.find((n) => n.content.codeEditor).content.codeEditor._0
+  assert.deepEqual(editor, { filePath: '/tmp/test/src/main.ts' })
 })
 
 test('frame decodifica de [[x,y],[w,h]]', () => {
@@ -243,6 +251,34 @@ test('round-trip é estável (encode∘decode∘encode == encode)', () => {
   assert.deepEqual(second, reencoded)
 })
 
+test('nó de variante desconhecida é contado, não perdido em silêncio', () => {
+  // O caso que a contagem existe para pegar: um workspace gravado por uma
+  // versão mais nova. Sem ela, o nó sumiria e o primeiro autosave regravaria o
+  // arquivo sem ele — perda invisível. Com ela, o app abre em modo seguro.
+  const doc = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      nodes: [
+        ...raw.payload.nodes,
+        {
+          id: 'AAAAAAAA-0000-0000-0000-0000000000FF',
+          frame: [[0, 0], [100, 100]],
+          zIndex: 99,
+          isLocked: false,
+          createdAt: '2026-05-16T00:00:00Z',
+          lastModifiedAt: '2026-05-16T00:00:00Z',
+          content: { hologram: { _0: { algo: 'do futuro' } } }
+        }
+      ]
+    }
+  })
+  assert.equal(doc.droppedNodes, 1)
+  assert.equal(doc.payload.nodes.length, raw.payload.nodes.length)
+  // E o arquivo íntegro não acusa nada.
+  assert.equal(decodeWorkspaceDocument(raw).droppedNodes, 0)
+})
+
 test('nós não implementados na UI sobrevivem ao round-trip', () => {
   const survivors = ['shape', 'stroke', 'freehand', 'fileTree']
   for (const type of survivors) {
@@ -254,7 +290,7 @@ test('nós não implementados na UI sobrevivem ao round-trip', () => {
 })
 
 test('schemaVersion e type ficam corretos na raiz', () => {
-  assert.equal(reencoded.schemaVersion, 2)
+  assert.equal(reencoded.schemaVersion, 3)
   assert.equal(reencoded.type, 'workspace')
 })
 

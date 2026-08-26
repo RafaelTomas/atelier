@@ -197,6 +197,82 @@ await test('workspace relê do disco preservando nós e conexões', async () => 
   assert.equal(reloaded.connections[0].kind, 'note')
 })
 
+// ─── Formato: modo seguro e backup da subida de versão ────────────────────────
+// O teste que a perda silenciosa nunca teve. Um workspace com um caso de enum
+// que este binário não conhece tem de abrir SEM gravar por cima: o autosave
+// regravaria o arquivo sem aquele nó, de forma irreversível e invisível.
+
+await test('nó desconhecido põe o workspace em modo seguro e trava o autosave', async () => {
+  const criado = await appState.createWorkspace('Do Futuro', '')
+  const file = paths.workspaceFile(criado.id)
+
+  // Escreve à mão um arquivo v3 com um caso que o decoder não conhece —
+  // exatamente o que um binário mais VELHO veria ao abrir um workspace novo.
+  const doc = JSON.parse(readFileSync(file, 'utf8'))
+  doc.payload.nodes = [
+    {
+      id: 'AAAAAAAA-0000-0000-0000-0000000000FF',
+      frame: [[0, 0], [100, 100]],
+      zIndex: 1,
+      isLocked: false,
+      createdAt: '2026-05-16T00:00:00Z',
+      lastModifiedAt: '2026-05-16T00:00:00Z',
+      content: { hologram: { _0: { algo: 'do futuro' } } }
+    }
+  ]
+  await writeFile(file, JSON.stringify(doc, null, 2))
+  const antes = readFileSync(file, 'utf8')
+
+  // Reabre do disco (o manager em memória ainda é o da criação)
+  appState.workspaces.delete(criado.id)
+  const reaberto = await appState.openWorkspace(criado.id)
+  assert.equal(reaberto.droppedNodes, 1, 'o nó descartado não foi contado')
+  assert.equal(reaberto.isSafeMode, true)
+
+  // Mexer no canvas suja o workspace, e o autosave PULA
+  reaberto.markDirty()
+  assert.equal(await appState.saveDirtyWorkspaces(), 0, 'autosave gravou em modo seguro')
+  assert.equal(readFileSync(file, 'utf8'), antes, 'o arquivo mudou byte a byte')
+
+  // Só a ação explícita do usuário grava — e aí o aviso perde o objeto
+  assert.equal(await appState.saveDirtyWorkspaces(true), 1)
+  assert.notEqual(readFileSync(file, 'utf8'), antes)
+  assert.equal(reaberto.isSafeMode, false)
+
+  appState.workspaces.delete(criado.id)
+})
+
+await test('primeira gravação de um workspace v2 deixa um backup ao lado', async () => {
+  const criado = await appState.createWorkspace('Herdado', '')
+  const file = paths.workspaceFile(criado.id)
+  const backup = join(paths.workspaceDir(criado.id), 'workspace.v2.backup.json')
+
+  // Rebaixa o arquivo para v2, como um workspace gravado antes desta versão
+  const doc = JSON.parse(readFileSync(file, 'utf8'))
+  doc.schemaVersion = 2
+  await writeFile(file, JSON.stringify(doc, null, 2))
+  const original = readFileSync(file, 'utf8')
+
+  appState.workspaces.delete(criado.id)
+  const reaberto = await appState.openWorkspace(criado.id)
+  assert.equal(reaberto.fileSchemaVersion, 2)
+  assert.equal(reaberto.isSafeMode, false, 'arquivo mais VELHO não é motivo de modo seguro')
+
+  reaberto.markDirty()
+  await appState.saveDirtyWorkspaces()
+
+  assert.ok(existsSync(backup), 'não gravou o backup da v2')
+  assert.equal(readFileSync(backup, 'utf8'), original, 'o backup não é o arquivo original')
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).schemaVersion, 3)
+
+  // Segunda gravação não reescreve o backup: o valor dele é ser o ANTES.
+  reaberto.markDirty()
+  await appState.saveDirtyWorkspaces()
+  assert.equal(readFileSync(backup, 'utf8'), original, 'o backup foi sobrescrito')
+
+  appState.workspaces.delete(criado.id)
+})
+
 // ─── Protocolo atelier ───────────────────────────────────────────────────────
 
 await test('atelier debug responde pelo socket', async () => {

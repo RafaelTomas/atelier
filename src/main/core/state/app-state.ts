@@ -108,13 +108,19 @@ class AppState {
       return cached
     }
 
-    const payload = await persistence.loadWorkspace(id)
-    if (!payload) {
+    const loaded = await persistence.loadWorkspaceDocument(id)
+    if (!loaded) {
       log.error('appstate', `workspace ${id} não encontrado em disco`)
       return null
     }
 
-    const manager = new WorkspaceManager(payload)
+    const manager = new WorkspaceManager(loaded.payload, loaded)
+    if (manager.isSafeMode) {
+      log.warn(
+        'appstate',
+        `workspace ${id} aberto em modo seguro: ${loaded.droppedNodes} nó(s) não reconhecido(s), arquivo v${loaded.fileSchemaVersion}`
+      )
+    }
     this.workspaces.set(id, manager)
     this.data.activeWorkspaceId = id
 
@@ -178,16 +184,28 @@ class AppState {
     this.autosaveTimer = null
   }
 
-  /** Snapshot na hora, I/O depois — o padrão do app nativo. */
-  async saveDirtyWorkspaces(): Promise<number> {
-    const dirty = [...this.workspaces.values()].filter((w) => w.isDirty)
+  /**
+   * Snapshot na hora, I/O depois — o padrão do app nativo.
+   *
+   * Workspace em modo seguro é PULADO: gravar por cima apagaria os nós que o
+   * decoder não entendeu. `force` é a saída, e só chega aqui pelo botão Salvar
+   * da barra — uma ação explícita do usuário, com o aviso na tela.
+   */
+  async saveDirtyWorkspaces(force = false): Promise<number> {
+    const dirty = [...this.workspaces.values()].filter(
+      (w) => w.isDirty && (force || !w.isSafeMode)
+    )
     if (dirty.length === 0) return 0
 
     const snapshots = dirty.map((w) => ({ manager: w, payload: w.snapshot() }))
     for (const { manager, payload } of snapshots) {
       try {
-        await persistence.saveWorkspace(payload)
+        await persistence.saveWorkspace(payload, manager.fileSchemaVersion)
         manager.isDirty = false
+        manager.fileSchemaVersion = Constants.schemaVersion
+        // Depois de um save forçado o arquivo já não tem o que não era
+        // entendido: o aviso perdeu o objeto e sai da tela.
+        manager.droppedNodes = 0
       } catch (err) {
         log.error('appstate', `falha salvando workspace ${payload.id}`, err)
       }
@@ -200,9 +218,16 @@ class AppState {
   async shutdown(): Promise<void> {
     this.stopAutosave()
     for (const manager of this.workspaces.values()) {
+      // Fechar o app não é permissão para gravar por cima do que não foi
+      // entendido: em modo seguro o arquivo fica como está.
+      if (manager.isSafeMode) {
+        log.warn('appstate', `workspace ${manager.id} não gravado: modo seguro`)
+        continue
+      }
       try {
-        await persistence.saveWorkspace(manager.snapshot())
+        await persistence.saveWorkspace(manager.snapshot(), manager.fileSchemaVersion)
         manager.isDirty = false
+        manager.fileSchemaVersion = Constants.schemaVersion
       } catch (err) {
         log.error('appstate', `falha no shutdown do workspace ${manager.id}`, err)
       }

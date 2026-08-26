@@ -588,9 +588,9 @@ export function registerIPC(): void {
     }
   )
 
-  ipcMain.handle('terminal:write', (_e, nodeId: UUID, data: string) => {
+  ipcMain.handle('terminal:write', (_e, nodeId: UUID, data: string) =>
     terminals.write(nodeId, data)
-  })
+  )
 
   ipcMain.handle('terminal:resize', (_e, nodeId: UUID, cols: number, rows: number) => {
     terminals.resize(nodeId, cols, rows)

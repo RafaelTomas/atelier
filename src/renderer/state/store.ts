@@ -25,6 +25,7 @@ import type {
 } from '@shared/types'
 import { viewport } from '../canvas/viewport'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
+import { quoteForShell } from '../paths'
 import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
 
 /**
@@ -147,6 +148,11 @@ export interface AppSnapshot {
   integrity: { safeMode: boolean; droppedNodes: number; fileSchemaVersion: number } | null
   /** Nó de editor com alteração pendente, esperando resposta antes de fechar. */
   closingEditor: UUID | null
+  /**
+   * Plataforma, vinda do bootInfo. O renderer não tem `process`, e quem cola um
+   * caminho no terminal precisa saber com que aspas o shell de lá se entende.
+   */
+  platform: string
   loading: boolean
   bootError: string | null
 }
@@ -181,6 +187,7 @@ const initial: AppSnapshot = {
   notice: null,
   integrity: null,
   closingEditor: null,
+  platform: 'linux',
   loading: true,
   bootError: null
 }
@@ -336,6 +343,35 @@ class Store {
   private dirtyEditors = new Set<UUID>()
   /** path → quem quer saber que o arquivo mudou em disco. */
   private fileListeners = new Map<string, Set<(text: string) => void>>()
+
+  setPlatform(platform: string): void {
+    this.set({ platform })
+  }
+
+  /**
+   * Arquivo arrastado para dentro de um terminal: cola o caminho na linha, sem
+   * Enter.
+   *
+   * Não abre editor nem cria cabo. O terminal quase sempre já está no
+   * repositório do arquivo, e o que falta ali é justamente o caminho para
+   * completar o comando que a pessoa estava digitando — é o mesmo gesto do
+   * Terminal do sistema, inclusive no espaço no fim.
+   *
+   * O caminho vai ABSOLUTO, não relativo ao diretório do nó: o `workingDirectory`
+   * gravado é onde o PTY nasceu, e um `cd` depois disso tornaria o relativo uma
+   * mentira silenciosa. O absoluto está certo em qualquer diretório.
+   */
+  async pasteIntoTerminal(nodeId: UUID, path: string): Promise<void> {
+    const delivered = await window.atelier.terminal.write(
+      nodeId,
+      `${quoteForShell(path, this.state.platform)} `
+    )
+    if (!delivered) {
+      this.showNotice('este terminal não está rodando — nada foi colado')
+      return
+    }
+    this.set({ selection: [nodeId] })
+  }
 
   setEditorDirty(nodeId: UUID, dirty: boolean): void {
     if (dirty) this.dirtyEditors.add(nodeId)

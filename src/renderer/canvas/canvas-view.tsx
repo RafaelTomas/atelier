@@ -220,6 +220,15 @@ export function CanvasView(): JSX.Element {
       const payload = readFileDrag(dragged)
       if (!payload) return
 
+      // Solto DENTRO de um terminal, o gesto quer outra coisa: o caminho na
+      // linha de comando. Abrir um editor por cima do terminal seria tapar
+      // justamente o que a pessoa estava usando.
+      const under = hitTest(canvas)
+      if (under?.content.type === 'terminal') {
+        void store.pasteIntoTerminal(under.id, payload.path)
+        return
+      }
+
       if (payload.isDirectory) void store.addFolderTreeToWorkspace(payload.path, payload.name, canvas)
       else void store.openFileInWorkspace(payload.path, canvas)
       return

@@ -56,6 +56,9 @@ await esbuild.build({
       export { isRepository, inferKind } from './src/main/core/projects/detect.ts'
       export { isPathAllowed, resolveAllowedPath, resolveAllowedTarget } from './src/main/core/projects/fs-access.ts'
       export { readTextFile, writeTextFile, renameEntry, duplicateEntry, MAX_TEXT_BYTES } from './src/main/core/projects/file-ops.ts'
+      // Função pura do renderer (paths.ts não importa nada): entra aqui porque
+      // aspas erradas quebram em silêncio — o comando roda com o argumento errado.
+      export { quoteForShell } from './src/renderer/paths.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -78,6 +81,7 @@ const { scanAgentStatus } = core
 const { projectIndex, scanForProjects, isRepository, inferKind, isPathAllowed } = core
 const { resolveAllowedPath, resolveAllowedTarget } = core
 const { readTextFile, writeTextFile, renameEntry, duplicateEntry, MAX_TEXT_BYTES } = core
+const { quoteForShell } = core
 
 /** Fala o protocolo real do atelier por socket. */
 function cli(args, terminalId) {
@@ -847,6 +851,21 @@ await test('resolveAllowedPath diz sob QUAL raiz o caminho caiu', async () => {
   const b = await resolveAllowedPath(join(projectTree, 'c'), duasRaizes)
   assert.equal(a.ok && b.ok, true)
   assert.notEqual(a.root, b.root)
+})
+
+await test('quoteForShell só põe aspas quando o caminho precisa', () => {
+  // O caso comum sai limpo: aspas em todo caminho seriam ruído na linha.
+  assert.equal(quoteForShell('/home/u/src/app.ts', 'linux'), '/home/u/src/app.ts')
+
+  // Espaço sem aspas vira DOIS argumentos — é o erro que este teste existe para pegar.
+  assert.equal(quoteForShell('/home/u/My Docs/a.ts', 'linux'), "'/home/u/My Docs/a.ts'")
+  assert.equal(quoteForShell('/home/u/a$b.ts', 'darwin'), "'/home/u/a$b.ts'")
+
+  // Aspa simples no nome: fecha, escapa, reabre.
+  assert.equal(quoteForShell("/home/u/it's.ts", 'linux'), "'/home/u/it'\\''s.ts'")
+
+  // No Windows são aspas duplas: o cmd.exe não entende as simples.
+  assert.equal(quoteForShell('C:\\Users\\u\\My Docs\\a.ts', 'win32'), '"C:\\Users\\u\\My Docs\\a.ts"')
 })
 
 await test('isPathAllowed barra caminho fora das raízes permitidas', async () => {

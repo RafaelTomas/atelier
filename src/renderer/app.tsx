@@ -28,9 +28,13 @@ export function App(): JSX.Element {
     void store.load()
     void window.atelier.bootInfo().then((info) => {
       setBoot(info)
-      // Os semáforos do macOS ficam à esquerda e a toolbar precisa reservar
-      // espaço para eles; no Windows/Linux os controles ficam à direita.
+      // Os semáforos do macOS ficam à esquerda, sobre a página, e a faixa de
+      // arrasto precisa reservar espaço para eles; no Windows/Linux a moldura
+      // é nativa e a faixa não existe.
       document.documentElement.dataset.platform = info.platform
+      // A store também precisa: é ela que decide as aspas ao colar um caminho
+      // no terminal.
+      store.setPlatform(info.platform)
     })
 
     // O CLI pode alterar o canvas por fora (atelier note create, por exemplo)

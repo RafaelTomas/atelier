@@ -124,7 +124,8 @@ const api = {
       rows: number
     ): Promise<{ buffer?: string; status?: AgentStatus; error?: string }> =>
       ipcRenderer.invoke('terminal:spawn', workspaceId, nodeId, cols, rows),
-    write: (nodeId: UUID, data: string): Promise<void> =>
+    /** false = não havia PTY vivo para receber o texto. */
+    write: (nodeId: UUID, data: string): Promise<boolean> =>
       ipcRenderer.invoke('terminal:write', nodeId, data),
     resize: (nodeId: UUID, cols: number, rows: number): Promise<void> =>
       ipcRenderer.invoke('terminal:resize', nodeId, cols, rows),

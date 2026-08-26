@@ -33,6 +33,13 @@ const ZOOM_STOPS = [
 
 /** Folga na comparação: o zoom da roda cai em valores como 0.9999999. */
 const EPSILON = 0.001
+
+/** Quanto de zoom por pixel de roda. Ver zoomByWheel para a conta. */
+const WHEEL_SENSITIVITY = 0.0015
+/** Teto por evento: nenhuma batida sozinha muda o zoom em mais de ~20%. */
+const WHEEL_MAX_PIXELS = 140
+/** `deltaMode: 1` conta LINHAS; esta é a altura suposta de cada uma. */
+const WHEEL_LINE_HEIGHT = 16
 export const CULL_MARGIN = 200
 
 export interface ViewportState {
@@ -103,6 +110,31 @@ class Viewport {
   setZoom(zoom: number): void {
     const center = { x: this.width / 2, y: this.height / 2 }
     this.zoomAt(center, Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)) / this.zoom)
+  }
+
+  /**
+   * Zoom da roda com ⌘/Ctrl, ancorado no cursor.
+   *
+   * O `deltaY` cru não serve como fator: ele depende do dispositivo E do
+   * `deltaMode`. Uma batida de roda de mouse no Chromium chega como 100px, e
+   * com a sensibilidade que havia antes (0,01) isso virava fator 0,37 — uma
+   * batida tirava 63% do zoom. Já um trackpad manda dezenas de eventos
+   * pequenos por segundo, onde o mesmo cálculo mal se move.
+   *
+   * Então: normaliza o `deltaMode` para pixels, aplica sensibilidade única e
+   * põe teto no evento. Com 0,0015 por pixel, a batida de 100px vira ~14% —
+   * perto do que navegador e editor de canvas fazem —, e o teto impede que um
+   * `deltaMode` estranho (página inteira) dê um salto de uma vez só.
+   */
+  zoomByWheel(screenPoint: Point, deltaY: number, deltaMode: number): void {
+    const pixels =
+      deltaMode === 1
+        ? deltaY * WHEEL_LINE_HEIGHT
+        : deltaMode === 2
+          ? deltaY * this.height
+          : deltaY
+    const limitado = Math.max(-WHEEL_MAX_PIXELS, Math.min(WHEEL_MAX_PIXELS, pixels))
+    this.zoomAt(screenPoint, Math.exp(-limitado * WHEEL_SENSITIVITY))
   }
 
   /**

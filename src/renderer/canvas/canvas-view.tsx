@@ -555,7 +555,7 @@ export function CanvasView(): JSX.Element {
 
   const onWheel = (e: React.WheelEvent): void => {
     if (e.ctrlKey || e.metaKey) {
-      viewport.zoomAt(screenPoint(e), Math.exp(-e.deltaY * 0.01))
+      viewport.zoomByWheel(screenPoint(e), e.deltaY, e.deltaMode)
     } else {
       viewport.panBy(-e.deltaX, -e.deltaY)
     }

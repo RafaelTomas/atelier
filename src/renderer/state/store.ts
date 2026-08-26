@@ -268,7 +268,7 @@ class Store {
     const trimmed = name.trim()
     if (!trimmed) return
     const entries = await window.atelier.workspace.rename(id, trimmed)
-    // O payload aberto também guarda o nome — é ele que alimenta a toolbar.
+    // O payload aberto também guarda o nome — é ele que alimenta o chip do canvas.
     const ws = this.state.workspace
     this.set({
       entries,

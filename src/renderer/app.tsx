@@ -5,9 +5,9 @@ import { viewport } from './canvas/viewport'
 import { NewTerminalDialog } from './dialogs/new-terminal-dialog'
 import { ScanDialog } from './dialogs/scan-dialog'
 import { ProjectCandidates } from './project-candidates'
+import { CanvasChrome } from './canvas-chrome'
 import { Sidebar } from './sidebar'
 import { store, useStore } from './state/store'
-import { Toolbar } from './toolbar'
 
 export function App(): JSX.Element {
   const {
@@ -20,6 +20,7 @@ export function App(): JSX.Element {
     newTerminalCwd,
     editTerminalId,
     scanDialogOpen,
+    integrity,
     closingEditor
   } = useStore()
   const [boot, setBoot] = useState<BootInfo | null>(null)
@@ -110,13 +111,21 @@ export function App(): JSX.Element {
   return (
     <div className="app-shell">
       <main className="main-pane">
-        <Toolbar />
+        {/* Só no macOS, e só por CSS: a janela lá é `hiddenInset`, então sem uma
+            faixa de arrasto os semáforos ficariam soltos sobre o canvas e a
+            janela não se moveria. Nos outros sistemas a moldura nativa já faz
+            isso e esta div tem altura zero. */}
+        <div className="mac-drag-strip" />
+
+        {integrity?.safeMode && <SafeModeBanner integrity={integrity} />}
+
         {/* A sidebar FLUTUA sobre o canvas, não divide a linha com ele: é o que
             dá o que borrar ao backdrop-filter — encostada, atrás dela só há a
             cor de fundo da janela e a translucidez não aparece. */}
         <div className="canvas-area">
           {workspace ? <CanvasView /> : <div className="boot-screen">nenhum workspace aberto</div>}
           {!sidebarCollapsed && <Sidebar />}
+          <CanvasChrome />
         </div>
         <footer className="status-bar">
           <span>{boot ? `IPC :${boot.serverPort}` : 'IPC —'}</span>
@@ -150,6 +159,40 @@ export function App(): JSX.Element {
       {closingEditor && <UnsavedEditorDialog />}
 
       <ProjectCandidates />
+    </div>
+  )
+}
+
+/**
+ * Modo seguro: o arquivo tem nós que este binário não entende.
+ *
+ * A faixa é visível e permanente de propósito. O caso que ela evita é o pior
+ * tipo de bug de formato: o app abre normalmente, o autosave regrava o arquivo
+ * sem os nós desconhecidos, e a perda é irreversível e invisível. Enquanto ela
+ * estiver na tela, nada é gravado sem o usuário mandar.
+ */
+function SafeModeBanner({
+  integrity
+}: {
+  integrity: { droppedNodes: number; fileSchemaVersion: number }
+}): JSX.Element {
+  const { droppedNodes, fileSchemaVersion } = integrity
+  return (
+    <div className="safe-mode-banner" role="alert">
+      <span>
+        {droppedNodes > 0
+          ? `${droppedNodes} ${droppedNodes === 1 ? 'nó deste workspace não foi reconhecido' : 'nós deste workspace não foram reconhecidos'} — salvar apagaria ${droppedNodes === 1 ? 'ele' : 'eles'}.`
+          : `este workspace foi gravado por uma versão mais nova (schema v${fileSchemaVersion}).`}{' '}
+        O salvamento automático está desligado.
+      </span>
+      <button
+        type="button"
+        className="btn is-danger"
+        title="Grava o workspace como está agora, descartando o que não foi reconhecido"
+        onClick={() => void store.saveNow()}
+      >
+        Salvar assim mesmo
+      </button>
     </div>
   )
 }

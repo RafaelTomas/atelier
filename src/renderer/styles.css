@@ -82,6 +82,19 @@
 
 * { box-sizing: border-box; }
 
+/* ─── Sem barras de rolagem, em lugar nenhum ──────────────────────────────── */
+/* A rolagem continua funcionando: some só a BARRA. É padrão do app, não exceção
+   de um componente — a barra de sistema tem ~15px e aqui quase tudo é estreito
+   (o painel, o nó de árvore, o terminal), então ela come justamente a largura
+   do conteúdo. Os nós ainda têm canto arredondado, onde a barra encostava e
+   aparecia cortada.
+   `scrollbar-width` é o padrão CSS; o pseudo-elemento do WebKit fica junto
+   porque o Chromium só passou a honrar o primeiro há poucas versões.
+   O que esta regra NÃO alcança, e nem deveria: o conteúdo dentro de um
+   <webview> (nó Portal). Aquela página é de outra pessoa. */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
 html, body, #root { height: 100%; margin: 0; }
 
 body {
@@ -135,11 +148,6 @@ button { font: inherit; color: inherit; }
   cursor: col-resize; z-index: 6; touch-action: none;
 }
 .sidebar-resizer:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
-
-/* A rolagem continua; o que some é a barra. Numa coluna de 220px ela come
-   largura útil e corta os nomes de projeto. */
-.sidebar *, .sidebar { scrollbar-width: none; }
-.sidebar ::-webkit-scrollbar, .sidebar::-webkit-scrollbar { width: 0; height: 0; display: none; }
 
 .sidebar-header {
   display: flex; align-items: center; justify-content: space-between;
@@ -219,9 +227,7 @@ button { font: inherit; color: inherit; }
 .candidates-list {
   list-style: none; margin: 0; padding: 0;
   overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
-  scrollbar-width: none;
 }
-.candidates-list::-webkit-scrollbar { display: none; }
 .candidates-list .check-row { padding: 4px 6px; border-radius: 6px; align-items: flex-start; }
 .candidates-list .check-row:hover { background: var(--dock-hover); }
 .candidates-list input { margin-top: 2px; }
@@ -500,9 +506,7 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   font-size: 10px; line-height: 1;
   font-variant-numeric: tabular-nums;
   overflow-x: auto; overflow-y: hidden;
-  scrollbar-width: none;
 }
-.node-footer::-webkit-scrollbar { display: none; }
 
 .nf-item { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
 .nf-label { color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
@@ -1369,14 +1373,7 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 .file-tree-actions { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
 .file-tree-actions .ghost-btn { font-size: 12px; padding: 1px 5px; }
 
-/* A rolagem continua; o que some é a BARRA — a mesma escolha já feita na
-   sidebar. Num nó estreito ela come a largura que os nomes precisam, e o nó
-   tem canto arredondado: a barra encostava nele e ficava cortada. */
-.file-tree-body {
-  flex: 1; overflow: auto; overflow-x: hidden; padding: 4px 0;
-  scrollbar-width: none;
-}
-.file-tree-body::-webkit-scrollbar { width: 0; height: 0; display: none; }
+.file-tree-body { flex: 1; overflow: auto; overflow-x: hidden; padding: 4px 0; }
 
 .file-tree-row {
   width: 100%; border: 0; background: transparent; cursor: pointer;

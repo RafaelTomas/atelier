@@ -28,6 +28,12 @@
   /* Largura do painel lateral. Escrita aqui pelo arrasto (ver sidebar.tsx) e
      relida das preferências no boot. */
   --sidebar-width: 220px;
+  /* Geometria do canto do canvas, hoje só do minimapa. A altura vem daqui e
+     não do <canvas> de dentro: assim mudar o tamanho do mapa não desalinha
+     nada em silêncio. O 132 é a altura do <canvas> (ver HEIGHT em
+     canvas/minimap.tsx); o resto é padding e borda. */
+  --corner-height: 146px;
+  --corner-inset: 14px;
 }
 
 /* Modo sistema: escuro só quando o SO pede E o usuário não forçou claro. */
@@ -1786,6 +1792,77 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   color: var(--text-dim); overflow-wrap: anywhere;
 }
 .git-popover-feedback.is-error { color: var(--rope-error); border-color: var(--rope-error); }
+
+/* ─── Minimapa ────────────────────────────────────────────────────────────── */
+
+/* Canto inferior direito: a dock ocupa o centro da base e a sidebar a
+   esquerda. O `bottom` alinha com a dock (18px) para os dois assentarem na
+   mesma linha. */
+.minimap {
+  /* z-index 50: acima da prévia de conexão (40), abaixo das barras de nó e do
+     aviso de projetos (60) — uma barra ancorada num nó do canto de baixo tem
+     de continuar clicável por cima do mapa. */
+  /* O zoom vive na barra de controles do topo (canvas-chrome.tsx), então o
+     canto é só do mapa. Fica acima da linha do dock (18px) em vez de dividi-la:
+     encostado na base ele competia com a barra de status logo abaixo. */
+  position: absolute; z-index: 50;
+  right: var(--corner-inset);
+  bottom: 64px;
+  /* Altura fixada no mesmo token da barra de zoom, e não deixada a cargo do
+     <canvas> de dentro: assim mudar o tamanho do mapa não desalinha os dois
+     em silêncio. box-sizing garante que o padding não some por fora. */
+  box-sizing: border-box; height: var(--corner-height);
+  padding: 6px; border-radius: 10px;
+  border: 1px solid var(--dock-border);
+  background: var(--dock-bg);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 20px rgb(0 0 0 / .22);
+  cursor: pointer;
+  /* O mapa é alvo de arrasto: sem isto o gesto seleciona a página em volta. */
+  user-select: none;
+}
+.minimap:hover { border-color: var(--dock-fg); }
+
+/* Escondido em repouso: aparece durante o pan/zoom e some sozinho depois.
+   `visibility` junto do opacity para o mapa invisível não continuar capturando
+   o mouse no canto — sem isso ele roubaria cliques do canvas embaixo.
+   A transição de saída é mais lenta que a de entrada: aparecer tem de ser
+   imediato para acompanhar o gesto; sumir pode ser suave. */
+.minimap {
+  opacity: 0; visibility: hidden;
+  transition: opacity .28s ease, visibility 0s linear .28s, border-color .15s;
+}
+.minimap.is-visible {
+  opacity: 1; visibility: visible;
+  transition: opacity .1s ease, visibility 0s, border-color .15s;
+}
+
+/* Quem prefere sem animação recebe o corte seco, não um mapa que pisca. */
+@media (prefers-reduced-motion: reduce) {
+  .minimap, .minimap.is-visible { transition: none; }
+}
+
+/* block: o <canvas> é inline por padrão, e a linha de base deixaria uma
+   faixa de alguns pixels embaixo, desalinhando o padding. */
+.minimap canvas { display: block; border-radius: 5px; background: var(--canvas-bg); }
+
+/* Janela estreita: o dock é centrado e cresce para os dois lados, e abaixo de
+   ~780px ele alcança o minimapa na linha de base. Quem cede é o mapa — ele é o
+   item de conveniência, e some sozinho de qualquer forma quando o canvas está
+   parado.
+   O limite era 860px enquanto o zoom dividia a base com ele; agora o zoom é o
+   botão redondo mais acima e não entra nessa conta. */
+@media (max-width: 780px) {
+  .minimap { display: none; }
+}
+
+/* O aviso de projetos (.candidates-card) ocupa o mesmo canto. O mapa desliza
+   para a ESQUERDA dele em vez de sumir — sumir tirava a navegação por causa de
+   um aviso passageiro, e sair pela vertical dependeria da altura do aviso, que
+   varia com o número de projetos oferecidos. A largura do card é fixa (330px),
+   então esta conta é estável. */
+.minimap.is-raised { right: calc(16px + 330px + 10px); }
+
 /* ─── Árvore: renomear inline, alvo de arrasto e confirmação ───────────────── */
 
 .file-tree-row.is-drop-target {
@@ -1853,3 +1930,7 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   padding: 10px 12px; font-size: 11px; color: var(--text-dim); font-style: italic;
 }
 .code-editor-error { color: var(--rope-error); font-style: normal; }
+
+/* O ⤢ é um glifo mais alto que os sinais de − e +; sem o ajuste ele estica a
+   pílula e desalinha a linha de base do grupo. */
+.vc-fit { font-size: 12px; }

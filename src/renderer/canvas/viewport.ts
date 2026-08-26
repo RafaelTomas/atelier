@@ -84,6 +84,36 @@ class Viewport {
     this.zoomAt(center, Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)) / this.zoom)
   }
 
+  /**
+   * Enquadra um retângulo do canvas na tela: ajusta pan e zoom para ele caber
+   * inteiro, com uma folga em volta.
+   *
+   * Uma escala só para os dois eixos — escalas separadas distorceriam o
+   * conteúdo. O zoom é preso em [MIN_ZOOM, MAX_ZOOM]: um workspace com dois
+   * nós colados pediria um zoom de 40x, e enquadrar não é desculpa para passar
+   * do teto que o resto do app respeita.
+   */
+  fit(rect: Rect, padding = 60): void {
+    if (this.width === 0 || this.height === 0) return
+    if (rect.width <= 0 || rect.height <= 0) return
+
+    const scale = Math.min(
+      (this.width - padding * 2) / rect.width,
+      (this.height - padding * 2) / rect.height
+    )
+    this.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale))
+
+    // Centraliza: o que sobra do eixo que não mandou na escala vira margem
+    // dos dois lados, e não tudo de um lado só.
+    const cx = rect.x + rect.width / 2
+    const cy = rect.y + rect.height / 2
+    this.origin = {
+      x: cx - this.width / this.zoom / 2,
+      y: cy - this.height / this.zoom / 2
+    }
+    this.schedule()
+  }
+
   reset(origin: Point, zoom: number): void {
     this.origin = { ...origin }
     this.zoom = zoom
@@ -145,4 +175,26 @@ export function rectEdgePoint(r: Rect, toward: Point): Point {
     dy === 0 ? Infinity : r.height / 2 / Math.abs(dy)
   )
   return { x: c.x + dx * t, y: c.y + dy * t }
+}
+
+/**
+ * Retângulo que contém todos os nós. null quando não há nenhum — quem chama
+ * decide o que fazer com um workspace vazio (enquadrar o nada não faz sentido).
+ */
+export function nodesBounds(nodes: { frame: Rect }[]): Rect | null {
+  if (nodes.length === 0) return null
+
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const { frame } of nodes) {
+    minX = Math.min(minX, frame.x)
+    minY = Math.min(minY, frame.y)
+    maxX = Math.max(maxX, frame.x + frame.width)
+    maxY = Math.max(maxY, frame.y + frame.height)
+  }
+  // Piso de 1: um único nó de área zero daria width 0, e quem enquadra
+  // dividiria por ele.
+  return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) }
 }

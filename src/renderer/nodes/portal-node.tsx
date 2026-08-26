@@ -13,7 +13,7 @@
  * renderização vivos num canvas afastado — e nó fora da viewport nem monta,
  * porque a virtualização do canvas cuida disso.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CanvasNode, PortalContent, UUID } from '@shared/types'
 import { portalPartition } from '@shared/types'
 import { HOME_URL, normalizeURL } from '@shared/portal-url'
@@ -108,10 +108,54 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
   const [nav, setNav] = useState({ back: false, forward: false })
 
   useEffect(() => viewport.subscribe((v) => setFrozen(v.zoom < FREEZE_ZOOM)), [])
-  useEffect(() => portalWake.subscribe(() => setAwake(portalWake.has(node.id))), [node.id])
 
   /** Congelado pelo zoom, mas não se o agente pediu para ler agora. */
   const asleep = frozen && !awake
+
+  /**
+   * Diz ao main com qual webContents este nó fala — é o que permite tratar
+   * popup, ler a página e capturar (core/portal/portal-registry.ts).
+   *
+   * EFEITO PRÓPRIO, E SEM A URL NAS DEPENDÊNCIAS. Quando o registro morava junto
+   * dos listeners de navegação, cada URL gravada derrubava o efeito e o cleanup
+   * DESREGISTRAVA o guest — depois do `dom-ready` daquela navegação já ter
+   * passado. O nó ficava mudo para o agente até alguém navegar de novo: um
+   * portal que o usuário usa se recupera sozinho, um portal recém-aberto que
+   * carrega e assenta nunca mais responde.
+   */
+  const registerGuest = useCallback((): void => {
+    const el = viewRef.current
+    if (!el) return
+    try {
+      void window.atelier.portal.register(node.id, el.getWebContentsId())
+    } catch {
+      // Ainda não anexado: o dom-ready abaixo chega logo e refaz.
+    }
+  }, [node.id])
+
+  useEffect(() => {
+    const el = viewRef.current
+    if (asleep || !el) return
+    // Já pode estar anexado (remontagem, HMR): não esperar um dom-ready que
+    // talvez nunca venha.
+    registerGuest()
+    el.addEventListener('dom-ready', registerGuest)
+    return () => {
+      el.removeEventListener('dom-ready', registerGuest)
+      void window.atelier.portal.unregister(node.id)
+    }
+  }, [asleep, node.id, registerGuest])
+
+  useEffect(
+    () =>
+      portalWake.subscribe(() => {
+        setAwake(portalWake.has(node.id))
+        // Acordado com o nó já montado: nada remonta, nenhum dom-ready dispara,
+        // e quem está esperando do outro lado precisa do registro AGORA.
+        if (portalWake.has(node.id)) registerGuest()
+      }),
+    [node.id, registerGuest]
+  )
 
   // A URL pode mudar por fora (patchContent vindo do CLI ou de outra sessão).
   useEffect(() => {
@@ -161,21 +205,6 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
       setFailure(errorDescription || `falha ao carregar (${errorCode ?? '?'})`)
     }
 
-    /**
-     * O main precisa saber com qual webContents este nó fala — é o que permite
-     * tratar popup, ler a página e tirar captura (core/portal/portal-registry.ts).
-     * `dom-ready` é o primeiro momento em que `getWebContentsId()` responde, e
-     * ele dispara de novo a cada navegação: o registro é idempotente.
-     */
-    const onReady = (): void => {
-      try {
-        void window.atelier.portal.register(node.id, el.getWebContentsId())
-      } catch {
-        // webview desanexado no meio do caminho — o unmount já cuida do resto
-      }
-    }
-
-    el.addEventListener('dom-ready', onReady)
     el.addEventListener('did-start-loading', onStart)
     el.addEventListener('did-stop-loading', onStop)
     el.addEventListener('did-navigate', onNavigated)
@@ -183,8 +212,6 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
     el.addEventListener('did-fail-load', onFail)
 
     return () => {
-      void window.atelier.portal.unregister(node.id)
-      el.removeEventListener('dom-ready', onReady)
       el.removeEventListener('did-start-loading', onStart)
       el.removeEventListener('did-stop-loading', onStop)
       el.removeEventListener('did-navigate', onNavigated)

@@ -83,7 +83,7 @@ are usually the page the user is looking at right now.
 
 \`\`\`
 atelier portal list
-atelier portal open <url> [name]
+atelier portal open <url> [name] [--session "Portal" | --shared]
 atelier portal go "Portal" <url>
 atelier portal read "Portal" [offset] [limit]
 atelier portal html "Portal" [selector]
@@ -92,7 +92,11 @@ atelier portal close "Portal"
 \`\`\`
 
 \`open\` creates a portal already connected to you; \`localhost:5173\` and bare
-domains work, exactly as in the address bar. \`read\` gives the visible TEXT of
+domains work, exactly as in the address bar. **Same origin, same session**: if
+you are connected to a portal already on that host, the new one continues its
+session instead of landing on a login page. \`--session "Portal"\` forces a
+specific one; \`--shared\` uses the shared cookie pool. The reply tells you which
+session you got. \`read\` gives the visible TEXT of
 the page, with \`offset\`/\`limit\` in lines, like \`note read\`. For a PDF or an
 image there is no text to read — use \`shot\`, which writes a PNG and prints its
 path for you to open.

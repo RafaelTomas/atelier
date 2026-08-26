@@ -352,6 +352,19 @@ await test('atelier portal open cria portal já conectado ao chamador', async ()
   assert.match(list, /Dev/)
 })
 
+await test('portal aberto na mesma origem herda a sessão do portal já conectado', async () => {
+  // Sem isto, o portal novo nasce com partição própria e o app manda o agente
+  // para a tela de login — que foi como este bug apareceu.
+  const irmao = await cli(['portal', 'open', 'http://localhost:5173/painel', 'Irmao'], terminalId)
+  assert.match(irmao, /session: shared with 'Dev'/)
+
+  const outro = await cli(['portal', 'open', 'https://example.org', 'Estranho'], terminalId)
+  assert.match(outro, /session: new/, 'sessão vazando para outra origem')
+
+  await cli(['portal', 'close', 'Irmao'], terminalId)
+  await cli(['portal', 'close', 'Estranho'], terminalId)
+})
+
 await test('atelier portal go escreve a URL no conteúdo, não no webview', async () => {
   const out = await cli(['portal', 'go', 'Dev', 'example.com'], terminalId)
   assert.match(out, /navigating to https:\/\/example.com/)

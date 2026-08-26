@@ -9,6 +9,7 @@
  * `note create` faz com notas.
  */
 import type { UUID } from '@shared/types'
+import { portalPartition } from '@shared/types'
 import { normalizeURL } from '@shared/portal-url'
 import { notifyRenderer } from '../../../ipc/notify'
 import { nodeDisplayName } from '../../models/node-content'
@@ -64,18 +65,79 @@ function listPortals(tid: UUID): string {
   return lines.join('\n')
 }
 
-function openPortal(args: string[], tid: UUID): string {
-  if (args.length < 3) return 'error: usage: atelier portal open <url> [name]'
+function origin(url: string): string | null {
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Qual sessão o portal novo vai usar. **Mesma origem, mesma sessão.**
+ *
+ * Um portal nasce com id novo, logo partição nova, logo DESLOGADO — e foi
+ * exatamente assim que o primeiro `portal open` de uma página interna caiu na
+ * tela de login enquanto o portal ao lado seguia autenticado. Herdar de
+ * qualquer portal seria vazamento de sessão entre sites; herdar de um portal
+ * conectado que já está NA MESMA ORIGEM é continuar a navegação que o usuário
+ * começou. `--session` força um portal específico, `--shared` usa o pote comum.
+ */
+function sessionFor(
+  tid: UUID,
+  url: string,
+  flags: Map<string, string>
+): { partition?: string; note: string } {
+  if (flags.has('shared')) return { partition: 'persist:atelier-portal', note: 'shared' }
+
+  const named = flags.get('session')
+  if (named) {
+    const node = findConnectedNode(tid, named, 'portal')
+    if (!node || node.content.type !== 'portal') return { note: `unknown portal '${named}', new session` }
+    return { partition: portalPartition(node.content.value), note: `from '${nodeDisplayName(node.content)}'` }
+  }
+
+  const wanted = origin(url)
+  for (const node of connectedNodes(tid)) {
+    if (node.content.type !== 'portal') continue
+    if (wanted && origin(node.content.value.currentURL) === wanted) {
+      return {
+        partition: portalPartition(node.content.value),
+        note: `shared with '${nodeDisplayName(node.content)}'`
+      }
+    }
+  }
+  return { note: 'new' }
+}
+
+/** `--session "Portal"` e `--shared`, tirados dos argumentos posicionais. */
+function takeFlags(args: string[]): { rest: string[]; flags: Map<string, string> } {
+  const rest: string[] = []
+  const flags = new Map<string, string>()
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--shared') flags.set('shared', '')
+    else if (args[i] === '--session') flags.set('session', args[++i] ?? '')
+    else rest.push(args[i])
+  }
+  return { rest, flags }
+}
+
+function openPortal(argv: string[], tid: UUID): string {
+  const { rest: args, flags } = takeFlags(argv)
+  if (args.length < 3) {
+    return 'error: usage: atelier portal open <url> [name] [--session "Portal" | --shared]'
+  }
   // A mesma normalização da barra de endereço: `localhost:5173` é o que o
   // agente vai digitar, e tem que funcionar.
   const url = normalizeURL(args[2])
   if (!url) return 'error: empty url'
 
-  const spawned = spawnPortal({ originId: tid, url, name: args[3] })
+  const session = sessionFor(tid, url, flags)
+  const spawned = spawnPortal({ originId: tid, url, name: args[3], partition: session.partition })
   if (!spawned) return 'error: calling terminal is not on this canvas'
 
   const name = args[3] ?? 'Portal'
-  return `Opened portal '${name}' at ${url}, connected to this terminal.`
+  return `Opened portal '${name}' at ${url}, connected to this terminal (session: ${session.note}).`
 }
 
 async function goPortal(args: string[], tid: UUID): Promise<string> {

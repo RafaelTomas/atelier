@@ -1803,10 +1803,11 @@ button.canvas-chip:hover { background: var(--dock-hover); }
      aviso de projetos (60) — uma barra ancorada num nó do canto de baixo tem
      de continuar clicável por cima do mapa. */
   /* O zoom vive na barra de controles do topo (canvas-chrome.tsx), então o
-     canto é só do mapa. */
+     canto é só do mapa. Fica acima da linha do dock (18px) em vez de dividi-la:
+     encostado na base ele competia com a barra de status logo abaixo. */
   position: absolute; z-index: 50;
   right: var(--corner-inset);
-  bottom: 18px;
+  bottom: 64px;
   /* Altura fixada no mesmo token da barra de zoom, e não deixada a cargo do
      <canvas> de dentro: assim mudar o tamanho do mapa não desalinha os dois
      em silêncio. box-sizing garante que o padding não some por fora. */

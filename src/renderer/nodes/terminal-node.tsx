@@ -16,7 +16,7 @@ import { store, useStore } from '../state/store'
 import { DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE, resolveTheme } from '../terminal-presets'
 import '@xterm/xterm/css/xterm.css'
 
-const FREEZE_ZOOM = 0.45
+const FREEZE_ZOOM = 0.1
 
 interface Props {
   node: CanvasNode

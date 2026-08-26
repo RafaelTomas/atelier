@@ -60,7 +60,7 @@ export function WorkspacePanel(): JSX.Element {
       <div className="sidebar-header">
         <span>Workspaces</span>
         <div className="sidebar-header-actions">
-          <button type="button" className="ghost-btn" onClick={() => setCreating(true)} title="Novo workspace">
+          <button type="button" className="icon-btn ghost-btn" onClick={() => setCreating(true)} title="Novo workspace">
             +
           </button>
         </div>

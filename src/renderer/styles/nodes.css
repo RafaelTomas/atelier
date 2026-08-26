@@ -1,0 +1,108 @@
+/* A CASCA de um nó — o que todo tipo compartilha: moldura, card, cabeçalho,
+   rodapé de status, as oito alças de redimensionar e o badge do header.
+
+   O que é de UM tipo de nó vive em `nodes/<nome-do-componente>.css`, com o
+   mesmo nome do .tsx que o renderiza. `file-tree-node` não tem arquivo porque
+   não tem CSS próprio: ele usa `.file-tree` (compartilhada com a aba Arquivos,
+   e por isso morando em panels.css) e a primitiva `.btn`. */
+
+/* ─── Nós ──────────────────────────────────────────────────────────────────── */
+
+/* A moldura carrega a GEOMETRIA (posição, tamanho, z-index) e não recorta nada:
+   é o que deixa as alças montarem em cima da borda, metade para fora. O card
+   dentro dela é que recorta o conteúdo. */
+.node-frame { position: absolute; will-change: transform; }
+
+.node {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 8%);
+  overflow: hidden;
+}
+/* Seleção: SÓ o anel tracejado azul em volta do card, com folga — a borda do nó
+   fica na cor normal, senão viram duas linhas azuis concêntricas. Outline (e não
+   border) porque não entra no box model: o conteúdo não pula 2px ao selecionar. */
+.node.is-selected {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+}
+.node.is-chromeless { background: transparent; border: 0; box-shadow: none; }
+
+.node-header {
+  height: 26px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 6px 0 10px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+}
+
+.node-title { font-size: var(--fs-sm); font-weight: 600; color: var(--text-dim); flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.node-header-actions { display: flex; gap: 2px; }
+
+.node-btn { width: 18px; height: 18px; }
+
+.node-body { flex: 1; min-height: 0; display: flex; }
+
+/* Rodapé do terminal: a linha de status do agente (tokens, contexto, limites),
+   raspada da tela. Fica fora do .node-body para o xterm não perder altura por
+   dentro. Rola na horizontal em nó estreito em vez de espremer os números. */
+.node-footer {
+  height: 18px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  padding: 0 8px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);
+  font-size: var(--fs-xs); line-height: 1;
+  font-variant-numeric: tabular-nums;
+  overflow-x: auto; overflow-y: hidden;
+}
+
+.nf-item { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.nf-label { color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+.nf-value { color: var(--text); font-weight: 600; }
+/* Janela de uso perto do teto: o número precisa saltar antes de estourar. */
+.nf-value.is-alert { color: var(--rope-error); }
+
+/* Oito alças: quatro bordas e quatro quinas.
+   Elas MONTAM em cima da borda — metade para fora, metade para dentro —, que é
+   onde a mão vai naturalmente. Ficavam por dentro enquanto viviam no card, que
+   recorta o que passa da borda; a moldura resolveu isso.
+   A faixa de 8px cobre também o anel tracejado da seleção, que fica 4px para
+   fora: era nele que se mirava, e ele não respondia.
+   As quinas vêm depois das bordas no DOM, então vencem a sobreposição — é nelas
+   que o gesto diagonal precisa cair. */
+/* O seletor é o data-attribute e não uma classe: o atributo já existia para o
+   hit-test (ver `closest('[data-resize-handle]')` em canvas/canvas-view.tsx), e
+   manter uma classe montada por template ao lado dele era guardar a mesma
+   informação duas vezes — com o risco de as duas discordarem. */
+[data-resize-handle] { position: absolute; z-index: 5; }
+
+[data-resize-handle='n'] { top: -4px; left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
+[data-resize-handle='s'] { bottom: -4px; left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
+[data-resize-handle='w'] { left: -4px; top: 14px; bottom: 14px; width: 8px; cursor: ew-resize; }
+[data-resize-handle='e'] { right: -4px; top: 14px; bottom: 14px; width: 8px; cursor: ew-resize; }
+
+[data-resize-handle='nw'] { top: -4px; left: -4px; width: 18px; height: 18px; cursor: nwse-resize; }
+[data-resize-handle='ne'] { top: -4px; right: -4px; width: 18px; height: 18px; cursor: nesw-resize; }
+[data-resize-handle='sw'] { bottom: -4px; left: -4px; width: 18px; height: 18px; cursor: nesw-resize; }
+[data-resize-handle='se'] { bottom: -4px; right: -4px; width: 18px; height: 18px; cursor: nwse-resize; }
+
+/* ─── Header do nó: ícone, badges ──────────────────────────────────────────── */
+
+.node-icon { display: flex; flex-shrink: 0; }
+
+.node-badge {
+  flex-shrink: 0;
+  font-size: var(--fs-2xs); font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+  padding: 1px 5px; border-radius: var(--r-sm);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.node-badge.is-manager { color: #af52de; }

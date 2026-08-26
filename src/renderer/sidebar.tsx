@@ -92,7 +92,7 @@ export function Sidebar(): JSX.Element {
   }
 
   return (
-    <aside className="sidebar">
+    <aside className="floating sidebar">
       <div className="sidebar-tabs">
         <div className="segmented">
           {TABS.map(({ id, icon: Icon, label }) => (
@@ -111,7 +111,7 @@ export function Sidebar(): JSX.Element {
         </div>
         <button
           type="button"
-          className="ghost-btn"
+          className="icon-btn ghost-btn"
           onClick={() => store.toggleSidebar()}
           title="Recolher painel"
         >

@@ -1,0 +1,267 @@
+/* Modal, menu de contexto e os avisos que abrem sobre a tela. */
+
+/* ─── Aviso de projetos novos ──────────────────────────────────────────────── */
+
+/* Canto inferior direito, acima do dock: fora do caminho de quem está
+   trabalhando, mas no campo de visão de quem acabou de abrir o app. */
+.candidates-card {
+  position: fixed; right: 16px; bottom: 88px; z-index: 60;
+  width: 330px; max-height: 60vh;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: var(--s-4); border-radius: var(--r-lg);
+  --floating-blur: 24px;
+  --floating-saturate: 1.5;
+  border: 1px solid var(--dock-border);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .3);
+  animation: candidates-in var(--dur-base) ease-out;
+}
+@keyframes candidates-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.candidates-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.candidates-head strong { font-size: var(--fs-base); }
+
+.candidates-list {
+  list-style: none; margin: 0; padding: 0;
+  overflow-y: auto; display: flex; flex-direction: column; gap: 2px;
+}
+.candidates-list .check-row { padding: 4px 6px; border-radius: var(--r-md); align-items: flex-start; }
+.candidates-list .check-row:hover { background: var(--dock-hover); }
+.candidates-list input { margin-top: 2px; }
+
+.candidate-text { display: flex; flex-direction: column; min-width: 0; }
+.candidate-name { font-size: var(--fs-md); }
+.candidate-path {
+  font-size: var(--fs-xs); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.candidates-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Sempre visível, por decisão de produto: quem foi surpreendido pelo aviso tem
+   de conseguir desligá-lo ali mesmo, sem caçar em preferências. */
+.candidates-off {
+  border: 0; background: transparent; cursor: pointer;
+  color: var(--text-dim); font-size: var(--fs-sm); text-align: center;
+  padding: 2px; text-decoration: underline; text-underline-offset: 2px;
+}
+.candidates-off:hover { color: var(--text); }
+
+/* ─── Menu de contexto / rename do workspace ──────────────────────────────── */
+
+.workspace-rename {
+  width: calc(100% - 16px); margin: 0 8px; padding: 5px 8px; border-radius: var(--r-md);
+  border: 1px solid var(--accent); background: var(--surface); color: var(--text);
+  font: inherit;
+}
+
+.context-menu {
+  position: fixed; z-index: 1000; min-width: 150px;
+  padding: var(--s-1); border-radius: var(--r-lg);
+  border: 1px solid var(--border); background: var(--surface-2);
+  box-shadow: 0 8px 24px rgb(0 0 0 / .28);
+}
+/* Filho DIRETO, e isso não é detalhe: enquanto era `.context-menu button` a
+   regra atingia qualquer botão em qualquer profundidade, e foi ela que
+   transformou Pull/Push em texto solto quando o popover do Git tentou reusar
+   esta superfície (ver o comentário do .git-popover). Um menu tem seus itens
+   como filhos diretos — sempre —, então o `>` não perde nada e fecha a porta. */
+.context-menu > button {
+  display: block; width: 100%; text-align: left;
+  border: 0; background: transparent; color: var(--text);
+  padding: 6px 10px; border-radius: var(--r-sm); cursor: pointer; font: inherit;
+}
+.context-menu > button:hover { background: var(--border); }
+.context-menu > button:disabled { opacity: .4; cursor: default; }
+.context-menu > button:disabled:hover { background: transparent; }
+.context-menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
+.context-menu-label {
+  padding: 5px 10px 3px; font-size: var(--fs-xs); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+
+/* ─── Seletor de tema ─────────────────────────────────────────────────────── */
+
+.theme-picker { position: relative; display: flex; }
+
+/* .context-menu é position:fixed; aqui o menu é ancorado no botão. */
+.theme-menu {
+  position: absolute; top: calc(100% + 6px); right: 0;
+  min-width: 140px;
+}
+.theme-menu button { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+
+.theme-check { width: 12px; flex-shrink: 0; color: var(--accent); }
+
+/* ─── Modal ────────────────────────────────────────────────────────────────── */
+
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center;
+  background: rgb(0 0 0 / 40%);
+  -webkit-app-region: no-drag;
+}
+
+.modal {
+  width: 560px; max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 60px);
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 35%);
+  padding: 20px 24px 16px;
+}
+
+.modal-title { margin: 0 0 16px; font-size: 19px; font-weight: 600; text-align: center; }
+
+.modal-divider { height: 1px; background: var(--border); margin: 14px 0; flex-shrink: 0; }
+
+.modal-body { overflow-y: auto; flex: 1; min-height: 180px; padding: 2px; }
+
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
+
+.modal-body .section-label:not(:first-child) { margin-top: var(--s-5); }
+
+/* Início rápido */
+
+.quick-start-row { display: flex; justify-content: space-between; gap: 6px; }
+
+.quick-card {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 10px 4px; border: 1px solid transparent; border-radius: var(--r-lg);
+  background: transparent; cursor: pointer;
+  font-size: var(--fs-md); color: var(--text);
+}
+.quick-card:hover { background: var(--surface-2); }
+.quick-card.is-selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.quick-card span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+/* Campos */
+
+.tab-pane { display: flex; flex-direction: column; gap: 12px; }
+
+.tab-hint { margin: 0; color: var(--text-dim); text-align: center; }
+
+.path-display {
+  flex: 1; min-width: 0; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Aparência */
+
+.icon-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; }
+.icon-grid.is-compact { grid-template-columns: repeat(12, 1fr); }
+
+.icon-cell {
+  aspect-ratio: 1; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: var(--r-md);
+  background: transparent; cursor: pointer; color: var(--text);
+}
+.icon-cell:hover { background: var(--surface-2); }
+.icon-cell.is-selected { border-color: var(--accent); color: var(--accent); }
+
+.swatch-row { display: flex; gap: 10px; }
+
+/* Escopado em .swatch-row: o .swatch solto é a paleta da caneta, na dock. */
+.swatch-row .swatch {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid transparent; cursor: pointer; padding: 0;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%);
+}
+.swatch-row .swatch.is-selected { border-color: var(--text); }
+.swatch-row .swatch.is-custom {
+  position: relative; overflow: hidden;
+  background: conic-gradient(#ff3b30, #ffcc00, #34c759, #5ac8fa, #af52de, #ff3b30);
+}
+.swatch-row .swatch.is-custom input {
+  position: absolute; inset: -4px; opacity: 0; cursor: pointer;
+}
+
+.theme-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.theme-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  border: 2px solid transparent; border-radius: var(--r-lg); padding: 4px;
+  background: transparent; cursor: pointer; font-size: var(--fs-sm); color: var(--text);
+}
+.theme-card.is-selected { border-color: var(--accent); }
+
+.theme-preview {
+  width: 88px; height: 52px; border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 6px 8px; font-size: var(--fs-2xs);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.theme-preview.is-add {
+  border-style: dashed; align-items: center;
+  font-size: 20px; color: var(--text-dim); background: transparent;
+}
+
+.inline-editor {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px; border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: var(--surface-2);
+}
+
+.color-field { display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
+.color-field input { width: 32px; height: 24px; padding: 0; border: 0; background: none; }
+
+.font-row { display: flex; align-items: center; gap: 10px; }
+.font-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.font-size { color: var(--text-dim); flex: 1; }
+
+.font-preview {
+  padding: var(--s-4) 14px; border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Agente */
+
+.role-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  padding: 12px; border-radius: var(--r-lg);
+  background: var(--surface-2); border: 1px solid var(--border);
+  min-height: 150px; align-content: start;
+}
+
+.role-card {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  height: 96px; padding: 8px;
+  border: 2px solid transparent; border-radius: var(--r-lg);
+  background: var(--surface); cursor: pointer;
+  font-size: var(--fs-md); color: var(--text); text-align: center;
+}
+.role-card:hover { border-color: var(--border); }
+.role-card.is-selected { border-color: var(--accent); }
+.role-card > span:not(.role-icon):not(.role-plus) {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.role-card.is-add {
+  background: transparent; border: 2px dashed var(--border); color: var(--text-dim);
+}
+.role-plus { font-size: 22px; line-height: 1; }
+
+.role-icon { display: flex; }
+
+.role-edit {
+  position: absolute; top: 4px; right: 4px;
+  width: 20px; height: 20px; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-dim); cursor: pointer;
+  opacity: 0; line-height: 1;
+}
+.role-card:hover .role-edit { opacity: 1; }
+.role-edit:hover { background: var(--border); color: var(--text); }
+
+.role-grid-footer { display: flex; justify-content: flex-end; }
+
+.role-editor { display: flex; flex-direction: column; gap: 12px; }
+.role-editor-actions { display: flex; align-items: center; gap: 8px; }
+

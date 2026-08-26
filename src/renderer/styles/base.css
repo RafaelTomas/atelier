@@ -1,0 +1,29 @@
+/* Base: reset, rolagem, documento. Nada aqui é de um componente — se uma regra
+   daqui só serve a uma tela, ela está no lugar errado. */
+
+* { box-sizing: border-box; }
+
+/* ─── Sem barras de rolagem, em lugar nenhum ──────────────────────────────── */
+/* A rolagem continua funcionando: some só a BARRA. É padrão do app, não exceção
+   de um componente — a barra de sistema tem ~15px e aqui quase tudo é estreito
+   (o painel, o nó de árvore, o terminal), então ela come justamente a largura
+   do conteúdo. Os nós ainda têm canto arredondado, onde a barra encostava e
+   aparecia cortada.
+   `scrollbar-width` é o padrão CSS; o pseudo-elemento do WebKit fica junto
+   porque o Chromium só passou a honrar o primeiro há poucas versões.
+   O que esta regra NÃO alcança, e nem deveria: o conteúdo dentro de um
+   <webview> (nó Portal). Aquela página é de outra pessoa. */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  font: var(--fs-base)/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  overflow: hidden;
+  user-select: none;
+}
+
+button { font: inherit; color: inherit; }

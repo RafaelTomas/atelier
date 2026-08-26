@@ -1,0 +1,367 @@
+/* Sidebar, painéis laterais e as faixas do topo/base da janela. */
+
+/* ─── Shell ────────────────────────────────────────────────────────────────── */
+
+.app-shell { display: flex; height: 100%; }
+
+.main-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+.boot-screen {
+  flex: 1; display: grid; place-items: center; color: var(--text-dim);
+}
+.boot-screen.error { color: var(--rope-error); }
+
+/* ─── Sidebar ──────────────────────────────────────────────────────────────── */
+
+/* A área onde o canvas e a sidebar se sobrepõem. Sem ela a sidebar não teria
+   a que se ancorar. */
+.canvas-area { position: relative; flex: 1; display: flex; min-height: 0; min-width: 0; }
+
+.sidebar {
+  position: absolute; top: 0; left: 0; bottom: 0; z-index: 5;
+  width: var(--sidebar-width); overflow-x: hidden;
+  /* Ela FLUTUA, como o dock — a grade e os nós passam por trás, que é o que o
+     blur tem para borrar. Fundo próprio e não o do dock: a sidebar é muito
+     maior, e no mesmo grau de opacidade o painel inteiro vira uma parede. É
+     também a maior superfície de vidro do app, e por isso a de maior blur. */
+  --floating-bg: var(--sidebar-bg);
+  --floating-blur: 28px;
+  --floating-saturate: 1.6;
+  border-right: 1px solid var(--dock-border);
+  box-shadow: 2px 0 12px rgb(0 0 0 / .12);
+  display: flex; flex-direction: column;
+  padding-top: 8px;
+}
+
+/* Alça de redimensionar. Fica INTEIRA dentro do painel: a sidebar tem
+   overflow-x hidden (é o que impede um nome longo de gerar rolagem lateral), e
+   qualquer parte da alça montada para fora era recortada junto — inclusive
+   para o hit-test, que a tornava inclicável. */
+.sidebar-resizer {
+  position: absolute; top: 0; bottom: 0; right: 0; width: 6px;
+  cursor: col-resize; z-index: 6; touch-action: none;
+}
+.sidebar-resizer:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+
+.sidebar-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  font-size: var(--fs-sm); font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+
+/* Compõe .icon-btn (ver styles/primitives.css): aqui só a geometria. Ele é o
+   único da família medido por padding e não por caixa fixa — o conteúdo é um
+   glifo ou um SVG de tamanhos diferentes conforme a barra. */
+.ghost-btn { font-size: 16px; padding: 3px 5px; border-radius: var(--r-sm); }
+
+.workspace-list { list-style: none; margin: 0; padding: 0 6px; overflow-y: auto; flex: 1; }
+
+.workspace-item {
+  width: 100%; text-align: left; border: 0; background: transparent;
+  padding: 6px 8px; border-radius: var(--r-md); cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+}
+.workspace-item:hover { background: var(--border); }
+.workspace-item.is-active { background: var(--accent); color: #fff; }
+
+.workspace-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.workspace-item.is-active .workspace-dot { background: #fff; }
+
+/* A busca vive recolhida atrás do ícone e abre para baixo. A animação é de
+   grid-template-rows e não de max-height: com max-height a altura final é um
+   palpite, e um palpite alto faz a lista pular no fim da transição. */
+.sidebar-search {
+  display: grid; grid-template-rows: 1fr; padding: 0 10px 6px;
+  animation: search-open var(--dur-fast) ease-out;
+}
+
+@keyframes search-open {
+  from { grid-template-rows: 0fr; opacity: 0; padding-bottom: 0; }
+  to { grid-template-rows: 1fr; opacity: 1; padding-bottom: 6px; }
+}
+
+.sidebar-create { padding: 6px 10px; }
+.sidebar-create input, .sidebar-search input {
+  width: 100%; padding: 5px 8px; border-radius: var(--r-md);
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+
+/* ─── Toolbar ──────────────────────────────────────────────────────────────── */
+
+/* ─── Barra de status ──────────────────────────────────────────────────────── */
+
+.status-bar {
+  height: 22px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 12px;
+  font-size: var(--fs-sm); color: var(--text-dim);
+  border-top: 1px solid var(--border); background: var(--surface);
+  overflow: hidden; white-space: nowrap;
+}
+.status-bar .warn { color: #e67e22; }
+
+/* ─── Sidebar recolhida ───────────────────────────────────────────────────── */
+
+.sidebar-header-actions { display: flex; align-items: center; gap: 2px; }
+
+/* ─── Faixa de arrasto do macOS ───────────────────────────────────────────── */
+/* No macOS a janela é `hiddenInset` (ver main/window.ts): os semáforos flutuam
+   sobre a página e não existe barra de título nativa para arrastar. Sem esta
+   faixa eles ficariam sobre o canvas e a janela deixaria de se mover.
+   Nos outros sistemas a moldura é nativa e a faixa tem altura ZERO — não é uma
+   barra de topo disfarçada. */
+.mac-drag-strip { height: 0; flex-shrink: 0; }
+:root[data-platform='darwin'] .mac-drag-strip {
+  height: 30px;
+  -webkit-app-region: drag;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ─── Painel de projetos ───────────────────────────────────────────────────── */
+
+.sidebar-tabs {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 8px 4px; 
+}
+/* O pill ocupa a largura do painel; sem `flex: 1` nos segmentos, os rótulos
+   ficam encolhidos à esquerda e sobra um vazio dentro do pill ao alargar a
+   sidebar. Com ele, os três dividem o espaço e continuam centrados. */
+.sidebar-tabs .segmented { flex: 1; min-width: 0; }
+/* Ícones, não rótulos (ver sidebar.tsx): os quatro nomes não cabiam na largura
+   padrão e truncavam. `flex: 1` divide o pill em quatro alvos iguais — com
+   ícone isso é o certo, ao contrário do texto, onde frações iguais cortariam
+   o rótulo mais longo primeiro. */
+.sidebar-tabs .segment {
+  flex: 1; min-width: 0; padding: 5px 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim);
+}
+.sidebar-tabs .segment:hover { color: var(--text); }
+/* O ícone herda currentColor, então o estado ativo já o pinta de branco. */
+.sidebar-tabs .segment.is-active { color: #fff; }
+
+.sidebar-count {
+  font-style: normal; opacity: .55; margin-left: 4px; font-weight: 500;
+}
+
+.project-search {
+  width: 100%; padding: 5px 8px; border-radius: var(--r-md);
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font-size: var(--fs-md);
+}
+
+.project-list {
+  list-style: none; margin: 0; padding: 0 6px 8px;
+  overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0;
+}
+
+.project-item {
+  width: 100%; text-align: left; border: 0; background: transparent;
+  padding: 6px 8px; border-radius: var(--r-md); cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+  /* Sem isto o nome longo empurra a largura do item e a sidebar inteira
+     ganha rolagem horizontal. */
+  overflow: hidden;
+}
+/* grab e não pointer: o item é arrastável para o canvas, e o cursor é a única
+   pista disso antes de alguém tentar. */
+.project-item { cursor: grab; }
+.project-item:active { cursor: grabbing; }
+.project-item:hover { background: var(--border); }
+/* Selecionado = o dono da aba Arquivos. Marca de canto, não fundo cheio: fundo
+   cheio competiria com o hover e com a piscada do recém-adicionado. */
+.project-item.is-selected { background: var(--border); box-shadow: inset 2px 0 0 var(--accent); }
+.project-item.is-archived { opacity: .45; }
+/* Piscada curta no projeto recém-adicionado — ele entra em ordem alfabética,
+   longe de onde o usuário clicou. */
+.project-item.is-new { animation: project-added 1.6s ease-out; }
+@keyframes project-added {
+  0%, 60% { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+  100% { background: transparent; }
+}
+
+/* width: 100% e não só min-width: 0 — o item alinha em flex-start, então as
+   linhas não esticam sozinhas e um nome longo as fazia crescer até o
+   max-content, escapando do overflow:hidden do item. */
+.project-item > * { width: 100%; min-width: 0; }
+
+.project-item-top {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
+  min-width: 0;
+}
+
+.project-name {
+  font-size: var(--fs-md); font-weight: 500; min-width: 0;
+  /* flex-shrink explícito: nomes desambiguados ('pasta/projeto') passam da
+     largura da coluna, e sem encolher eles empurravam o kind para fora. */
+  flex: 0 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.project-star { color: #E5A50A; margin-right: 4px; }
+
+.project-kind {
+  font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: .04em;
+  padding: 1px 5px; border-radius: var(--r-sm); flex-shrink: 0;
+  background: var(--border); color: var(--text-dim);
+}
+
+.project-path, .project-desc {
+  font-size: var(--fs-xs); color: var(--text-dim); max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.project-desc { font-style: italic; }
+
+.project-empty {
+  padding: 16px 12px; text-align: center; color: var(--text-dim); font-size: var(--fs-md);
+  display: flex; flex-direction: column; gap: 10px; align-items: center;
+}
+.project-empty p { margin: 0; }
+
+.scan-progress {
+  margin: var(--s-1) 10px; padding: var(--s-3); border-radius: var(--r-lg);
+  background: var(--surface); border: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-sm);
+}
+.scan-progress-line { display: flex; justify-content: space-between; align-items: baseline; }
+.scan-progress-line span { color: var(--text-dim); }
+.scan-progress-path {
+  color: var(--text-dim); font-size: var(--fs-xs); font-family: ui-monospace, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
+}
+
+.scan-note { font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.5; margin: 4px 0 0; }
+.scan-note code {
+  background: var(--border); padding: 1px 4px; border-radius: var(--r-sm); font-size: var(--fs-xs);
+}
+.scan-error { font-size: var(--fs-sm); color: #E5484D; margin: 6px 0 0; }
+
+/* ─── Nó de projeto / árvore de arquivos ───────────────────────────────────── */
+
+/* `flex: 1` e não só `height: 100%`: o pai (.node-body, .files-body) é um flex
+   ROW, onde a largura padrão de um filho é a do conteúdo dele. Sem isto a
+   árvore fica com a largura do nome mais comprido e sobra vazio no resto do nó
+   — com a barra de rolagem parada no meio, em vez de na borda. */
+.file-tree {
+  display: flex; flex-direction: column; height: 100%;
+  flex: 1; min-width: 0;
+  background: var(--surface); font-size: var(--fs-sm); overflow: hidden;
+}
+
+/* ─── Aba Arquivos ─────────────────────────────────────────────────────────── */
+
+.files-title {
+  font-size: var(--fs-md); font-weight: 600; letter-spacing: 0; text-transform: none;
+  color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.files-path {
+  padding: 0 12px 6px; font-size: var(--fs-xs); color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.files-hint { font-size: var(--fs-sm); }
+
+.files-body { flex: 1; min-height: 0; display: flex; }
+/* Dentro do painel a árvore não tem superfície própria: o vidro da sidebar é
+   que aparece atrás dela. No canvas ela continua sendo um card opaco. */
+.files-body .file-tree { background: transparent; }
+.files-body .file-tree-bar { border-bottom-color: var(--dock-border); }
+.file-tree.is-empty {
+  padding: 12px; color: var(--text-dim);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+}
+.file-tree.is-empty p { margin: 0; }
+
+.file-tree-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 4px 6px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.file-tree-desc {
+  font-size: var(--fs-xs); color: var(--text-dim); font-style: italic;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.file-tree-actions { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
+.file-tree-actions .ghost-btn { font-size: var(--fs-md); padding: 1px 5px; }
+
+.file-tree-body { flex: 1; overflow: auto; overflow-x: hidden; padding: 4px 0; }
+
+.file-tree-row {
+  width: 100%; border: 0; background: transparent; cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 6px; text-align: left; color: var(--text);
+  font-size: var(--fs-sm); line-height: 1.6;
+}
+.file-tree-row:hover { background: var(--border); }
+/* Esmaecido, nunca escondido: diz o que o git não versiona — arquivo novo ou
+   ignorado — sem tirar nada da vista. Volta ao normal sob o cursor e na
+   seleção, senão o item escolhido pareceria desabilitado. */
+.file-tree-row.is-unversioned { opacity: .5; }
+.file-tree-row.is-unversioned:hover,
+.file-tree-row.is-unversioned.is-selected { opacity: 1; }
+.file-tree-row.is-selected { background: var(--accent); color: #fff; }
+
+.file-tree-caret { width: 10px; flex-shrink: 0; opacity: .6; }
+.file-tree-icon { flex-shrink: 0; font-size: var(--fs-xs); }
+.file-tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Azul do app (--accent), o mesmo da seleção e do foco: o ponto lê como "olhe
+   aqui" sem introduzir uma cor nova no tema. Fica no fim da linha para não
+   empurrar o nome, que é o que se lê.
+   Na linha selecionada vira branco — azul sobre azul sumiria. */
+.file-tree-dot {
+  flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%;
+  margin-left: auto; margin-right: 2px; background: var(--accent);
+}
+.file-tree-row.is-selected .file-tree-dot { background: #fff; }
+
+.file-tree-loading, .file-tree-more, .file-tree-error {
+  font-size: var(--fs-xs); color: var(--text-dim); padding: 2px 6px; font-style: italic;
+}
+.file-tree-error { color: #E5484D; }
+
+.file-tree-status {
+  flex-shrink: 0; padding: 3px 8px; border-top: 1px solid var(--border);
+  font-size: var(--fs-xs); color: var(--text-dim);
+  font-family: ui-monospace, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
+}
+.ghost-btn.is-active { background: var(--accent); color: #fff; }
+
+/* ─── Árvore: renomear inline, alvo de arrasto e confirmação ───────────────── */
+
+.file-tree-row.is-drop-target {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  outline: 1px solid var(--accent); outline-offset: -1px;
+}
+.file-tree-row.is-renaming { cursor: default; }
+.file-tree-rename {
+  flex: 1; min-width: 0; font: inherit; font-size: var(--fs-sm);
+  padding: 0 3px; border-radius: var(--r-sm);
+  border: 1px solid var(--accent); background: var(--surface); color: var(--text);
+}
+
+.context-menu > button.is-danger { color: var(--rope-error); }
+
+/* Confirmação curta: sem lista, sem scroll — só a pergunta e as duas saídas. */
+.modal.is-compact { min-width: 320px; max-width: 420px; }
+.modal.is-compact .modal-title { margin-bottom: 10px; font-size: 16px; }
+.trash-name {
+  margin: 0 0 8px; font-family: ui-monospace, monospace; font-size: var(--fs-md);
+  color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.trash-warning { margin: 0 0 8px; font-size: var(--fs-md); color: var(--rope-error); }
+.trash-hint { margin: 0 0 14px; font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.5; }
+
+/* ─── Modo seguro ──────────────────────────────────────────────────────────── */
+/* Permanente e no topo: o bug que ela evita é a perda silenciosa de nós que
+   este binário não entendeu. Enquanto está na tela, nada é gravado sozinho. */
+.safe-mode-banner {
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  padding: 7px 12px; font-size: var(--fs-sm); line-height: 1.5;
+  background: #F5A62333; border-bottom: 1px solid #F5A623;
+  color: var(--text);
+}
+.safe-mode-banner span { flex: 1; min-width: 0; }
+

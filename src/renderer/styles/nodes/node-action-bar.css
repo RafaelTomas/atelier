@@ -1,0 +1,25 @@
+/* Barra de ações do nó selecionado. Flutua em coordenadas de TELA, fora da
+   .nodes-layer, então não escala com o zoom. */
+
+/* Fica em coordenadas de TELA (fora da .nodes-layer), então não escala com o
+   zoom; o translate tira a barra de cima do nó e a centraliza nele. */
+/* Barra de ações do terminal selecionado — mesma pill da barra de formatação,
+   ancorada acima do nó em coordenadas de tela. */
+.node-action-bar {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  z-index: 60;
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+}
+
+/* A barra flutua sobre fundo --surface, então o hover cheio de --border ficaria
+   pesado aqui: este é o caso que redefine o da primitiva para o discreto. */
+.action-btn { width: 28px; height: 26px; border-radius: var(--r-md); }
+.action-btn:hover:not(:disabled) { background: var(--surface-2); }
+
+.action-sep { width: 1px; height: 16px; margin: 0 2px; background: var(--border); }

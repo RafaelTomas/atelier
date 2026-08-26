@@ -1,0 +1,392 @@
+/* O canvas e tudo o que FLUTUA sobre ele: chrome, dock, menus da dock, minimapa. */
+
+/* ─── Chrome do canvas ─────────────────────────────────────────────────────── */
+/* Tudo aqui FLUTUA sobre o canvas. A barra de topo que existia antes gastava
+   46px da janela inteira para mostrar um nome e três botões; agora cada peça
+   fica no canto onde é procurada e o meio da tela é todo do trabalho. */
+
+.canvas-chip-row {
+  position: absolute; top: 10px; left: 10px; z-index: 100;
+  display: flex; align-items: center; gap: 6px;
+  max-width: calc(100% - 320px);
+}
+/* Com a sidebar aberta o chip começa depois dela — a sidebar flutua por cima. */
+.canvas-chip-row.is-shifted { left: calc(var(--sidebar-width) + 10px); }
+
+.canvas-chip {
+  display: flex; align-items: center;
+  height: 28px; padding: 0 12px; border-radius: var(--r-pill);
+  font-size: var(--fs-md); font-weight: 600; color: var(--dock-fg-strong);
+  border: 1px solid var(--dock-border);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+button.canvas-chip { cursor: pointer; font-weight: 500; }
+button.canvas-chip:hover { background: var(--dock-hover); }
+.canvas-chip.is-icon { padding: 0 9px; font-size: 14px; }
+
+.view-controls {
+  position: absolute; top: 10px; right: 10px; z-index: 100;
+  display: flex; align-items: center; gap: 6px;
+}
+ /* O grupo do Git não ganha cápsula: a pílula dele já tem borda própria, e
+    duas bordas concêntricas ficariam duplicadas. */
+.vc-group.is-git { background: transparent; border: 0; padding: 0; }
+
+.vc-group {
+  position: relative;
+  display: flex; align-items: center; height: 28px; padding: 0 2px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--dock-border);
+}
+/* Idem: `>` porque o cluster hospeda componentes inteiros (o menu do Git é um
+   deles), e um botão dentro de um filho não é um botão DO cluster. Era isto
+   que obrigava .git-menu-btn e os botões do popover a se qualificarem com um
+   seletor extra só para vencer esta regra. */
+.vc-group > button {
+  border: 0; background: transparent; color: var(--dock-fg);
+  height: 24px; min-width: 26px; padding: 0 9px; margin: 0 1px;
+  border-radius: var(--r-pill); cursor: pointer; font: inherit; font-size: var(--fs-md);
+}
+.vc-group > button:hover { background: var(--dock-hover); color: var(--dock-fg-strong); }
+/* O ⤢ é um glifo mais alto que os sinais de − e +; sem o ajuste ele estica a
+   pílula e desalinha a linha de base do grupo. */
+.vc-fit { font-size: var(--fs-md); }
+
+/* Largura fixa: sem ela o cluster inteiro dança a cada passo de zoom. */
+.vc-zoom { min-width: 46px; font-variant-numeric: tabular-nums; }
+
+/* O dial: uma linha TRACEJADA, no mesmo vocabulário do anel de seleção do nó.
+   O range nativo desenha uma barra grossa com trilho claro, que no vidro do
+   cluster vira um bloco branco — daí `appearance: none` e o trilho refeito com
+   um gradiente repetido, que é como se faz tracejado em background.
+   Sem preenchimento até o polegar: aqui a linha é a RÉGUA, não uma barra de
+   progresso; quem diz o valor é o número ao lado. */
+.vc-dial {
+  width: 96px; height: 24px; margin: 0 4px 0 8px;
+  -webkit-appearance: none; appearance: none;
+  background: transparent; cursor: pointer;
+}
+.vc-dial::-webkit-slider-runnable-track {
+  height: 2px; border-radius: var(--r-pill);
+  background: repeating-linear-gradient(
+    to right,
+    var(--dock-fg) 0 3px,
+    transparent 3px 7px
+  );
+}
+.vc-dial::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 10px; height: 10px; margin-top: -4px;
+  border-radius: 50%; background: var(--accent);
+  border: 2px solid var(--dock-bg);
+}
+.vc-dial:hover::-webkit-slider-thumb { transform: scale(1.15); }
+
+/* Avisos passageiros: no topo ao centro, entre o chip e os controles. */
+.canvas-hint {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 101;
+  background: var(--accent); color: #fff;
+  padding: 4px 12px; border-radius: var(--r-pill); font-size: var(--fs-md);
+  max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.canvas-hint.is-notice {
+  background: var(--rope-error); border: 0; cursor: pointer; font-family: inherit;
+}
+
+/* ─── Canvas ───────────────────────────────────────────────────────────────── */
+
+.canvas-host {
+  position: relative; flex: 1; overflow: hidden;
+  background: var(--canvas-bg);
+  cursor: default;
+}
+.canvas-host.is-connecting { cursor: crosshair; }
+
+.canvas-background { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* Camada 2: desenhos. Não transformada — redesenha na escala certa, como a
+   grade. pointer-events off: o clique é tratado pelo .canvas-host. */
+.drawings-layer {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none;
+}
+
+/* Cursores por ferramenta */
+/* Ferramenta mão: a mesma coisa que o espaço segurado, e por isso a mesma
+   regra — mão aberta, fechada no arrasto, e a camada de nós transparente ao
+   mouse para o pan valer mesmo em cima de um terminal ou de um portal. */
+.canvas-host[data-tool='pan'] { cursor: grab; }
+.canvas-host[data-tool='pan']:active { cursor: grabbing; }
+.canvas-host[data-tool='pan'] .nodes-layer { pointer-events: none; }
+.canvas-host[data-tool='pen'], .canvas-host[data-tool='highlighter'] { cursor: crosshair; }
+.canvas-host[data-tool='eraser'] { cursor: cell; }
+/* Modo desenho: o clique abre um menu, então context-menu comunica melhor que
+   crosshair — não é o cursor de quem já está desenhando. */
+.canvas-host[data-tool='draw'] { cursor: context-menu; }
+
+/* Espaço segurado: a seta vira mão e o arrasto move o quadro. Vem DEPOIS dos
+   cursores de ferramenta de propósito — mesma especificidade, ganha por ordem.
+   A camada de nós fica transparente ao mouse para o arrasto virar pan mesmo em
+   cima de um terminal ou de um portal, que engoliriam o clique. */
+.canvas-host.is-space-pan { cursor: grab; }
+.canvas-host.is-space-pan:active { cursor: grabbing; }
+.canvas-host.is-space-pan .nodes-layer { pointer-events: none; }
+
+/* Um transform só para todos os nós — pan/zoom composto pela GPU */
+.nodes-layer {
+  position: absolute; top: 0; left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.connections-layer {
+  position: absolute; top: 0; left: 0;
+  transform-origin: 0 0;
+  width: 1px; height: 1px;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.rope { stroke-width: 2; stroke-linecap: round; }
+.rope-idle { stroke: var(--rope); stroke-dasharray: 5 4; }
+.rope-communicating { stroke: var(--rope-active); filter: drop-shadow(0 0 4px var(--rope-active)); }
+.rope-error { stroke: var(--rope-error); stroke-dasharray: 3 3; }
+
+/* Cabo fantasma do modo conectar: sai do nó de origem e persegue o cursor até
+   o clique no destino. Acima dos nós (a .nodes-layer tem transform, logo é um
+   contexto de empilhamento próprio) para não sumir atrás do alvo. */
+.connection-preview { z-index: 40; }
+
+.rope-preview {
+  stroke: var(--accent);
+  stroke-dasharray: 6 5;
+  animation: rope-march .5s linear infinite;
+}
+/* Sobre um alvo que aceita o cabo: mais grosso e com brilho */
+.rope-preview[data-target='valid'] { stroke-width: 3; filter: drop-shadow(0 0 5px var(--accent)); }
+/* Sobre um alvo que não aceita: para de marchar e fica vermelho */
+.rope-preview[data-target='invalid'] { stroke: var(--rope-error); animation: none; }
+
+@keyframes rope-march { to { stroke-dashoffset: -11; } }
+
+.node.is-connect-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.marquee {
+  position: absolute; pointer-events: none;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Área sendo desenhada para um componente novo: tracejada, para não se
+   confundir com a seleção em área, que é sólida. */
+.marquee.is-placement {
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* Medida da área, no canto de dentro: o usuário vê o tamanho que vai receber —
+   inclusive quando o piso do tipo segura o retângulo. */
+.placement-size {
+  position: absolute; right: 4px; bottom: 3px;
+  font-size: var(--fs-xs); font-variant-numeric: tabular-nums;
+  color: #fff; background: var(--accent);
+  padding: 1px 5px; border-radius: var(--r-sm);
+}
+
+/* Modo "desenhe a área": o cursor precisa dizer que o clique não seleciona. */
+.canvas-host.is-placing { cursor: crosshair; }
+.canvas-host.is-placing .nodes-layer { pointer-events: none; }
+
+.canvas-hud {
+  position: absolute; right: 10px; bottom: 10px;
+  font-size: var(--fs-sm); color: var(--text-dim);
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 2px 8px; border-radius: var(--r-pill); pointer-events: none;
+}
+
+/* Ferramentas de desenho */
+.swatch {
+  width: 16px; height: 16px; padding: 0; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 50%;
+}
+.swatch.is-active {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.pen-width { width: 64px; accent-color: var(--accent); cursor: pointer; }
+
+/* ─── Dock flutuante ──────────────────────────────────────────────────────── */
+
+/* Pill ancorada na base do canvas. z-index acima dos nós e das guias, abaixo
+   do .context-menu (1000) — o menu de contexto do canvas passa por cima. */
+.dock {
+  position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+  z-index: 200;
+  display: flex; align-items: center; gap: 2px;
+  padding: 7px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--dock-border);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .22);
+  /* Vidro: deixa a grade aparecer por baixo sem competir com os ícones. */
+  --floating-blur: 14px;
+  --floating-saturate: 1.4;
+  user-select: none;
+}
+
+.dock-item { position: relative; display: flex; }
+
+/* NÃO compõe .icon-btn: a dock tem paleta própria (--dock-fg/--dock-hover, que
+   existem para o vidro) e a primitiva usa a do tema. Herdar aqui trocaria a
+   cor dos ícones sobre o vidro por uma que não foi pensada para ele. */
+.dock-btn {
+  display: flex; align-items: center; justify-content: center; gap: 2px;
+  width: 38px; height: 34px; padding: 0;
+  border: 1px solid transparent; border-radius: var(--r-lg);
+  background: transparent; color: var(--dock-fg);
+  cursor: pointer;
+}
+.dock-btn:hover { background: var(--dock-hover); color: var(--dock-fg-strong); }
+.dock-btn.has-menu { width: 46px; }
+
+/* Ativo = ferramenta em uso. Azul cheio, como a seta da referência. */
+.dock-btn.is-active, .dock-btn.is-open {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+
+.dock-caret { display: flex; opacity: .55; margin-left: -1px; }
+.dock-btn:hover .dock-caret, .dock-btn.is-open .dock-caret { opacity: 1; }
+
+.dock-sep {
+  width: 1px; height: 20px; margin: 0 5px;
+  background: var(--dock-border);
+}
+
+/* ─── Menus da dock ───────────────────────────────────────────────────────── */
+
+/* Abre PARA CIMA: a dock está na base, um menu para baixo sairia da janela. */
+.dock-menu {
+  position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+  z-index: 300; min-width: 210px;
+  padding: 5px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--dock-border);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .26);
+}
+
+.dock-menu-title {
+  padding: 5px 9px 6px;
+  font-size: var(--fs-sm); font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.dock-menu > button {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; text-align: left;
+  padding: 6px 9px;
+  border: 0; border-radius: var(--r-md);
+  background: transparent; color: var(--text);
+  font: inherit; cursor: pointer;
+}
+.dock-menu > button:hover { background: var(--dock-hover); }
+.dock-menu > button.is-danger:hover {
+  background: color-mix(in srgb, var(--rope-error) 16%, transparent);
+  color: var(--rope-error);
+}
+
+.dock-menu-label { flex: 1; white-space: nowrap; }
+.dock-menu-hint { font-size: var(--fs-sm); color: var(--text-dim); white-space: nowrap; }
+
+.dock-menu-sep { height: 1px; margin: 5px 4px; background: var(--border); }
+
+/* ─── Menu do modo desenho ────────────────────────────────────────────────── */
+
+/* Ancorado no PONTO clicado, não na dock: fixed + coordenadas de tela, e sem
+   o translateX que centraliza os menus da pill. */
+.draw-menu {
+  position: fixed; bottom: auto; left: 0; top: 0;
+  transform: translate(6px, 6px);
+  min-width: 200px;
+}
+
+.draw-menu-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 9px;
+}
+.draw-menu-width {
+  font-size: var(--fs-sm); color: var(--text-dim);
+  min-width: 30px; text-align: right;
+}
+/* ─── Minimapa ────────────────────────────────────────────────────────────── */
+
+/* Canto inferior direito: a dock ocupa o centro da base e a sidebar a
+   esquerda. O `bottom` alinha com a dock (18px) para os dois assentarem na
+   mesma linha. */
+.minimap {
+  /* z-index 50: acima da prévia de conexão (40), abaixo das barras de nó e do
+     aviso de projetos (60) — uma barra ancorada num nó do canto de baixo tem
+     de continuar clicável por cima do mapa. */
+  /* O zoom vive na barra de controles do topo (canvas-chrome.tsx), então o
+     canto é só do mapa. Fica acima da linha do dock (18px) em vez de dividi-la:
+     encostado na base ele competia com a barra de status logo abaixo. */
+  position: absolute; z-index: 50;
+  right: var(--corner-inset);
+  bottom: 64px;
+  /* Altura fixada no mesmo token da barra de zoom, e não deixada a cargo do
+     <canvas> de dentro: assim mudar o tamanho do mapa não desalinha os dois
+     em silêncio. box-sizing garante que o padding não some por fora. */
+  box-sizing: border-box; height: var(--corner-height);
+  padding: var(--s-2); border-radius: var(--r-lg);
+  border: 1px solid var(--dock-border);
+  box-shadow: 0 6px 20px rgb(0 0 0 / .22);
+  cursor: pointer;
+  /* O mapa é alvo de arrasto: sem isto o gesto seleciona a página em volta. */
+  user-select: none;
+}
+.minimap:hover { border-color: var(--dock-fg); }
+
+/* Escondido em repouso: aparece durante o pan/zoom e some sozinho depois.
+   `visibility` junto do opacity para o mapa invisível não continuar capturando
+   o mouse no canto — sem isso ele roubaria cliques do canvas embaixo.
+   A transição de saída é mais lenta que a de entrada: aparecer tem de ser
+   imediato para acompanhar o gesto; sumir pode ser suave. */
+.minimap {
+  opacity: 0; visibility: hidden;
+  transition: opacity .28s ease, visibility 0s linear .28s, border-color .15s;
+}
+.minimap.is-visible {
+  opacity: 1; visibility: visible;
+  transition: opacity .1s ease, visibility 0s, border-color .15s;
+}
+
+/* Quem prefere sem animação recebe o corte seco, não um mapa que pisca. */
+@media (prefers-reduced-motion: reduce) {
+  .minimap, .minimap.is-visible { transition: none; }
+}
+
+/* block: o <canvas> é inline por padrão, e a linha de base deixaria uma
+   faixa de alguns pixels embaixo, desalinhando o padding. */
+.minimap canvas { display: block; border-radius: var(--r-sm); background: var(--canvas-bg); }
+
+/* Janela estreita: o dock é centrado e cresce para os dois lados, e abaixo de
+   ~780px ele alcança o minimapa na linha de base. Quem cede é o mapa — ele é o
+   item de conveniência, e some sozinho de qualquer forma quando o canvas está
+   parado.
+   O limite era 860px enquanto o zoom dividia a base com ele; agora o zoom é o
+   botão redondo mais acima e não entra nessa conta. */
+@media (max-width: 780px) {
+  .minimap { display: none; }
+}
+
+/* O aviso de projetos (.candidates-card) ocupa o mesmo canto. O mapa desliza
+   para a ESQUERDA dele em vez de sumir — sumir tirava a navegação por causa de
+   um aviso passageiro, e sair pela vertical dependeria da altura do aviso, que
+   varia com o número de projetos oferecidos. A largura do card é fixa (330px),
+   então esta conta é estável. */
+.minimap.is-raised { right: calc(16px + 330px + 10px); }
+

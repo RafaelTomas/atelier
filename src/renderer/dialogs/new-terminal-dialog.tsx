@@ -373,7 +373,7 @@ function AppearanceTab({
         <span className="font-size">{draft.fontSize ?? DEFAULT_FONT_SIZE}pt</span>
         <button
           type="button"
-          className="ghost-btn"
+          className="icon-btn ghost-btn"
           title="Voltar ao padrão"
           onClick={() => patch({ fontFamily: null, fontSize: null })}
         >

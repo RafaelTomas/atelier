@@ -1,0 +1,12 @@
+/* Nó Texto — texto solto no canvas, sem moldura (ver .node.is-chromeless).
+   A tipografia é aplicada inline pelo componente (ver nodes/typography.ts);
+   aqui fica apenas a caixa. */
+
+/* Text */
+.text-node { flex: 1; display: flex; align-items: center; min-width: 0; }
+.text-node-measure { display: block; width: 100%; white-space: pre-wrap; word-break: break-word; }
+.text-node-input {
+  flex: 1; border: 0; outline: none; background: transparent;
+  resize: none; overflow: hidden; user-select: text;
+  padding: 0; margin: 0;
+}

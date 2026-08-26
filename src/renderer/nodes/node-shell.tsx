@@ -146,7 +146,7 @@ export function NodeShell({
             <div className="node-header-actions">
               <button
                 type="button"
-                className="node-btn"
+                className="icon-btn node-btn"
                 title="Conectar a outro nó"
                 onMouseDown={(e) => {
                   e.stopPropagation()
@@ -157,7 +157,7 @@ export function NodeShell({
               </button>
               <button
                 type="button"
-                className="node-btn"
+                className="icon-btn node-btn"
                 title="Remover nó"
                 onMouseDown={(e) => {
                   e.stopPropagation()
@@ -176,7 +176,7 @@ export function NodeShell({
       </div>
 
       {RESIZE_EDGES.map((edge) => (
-        <div key={edge} data-resize-handle={edge} className={`resize-handle is-${edge}`} />
+        <div key={edge} data-resize-handle={edge} />
       ))}
     </div>
   )

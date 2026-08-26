@@ -108,7 +108,8 @@ export function ConnectionPreview({
         : cursor
       sim.updateAnchors(PREVIEW_ID, rectEdgePoint(src.frame, anchorB), anchorB)
 
-      pathRef.current?.setAttribute('class', `rope rope-preview is-${state}`)
+      pathRef.current?.setAttribute('class', 'rope rope-preview')
+      pathRef.current?.setAttribute('data-target', state)
       mark(
         state === 'valid' && target
           ? document.querySelector(`[data-node-id="${target.id}"]`)

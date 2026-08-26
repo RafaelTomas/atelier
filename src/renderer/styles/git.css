@@ -1,0 +1,375 @@
+/* Git — a aba lateral e a pílula do chrome, juntas de propósito:
+   compartilham .git-tabs/.git-tab e a caixa de commit, e enquanto viviam a 180
+   linhas de distância era fácil mexer numa sem ver a outra. */
+
+/* ─── Aba Git ─────────────────────────────────────────────────────────────── */
+
+.git-branchline {
+  position: relative;
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 10px 6px;
+}
+
+.git-branch {
+  display: flex; align-items: center; gap: 4px; min-width: 0;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text); border-radius: var(--r-md); cursor: pointer;
+  padding: 3px 8px; font: inherit; font-size: var(--fs-sm);
+}
+.git-branch:hover:not(:disabled) { background: var(--border); }
+.git-branch:disabled { opacity: .5; cursor: default; }
+.git-branch-icon { color: var(--text-dim); font-size: var(--fs-md); }
+.git-branch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.git-counts {
+  display: flex; gap: 5px; font-size: var(--fs-sm); color: var(--text-dim);
+  font-family: ui-monospace, monospace;
+}
+
+.git-tag {
+  font-size: var(--fs-2xs); letter-spacing: .03em; text-transform: uppercase;
+  color: var(--text-dim); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 1px 4px;
+}
+
+/* Ancorado no botão, não fixed: a sidebar rola, e um menu fixed ficaria
+   parado enquanto o branch ao qual pertence sobe. */
+.git-branch-menu {
+  position: absolute; top: calc(100% - 2px); left: 10px; z-index: 900;
+  min-width: 160px; max-height: 280px; overflow-y: auto;
+  padding: var(--s-1); border-radius: var(--r-lg);
+  border: 1px solid var(--border); background: var(--surface-2);
+  box-shadow: 0 8px 24px rgb(0 0 0 / .28);
+}
+.git-branch-menu button {
+  display: block; width: 100%; text-align: left;
+  border: 0; background: transparent; color: var(--text);
+  padding: 5px 8px; border-radius: var(--r-sm); cursor: pointer;
+  font: inherit; font-size: var(--fs-sm);
+  font-family: ui-monospace, monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.git-branch-menu button:hover { background: var(--border); }
+.git-branch-menu button.is-current { color: var(--accent); }
+.git-branch-menu-title {
+  padding: 4px 8px 3px; font-size: var(--fs-xs); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+
+.git-actions { display: flex; gap: 4px; padding: 0 10px 6px; }
+.git-actions .btn { flex: 1; font-size: var(--fs-sm); padding: 4px 2px; }
+
+.git-feedback {
+  margin: 0 10px 6px; padding: 5px 8px; border-radius: var(--r-md);
+  font-size: var(--fs-sm); line-height: 1.35;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text-dim);
+  /* Mensagem de git pode ser longa e sem espaços (URL de remoto). */
+  overflow-wrap: anywhere;
+}
+.git-feedback.is-error { color: var(--rope-error); border-color: var(--rope-error); }
+
+.git-warning {
+  margin: 0 10px 6px; padding: 5px 8px; border-radius: var(--r-md);
+  font-size: var(--fs-sm); line-height: 1.35;
+  color: var(--rope-error); border: 1px solid var(--rope-error);
+}
+
+.git-tabs { display: flex; gap: 2px; padding: 0 10px 4px; }
+.git-tab {
+  flex: 1; border: 0; border-bottom: 2px solid transparent;
+  background: transparent; color: var(--text-dim);
+  padding: 4px 2px; cursor: pointer; font: inherit; font-size: var(--fs-sm);
+}
+.git-tab:hover { color: var(--text); }
+.git-tab.is-active { color: var(--text); border-bottom-color: var(--accent); }
+.git-tab em { font-style: normal; opacity: .7; }
+
+/* A área de listas rola; o cabeçalho e os botões ficam. */
+.git-changes { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+
+.git-section { padding: 2px 0 6px; }
+.git-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 3px 10px; font-size: var(--fs-xs); letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.git-section-action { font-size: var(--fs-xs); padding: 2px 6px; text-transform: none; letter-spacing: 0; }
+
+.git-empty { margin: 0; padding: 2px 10px 4px; font-size: var(--fs-sm); color: var(--text-dim); }
+
+.git-files { list-style: none; margin: 0; padding: 0; }
+
+.git-file {
+  display: flex; align-items: center; gap: 2px;
+  padding: 0 6px 0 10px; border-radius: var(--r-sm);
+}
+.git-file:hover { background: var(--border); }
+.git-file.is-conflicted .git-file-path { color: var(--rope-error); }
+
+.git-file-name {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+  border: 0; background: transparent; color: var(--text);
+  padding: 4px 0; cursor: pointer; font: inherit; font-size: var(--fs-sm); text-align: left;
+}
+.git-file-path {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, monospace;
+}
+
+/* A letra de estado tem largura fixa para os nomes alinharem numa coluna. */
+.git-code {
+  flex-shrink: 0; width: 12px; text-align: center;
+  font-family: ui-monospace, monospace; font-size: var(--fs-sm); font-weight: 600;
+}
+.git-code[data-status='mod'] { color: var(--accent); }
+.git-code[data-status='new'] { color: var(--rope-active); }
+.git-code[data-status='del'] { color: var(--rope-error); }
+.git-code[data-status='move'] { color: var(--text-dim); }
+.git-code[data-status='conflict'] { color: var(--rope-error); }
+
+/* Só aparecem no hover: em repositório com dezenas de arquivos alterados, uma
+   coluna de botões sempre visível vira ruído — e o ↺ apaga trabalho. */
+.git-file-actions { display: flex; gap: 1px; opacity: 0; }
+.git-file:hover .git-file-actions,
+.git-file:focus-within .git-file-actions { opacity: 1; }
+.git-file-actions .ghost-btn { font-size: var(--fs-base); padding: 1px 6px; line-height: 1.1; }
+.git-discard:hover { color: var(--rope-error); }
+
+.git-diff {
+  margin: 2px 10px 6px; padding: 6px 8px; max-height: 260px;
+  overflow: auto; border-radius: var(--r-md);
+  background: var(--term-bg); border: 1px solid var(--border);
+  font-family: ui-monospace, monospace; font-size: var(--fs-xs); line-height: 1.45;
+  white-space: pre; color: var(--text-dim);
+}
+.git-diff-add { color: var(--rope-active); }
+.git-diff-del { color: var(--rope-error); }
+.git-diff-hunk { color: var(--accent); }
+.git-diff-head { color: var(--text); font-weight: 600; }
+.git-diff-ctx { color: var(--text-dim); }
+
+/* Cola no rodapé do painel: a caixa de commit é o destino do fluxo, e
+   procurá-la depois de uma lista longa de arquivos é o atrito que faz a pessoa
+   voltar para o terminal. */
+.git-commit-box {
+  margin-top: auto; position: sticky; bottom: 0;
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.git-message {
+  width: 100%; resize: vertical; min-height: 46px;
+  padding: 6px 8px; border-radius: var(--r-md);
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: var(--fs-sm); line-height: 1.4;
+}
+.git-message:focus { outline: none; border-color: var(--accent); }
+
+.git-commit-btn { width: 100%; font-size: var(--fs-sm); }
+
+.git-log { list-style: none; margin: 0; padding: 2px 0; flex: 1; min-height: 0; overflow-y: auto; }
+
+.git-commit {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 5px 10px; border-bottom: 1px solid var(--border);
+}
+.git-commit:hover { background: var(--border); }
+.git-commit-subject {
+  font-size: var(--fs-sm); color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.git-commit-meta { font-size: var(--fs-xs); color: var(--text-dim); }
+.git-commit-meta code { font-family: ui-monospace, monospace; color: var(--accent); }
+
+/* ─── Git no chrome do canvas ─────────────────────────────────────────────── */
+
+.git-menu { position: relative; display: flex; align-items: center; gap: 6px; }
+
+/* Rótulo fixo à esquerda da pílula: diz do que é o estado sem gastar largura
+   dentro do botão, que é onde o nome do branch precisa de espaço. */
+.git-menu-caption {
+  font-size: var(--fs-xs); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Pílula, não botão retangular: é status com ação junto, e a borda arredondada
+   é o que a separa dos controles de vista ao lado. */
+.git-menu-btn {
+  display: flex; align-items: center; gap: 6px;
+  max-width: 220px;
+  border: 1px solid var(--border); border-radius: var(--r-pill);
+  background: var(--surface-2); color: var(--text);
+  padding: 3px 10px;
+  cursor: pointer; font: inherit; font-size: var(--fs-sm);
+}
+.git-menu-btn:hover { background: var(--dock-hover); }
+.git-menu-btn.is-open { border-color: var(--accent); }
+
+.git-menu-dot {
+  flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--text-dim);
+}
+.git-menu-dot[data-state='clean'] { background: var(--rope-active); }
+/* Âmbar: há trabalho não commitado. Não é erro — é o estado normal de quem
+   está no meio de alguma coisa —, então não usa a cor de erro. */
+.git-menu-dot[data-state='dirty'] { background: #e0a030; }
+.git-menu-dot[data-state='warn'] { background: var(--rope-error); }
+.git-menu-dot[data-state='off'] { background: var(--text-dim); opacity: .5; }
+
+.git-menu-icon { color: var(--text-dim); font-size: var(--fs-md); }
+
+.git-menu-label {
+  font-weight: 600; letter-spacing: .02em; text-transform: uppercase;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.git-menu-counts {
+  display: flex; gap: 4px; color: var(--text-dim);
+  font-family: ui-monospace, monospace; font-size: var(--fs-xs);
+}
+
+.git-menu-caret { color: var(--text-dim); font-size: var(--fs-xs); line-height: 1; }
+
+/* Superfície própria, e NÃO .context-menu: aquela classe traz
+   `.context-menu > button { border: 0; background: transparent }`, que atinge
+   todo botão descendente e transformava Pull/Push em texto solto.
+   Alinhado à direita porque o cluster encosta na borda da janela. */
+.git-popover {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 1100;
+  width: 300px; max-height: min(70vh, 620px);
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 10px; border-radius: var(--r-lg);
+  border: 1px solid var(--border); background: var(--surface-2);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .34);
+  cursor: default;
+  /* No macOS a faixa do topo é área de arrasto da janela; sem isto o clique
+     aqui moveria a janela em vez de chegar aos botões. */
+  -webkit-app-region: no-drag;
+}
+
+.git-popover-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+}
+.git-popover-project {
+  font-size: var(--fs-md); font-weight: 600; color: var(--text); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Link e não botão: é navegação para o painel completo, não uma ação de git. */
+.git-popover-link {
+  flex-shrink: 0;
+  border: 0; background: transparent; color: var(--accent);
+  padding: 0; font: inherit; font-size: var(--fs-xs);
+  cursor: pointer; text-decoration: underline;
+}
+.git-popover-link:hover { opacity: .75; }
+.git-popover-link:disabled { opacity: .4; cursor: default; text-decoration: none; }
+
+.git-popover-empty { margin: 2px 0; font-size: var(--fs-sm); color: var(--text-dim); }
+
+/* As abas do popover reaproveitam .git-tabs/.git-tab da aba lateral: mesma
+   forma, mesmo comportamento — só o espaçamento externo muda. */
+.git-popover .git-tabs { padding: 0 0 2px; }
+
+.git-popover-branch {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); color: var(--text);
+  padding: 6px 9px; cursor: pointer;
+  font: inherit; font-size: var(--fs-sm); text-align: left;
+}
+.git-popover-branch:hover { background: var(--border); }
+.git-popover-branch-name {
+  flex: 1; min-width: 0; font-family: ui-monospace, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.git-popover-caret { flex-shrink: 0; color: var(--text-dim); font-size: var(--fs-2xs); }
+
+.git-popover-branches {
+  max-height: 180px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: var(--r-md); padding: 3px;
+  background: var(--surface);
+}
+.git-popover-branches button {
+  display: block; width: 100%; text-align: left;
+  border: 0; background: transparent; color: var(--text);
+  padding: 5px 7px; border-radius: var(--r-sm); cursor: pointer;
+  font: inherit; font-size: var(--fs-sm); font-family: ui-monospace, monospace;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.git-popover-branches button:hover { background: var(--border); }
+.git-popover-branches button.is-current { color: var(--accent); }
+.git-popover-sep { height: 1px; margin: 4px 6px; background: var(--border); }
+
+.git-popover-warn {
+  margin: 0; padding: 5px 8px; border-radius: var(--r-md);
+  font-size: var(--fs-xs); line-height: 1.35;
+  color: var(--rope-error); border: 1px solid var(--rope-error);
+}
+
+.git-popover-row { display: flex; gap: 6px; }
+.git-popover-row .btn { flex: 1; font-size: var(--fs-sm); padding: 6px 2px; }
+
+.git-popover-stage {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: var(--fs-xs); color: var(--text-dim);
+}
+
+/* A lista rola dentro do popover; o cabeçalho, as abas, o branch, os botões e
+   a caixa de commit ficam parados. É o que mantém o Commit sempre à vista com
+   20 arquivos alterados. */
+.git-popover-files,
+.git-popover-log {
+  list-style: none; margin: 0; padding: 0;
+  min-height: 0; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface);
+}
+.git-popover-files { max-height: 190px; }
+.git-popover-log { max-height: 300px; }
+
+.git-popover-file {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 4px 3px 7px;
+}
+.git-popover-file:hover { background: var(--border); }
+.git-popover-file-path {
+  flex: 1; min-width: 0; font-size: var(--fs-xs);
+  font-family: ui-monospace, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.git-popover-file-btn {
+  flex-shrink: 0; width: 20px;
+  border: 0; background: transparent; color: var(--text-dim);
+  border-radius: var(--r-sm); padding: 1px 0; cursor: pointer;
+  font: inherit; font-size: var(--fs-base); line-height: 1.1;
+}
+.git-popover-file-btn:hover { background: var(--surface-2); color: var(--text); }
+.git-popover-file-btn:disabled { opacity: .35; cursor: default; }
+
+.git-popover-commit {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 5px 8px; border-bottom: 1px solid var(--border);
+}
+.git-popover-commit:last-child { border-bottom: 0; }
+.git-popover-commit-subject {
+  font-size: var(--fs-sm); color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.git-popover-commit-meta { font-size: var(--fs-2xs); color: var(--text-dim); }
+.git-popover-commit-meta code { font-family: ui-monospace, monospace; color: var(--accent); }
+
+.git-popover .git-message { font-size: var(--fs-sm); }
+.git-popover-commit-btn { width: 100%; font-size: var(--fs-sm); }
+
+.git-popover-feedback {
+  margin: 0; padding: 5px 8px; border-radius: var(--r-md);
+  font-size: var(--fs-xs); line-height: 1.35;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text-dim); overflow-wrap: anywhere;
+}
+.git-popover-feedback.is-error { color: var(--rope-error); border-color: var(--rope-error); }
+

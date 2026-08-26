@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { nodesBounds, viewport } from './canvas/viewport'
 import { GitMenu } from './git-menu'
 import { store, useStore } from './state/store'
 import type { ThemeMode } from './theme'
@@ -44,29 +43,13 @@ export function Toolbar(): JSX.Element {
       )}
       <div className="toolbar-title">{workspace?.name ?? '—'}</div>
 
-      {/* Criar nós e desenhar mudaram para a dock (renderer/dock.tsx). Aqui
-          fica só o que é da JANELA: zoom, tema e gravação. */}
+      {/* Criar nós e desenhar mudaram para a dock, e o zoom para a barra do
+          canto (canvas/zoom-bar.tsx) — é controle do canvas, e fica onde a mão
+          já está ao navegar. Aqui sobra o que é da JANELA: tema e gravação. */}
       <div className="toolbar-actions">
         {/* Git antes do zoom: é ação sobre o PROJETO, e as outras são sobre a
             janela. Junto delas, o commit ficaria a um clique do botão de zoom. */}
         <GitMenu />
-
-        <span className="toolbar-sep" />
-
-        <button type="button" onClick={() => viewport.setZoom(viewport.zoom - 0.25)}>−</button>
-        <button type="button" onClick={() => viewport.setZoom(1)}>100%</button>
-        <button
-          type="button"
-          disabled={!workspace || workspace.nodes.length === 0}
-          onClick={() => {
-            const bounds = nodesBounds(workspace?.nodes ?? [])
-            if (bounds) viewport.fit(bounds)
-          }}
-          title="Enquadrar tudo — traz todos os nós para a tela"
-        >
-          ⤢
-        </button>
-        <button type="button" onClick={() => viewport.setZoom(viewport.zoom + 0.25)}>+</button>
 
         <span className="toolbar-sep" />
 

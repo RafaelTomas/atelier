@@ -1748,7 +1748,9 @@ button { font: inherit; color: inherit; }
   /* z-index 50: acima da prévia de conexão (40), abaixo das barras de nó e do
      aviso de projetos (60) — uma barra ancorada num nó do canto de baixo tem
      de continuar clicável por cima do mapa. */
-  position: absolute; right: 14px; bottom: 18px; z-index: 50;
+  /* `right` deixa a coluna da barra de zoom livre: 14 da borda + 34 de largura
+     + 8 de respiro. Os dois compartilham a mesma linha de base. */
+  position: absolute; right: 56px; bottom: 18px; z-index: 50;
   padding: 6px; border-radius: 10px;
   border: 1px solid var(--dock-border);
   background: var(--dock-bg);
@@ -1782,3 +1784,50 @@ button { font: inherit; color: inherit; }
 /* block: o <canvas> é inline por padrão, e a linha de base deixaria uma
    faixa de alguns pixels embaixo, desalinhando o padding. */
 .minimap canvas { display: block; border-radius: 5px; background: var(--canvas-bg); }
+
+/* ─── Barra de zoom do canto ──────────────────────────────────────────────── */
+
+/* Coluna à direita do minimapa, na mesma linha de base. Vertical porque é uma
+   faixa estreita encostada na borda: em linha, ela empurraria o mapa para o
+   meio da tela. */
+.zoom-bar {
+  position: absolute; right: 14px; bottom: 18px; z-index: 50;
+  width: 34px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+  padding: 4px; border-radius: 10px;
+  border: 1px solid var(--dock-border);
+  background: var(--dock-bg);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 20px rgb(0 0 0 / .22);
+  user-select: none;
+}
+
+.zoom-btn,
+.zoom-level {
+  border: 0; background: transparent; color: var(--dock-fg);
+  border-radius: 6px; cursor: pointer;
+  font: inherit; line-height: 1;
+}
+.zoom-btn:hover:not(:disabled),
+.zoom-level:hover { background: var(--dock-hover); color: var(--dock-fg-strong); }
+.zoom-btn:disabled { opacity: .35; cursor: default; }
+
+.zoom-btn { height: 26px; font-size: 15px; }
+
+/* Tabular-nums: sem isso o rótulo muda de largura entre "100%" e "75%" e a
+   coluna inteira treme durante o zoom. */
+.zoom-level {
+  height: 22px; font-size: 10px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--dock-fg-strong);
+}
+
+.zoom-sep { height: 1px; margin: 2px 4px; background: var(--dock-border); }
+
+/* Janela estreita: o dock é centrado e cresce para os dois lados, e abaixo de
+   ~860px ele alcança o canto. Quem cede é o minimapa — a barra de zoom precisa
+   continuar alcançável, e o mapa é o item de conveniência dos dois.
+   O canto passa a ter só a coluna de 34px, que o dock não alcança. */
+@media (max-width: 860px) {
+  .minimap { display: none; }
+}

@@ -226,10 +226,7 @@ export function Minimap(): JSX.Element | null {
     // nasce ou morre — o viewport não é notificado disso.
   }, [workspace?.nodes, selection])
 
-  // O aviso de projetos ocupa este mesmo canto (.candidates-card). Os dois
-  // juntos se sobrepõem, e o aviso é passageiro — some assim que a pessoa
-  // responde —, então quem cede é o mapa.
-  if (!workspace || candidates.length > 0) return null
+  if (!workspace) return null
 
   /** Centraliza o quadro no ponto do canvas que corresponde ao clique. */
   const goTo = (e: { clientX: number; clientY: number }): void => {
@@ -252,7 +249,10 @@ export function Minimap(): JSX.Element | null {
   return (
     <div
       ref={hostRef}
-      className="minimap"
+      // Com o aviso de projetos aberto, o mapa desliza para o lado em vez de
+      // sumir: eles dividem o canto, e sumir de vez tirava a navegação da
+      // pessoa por causa de um aviso que ela ainda nem leu.
+      className={candidates.length > 0 ? 'minimap is-raised' : 'minimap'}
       title="Clique ou arraste para mover o quadro"
       // Enquanto o ponteiro estiver em cima, o mapa não some — e chegar perto
       // dele já o traz de volta, que é como se pega um mapa que acabou de

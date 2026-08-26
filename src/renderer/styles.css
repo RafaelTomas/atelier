@@ -1855,6 +1855,13 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   .minimap { display: none; }
 }
 
+/* O aviso de projetos (.candidates-card) ocupa o mesmo canto. O mapa desliza
+   para a ESQUERDA dele em vez de sumir — sumir tirava a navegação por causa de
+   um aviso passageiro, e sair pela vertical dependeria da altura do aviso, que
+   varia com o número de projetos oferecidos. A largura do card é fixa (330px),
+   então esta conta é estável. */
+.minimap.is-raised { right: calc(16px + 330px + 10px); }
+
 /* ─── Árvore: renomear inline, alvo de arrasto e confirmação ───────────────── */
 
 .file-tree-row.is-drop-target {

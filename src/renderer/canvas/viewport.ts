@@ -60,15 +60,32 @@ export function zoomToDial(zoom: number): number {
  * especial: sendo múltiplo de 5, ele é um dos valores da grade.
  */
 export function dialToZoom(dial: number): number {
-  const bruto = Math.exp(LOG_MIN + (dial / 100) * (LOG_MAX - LOG_MIN))
-  const emGrade = Math.round(bruto * 20) / 20
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, emGrade))
+  return snapZoom(Math.exp(LOG_MIN + (dial / 100) * (LOG_MAX - LOG_MIN)))
 }
 
-/** Quanto de zoom por pixel de roda. Ver zoomByWheel para a conta. */
-const WHEEL_SENSITIVITY = 0.0015
-/** Teto por evento: nenhuma batida sozinha muda o zoom em mais de ~20%. */
+/**
+ * O zoom na grade de 5 pontos percentuais, preso na faixa permitida.
+ *
+ * Uma grade só, para os dois gestos: o que o dial mostra e o que a roda produz
+ * têm de ser os mesmos valores, senão 100% pelo dial e 100% pela roda seriam
+ * dois números diferentes com o mesmo rótulo.
+ */
+export function snapZoom(zoom: number): number {
+  const emGrade = Math.round(zoom / ZOOM_GRID) * ZOOM_GRID
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(emGrade.toFixed(2))))
+}
+
+/** O passo da grade: 5 pontos percentuais. */
+const ZOOM_GRID = 0.05
+/**
+ * Pixels de roda que fecham um degrau. 100 é a batida padrão do Chromium, então
+ * no mouse a conta é exata: uma batida, um degrau.
+ */
+const WHEEL_PIXELS_PER_STEP = 100
+/** Teto por evento: um `deltaMode` de página não vale uma dúzia de degraus. */
 const WHEEL_MAX_PIXELS = 140
+/** Pausa que descarta o resíduo: gesto novo começa do zero. */
+const WHEEL_IDLE_MS = 400
 /** `deltaMode: 1` conta LINHAS; esta é a altura suposta de cada uma. */
 const WHEEL_LINE_HEIGHT = 16
 export const CULL_MARGIN = 200
@@ -117,6 +134,10 @@ class Viewport {
     this.schedule()
   }
 
+  /** Pixels de roda ainda não convertidos em degrau — ver zoomByWheel. */
+  private wheelPixels = 0
+  private wheelAt = 0
+
   panBy(dxScreen: number, dyScreen: number): void {
     this.origin = { x: this.origin.x - dxScreen / this.zoom, y: this.origin.y - dyScreen / this.zoom }
     this.schedule()
@@ -144,18 +165,23 @@ class Viewport {
   }
 
   /**
-   * Zoom da roda com ⌘/Ctrl, ancorado no cursor.
+   * Zoom da roda com ⌘/Ctrl, ancorado no cursor: uma batida, um degrau de 5
+   * pontos — a MESMA grade do dial.
    *
-   * O `deltaY` cru não serve como fator: ele depende do dispositivo E do
-   * `deltaMode`. Uma batida de roda de mouse no Chromium chega como 100px, e
-   * com a sensibilidade que havia antes (0,01) isso virava fator 0,37 — uma
-   * batida tirava 63% do zoom. Já um trackpad manda dezenas de eventos
-   * pequenos por segundo, onde o mesmo cálculo mal se move.
+   * O `deltaY` cru não serve de fator: depende do dispositivo E do
+   * `deltaMode`. Uma batida de roda no Chromium chega como 100px, e a
+   * sensibilidade que existia aqui (0,01) transformava isso em fator 0,37 —
+   * uma batida tirava 63% do zoom. Já um trackpad manda dezenas de eventos
+   * pequenos por segundo, onde o mesmo cálculo mal saía do lugar.
    *
-   * Então: normaliza o `deltaMode` para pixels, aplica sensibilidade única e
-   * põe teto no evento. Com 0,0015 por pixel, a batida de 100px vira ~14% —
-   * perto do que navegador e editor de canvas fazem —, e o teto impede que um
-   * `deltaMode` estranho (página inteira) dê um salto de uma vez só.
+   * Por isso o delta vira PIXELS e os pixels viram degraus, com o resto
+   * guardado: no mouse cada batida fecha um degrau exato; no trackpad, vários
+   * eventos pequenos se somam até fechar um. Sem esse acúmulo, o trackpad
+   * ficaria mudo — cada evento sozinho não move o suficiente para trocar de
+   * degrau, e o arredondamento devolveria sempre o mesmo valor.
+   *
+   * O resíduo é descartado depois de uma pausa: sobra de um gesto encerrado
+   * não pode empurrar o próximo.
    */
   zoomByWheel(screenPoint: Point, deltaY: number, deltaMode: number): void {
     const pixels =
@@ -164,8 +190,20 @@ class Viewport {
         : deltaMode === 2
           ? deltaY * this.height
           : deltaY
-    const limitado = Math.max(-WHEEL_MAX_PIXELS, Math.min(WHEEL_MAX_PIXELS, pixels))
-    this.zoomAt(screenPoint, Math.exp(-limitado * WHEEL_SENSITIVITY))
+
+    const agora = performance.now()
+    if (agora - this.wheelAt > WHEEL_IDLE_MS) this.wheelPixels = 0
+    this.wheelAt = agora
+    this.wheelPixels += Math.max(-WHEEL_MAX_PIXELS, Math.min(WHEEL_MAX_PIXELS, pixels))
+
+    // Para baixo o delta é positivo e o zoom diminui — daí o sinal invertido.
+    const degraus = Math.trunc(-this.wheelPixels / WHEEL_PIXELS_PER_STEP)
+    if (degraus === 0) return
+    this.wheelPixels += degraus * WHEEL_PIXELS_PER_STEP
+
+    const alvo = snapZoom(this.zoom + degraus * ZOOM_GRID)
+    if (alvo === this.zoom) return
+    this.zoomAt(screenPoint, alvo / this.zoom)
   }
 
   /**

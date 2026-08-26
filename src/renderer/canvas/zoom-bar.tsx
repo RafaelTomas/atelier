@@ -6,9 +6,9 @@
  * já está quando se navega, e não a uma travessia de tela de distância. O que
  * sobrou na toolbar é o que é da JANELA: tema e gravação.
  *
- * Fechado, o círculo mostra a porcentagem atual: mesmo em repouso ele responde
- * "em que zoom eu estou", que é metade do que se quer de um controle de zoom.
- * Aberto, cresce numa coluna com aproximar, afastar e enquadrar tudo.
+ * Fechado, o círculo é só a lupa — um alvo limpo, do tamanho de um ícone.
+ * Aberto, a coluna traz a porcentagem atual e os controles: aproximar,
+ * afastar e enquadrar tudo.
  *
  * A abertura é por CSS (:hover / :focus-within), não por estado do React. Um
  * onMouseEnter que chamasse setState re-renderizaria a árvore inteira a cada
@@ -19,6 +19,7 @@
  * setState por frame de zoom faria o que o resto do canvas evita.
  */
 import { useEffect, useRef } from 'react'
+import { IconSearch } from '../icons'
 import { useStore } from '../state/store'
 import { nodesBounds, viewport } from './viewport'
 
@@ -59,6 +60,17 @@ export function ZoomBar(): JSX.Element | null {
           +
         </button>
 
+        {/* A porcentagem é o botão de 100%, no meio dos dois que a alteram —
+            é onde a mão já está depois de aproximar ou afastar. */}
+        <button
+          type="button"
+          className="zoom-level"
+          title="Voltar a 100%"
+          onClick={() => viewport.setZoom(1)}
+        >
+          <span ref={labelRef}>100%</span>
+        </button>
+
         <button
           type="button"
           className="zoom-btn"
@@ -83,18 +95,18 @@ export function ZoomBar(): JSX.Element | null {
         </button>
       </div>
 
-      {/* O círculo é um <button> de verdade: clicar volta a 100%, que é o gesto
-          que já se espera de um indicador de zoom, e é o que dá o foco de
-          teclado que abre o painel via :focus-within. */}
+      {/* Continua sendo um <button> de verdade, e não uma <div> com hover: é
+          ele que recebe o foco de teclado que abre o painel via
+          :focus-within. Clicar volta a 100% — o mesmo que a porcentagem lá
+          dentro faz, para quem não quer esperar o menu abrir. */}
       <button
         type="button"
         className="zoom-dial-trigger"
         title="Zoom · clique para voltar a 100%"
+        aria-label="Zoom"
         onClick={() => viewport.setZoom(1)}
       >
-        <span ref={labelRef} className="zoom-dial-label">
-          100%
-        </span>
+        <IconSearch size={17} />
       </button>
     </div>
   )

@@ -1835,20 +1835,26 @@ button { font: inherit; color: inherit; }
   flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--dock-border); border-radius: 50%;
-  background: var(--dock-bg); color: var(--dock-fg-strong);
+  background: var(--dock-bg); color: var(--dock-fg);
   backdrop-filter: blur(12px);
   box-shadow: 0 6px 20px rgb(0 0 0 / .22);
   cursor: pointer; font: inherit;
 }
 .zoom-dial:hover .zoom-dial-trigger,
+.zoom-dial:focus-within .zoom-dial-trigger { color: var(--dock-fg-strong); }
+.zoom-dial:hover .zoom-dial-trigger,
 .zoom-dial:focus-within .zoom-dial-trigger { border-color: var(--dock-fg); }
 
-/* Tabular-nums: sem isso o rótulo muda de largura entre "100%" e "75%" e o
-   número dança dentro do círculo durante o zoom. */
-.zoom-dial-label {
+/* Tabular-nums: sem isso o rótulo muda de largura entre "100%" e "75%" e a
+   coluna inteira treme durante o zoom. */
+.zoom-level {
+  height: 22px; flex-shrink: 0;
+  border: 0; background: transparent; color: var(--dock-fg-strong);
+  cursor: pointer; font: inherit;
   font-size: 10px; font-weight: 600;
   font-variant-numeric: tabular-nums; letter-spacing: -.02em;
 }
+.zoom-level:hover { color: var(--accent); }
 
 /* Fechado: altura zero e invisível, mas ainda no fluxo — animar `height` de um
    conteúdo de altura conhecida é o que dá a expansão suave sem medir nada em

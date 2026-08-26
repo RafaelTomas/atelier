@@ -264,18 +264,25 @@ console.log('\nauto-ocultar: quando o mapa aparece')
 
 console.log('\nbotão de zoom: geometria do painel')
 {
-  // A altura aberta é escrita à mão no CSS (não dá para animar `auto`), então
-  // ela precisa bater com a soma das partes. Se alguém mexer num botão e
-  // esquecer do total, o painel corta ou sobra — e isto avisa.
-  const PAD = 4, BTN = 30, SEP = 1, SEP_MARGIN = 4
-  const soma = PAD + BTN + BTN + (SEP + SEP_MARGIN * 2) + BTN + PAD
-  check('altura do painel bate com a soma das partes (107px no CSS)', soma === 107, soma)
+  // Fechado, o painel sai do fluxo com `display: none`. A versão anterior usava
+  // `height: 0` + overflow hidden para animar, e era esse o bug do hover: com
+  // box-sizing content-box o padding ainda contava, então o painel "fechado"
+  // continuava uma caixa de alguns pixels ACIMA do círculo — o ponteiro pegava
+  // nela em vez do gatilho, e o menu não abria.
+  const fechadoOcupaEspaco = (modo) => modo === 'height-0'   // display:none = 0
+  check('fechado com display:none não deixa caixa fantasma',
+    fechadoOcupaEspaco('display-none') === false)
+  check('a versão com height:0 deixava (era o bug)',
+    fechadoOcupaEspaco('height-0') === true)
 
   // O respiro entre o círculo e o painel tem de ficar DENTRO do elemento que
   // recebe o :hover, senão o ponteiro o atravessa e o menu fecha sozinho.
   const hoverNoContainer = true   // .zoom-dial:hover, não .zoom-dial-trigger:hover
-  const respiroDentro = hoverNoContainer
-  check('o respiro entre gatilho e painel fica dentro da área de hover', respiroDentro)
+  check('o respiro entre gatilho e painel fica dentro da área de hover', hoverNoContainer)
+
+  // O ponteiro sobe do círculo até o botão mais baixo sem sair da área de hover.
+  const percurso = 20 + 6 + 4 + 15   // meio círculo + margem + padding + meio botão
+  check('o percurso do ponteiro é contínuo e curto', percurso < 60, percurso + 'px')
 
   // Colisão com o dock na base: o zoom saiu da linha de base, então só o mapa
   // disputa espaço com ele.

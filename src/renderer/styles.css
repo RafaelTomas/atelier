@@ -1853,34 +1853,41 @@ button { font: inherit; color: inherit; }
 /* Fechado: altura zero e invisível, mas ainda no fluxo — animar `height` de um
    conteúdo de altura conhecida é o que dá a expansão suave sem medir nada em
    JS. `visibility` entra junto para o painel fechado não capturar o mouse. */
+/* Fechado: fora do fluxo de vez.
+ *
+ * A primeira versão usava `height: 0` com `overflow: hidden`, para animar a
+ * abertura. Não funcionava: com `box-sizing: content-box` (o padrão) o padding
+ * ainda contava, e o painel "fechado" continuava sendo uma caixa de alguns
+ * pixels ACIMA do círculo — bem no caminho de quem sobe o ponteiro. O hover
+ * pegava nele, não no gatilho, e o menu piscava ou não abria.
+ *
+ * `display: none` não anima, e é o preço certo: um menu que abre e fecha na
+ * hora certa vale mais que uma transição de altura que atrapalha o gesto. */
 .zoom-dial-options {
-  overflow: hidden;
+  display: none;
   width: var(--zoom-dial-size);
-  height: 0; opacity: 0; visibility: hidden;
-  display: flex; flex-direction: column; align-items: stretch;
-  margin-bottom: 0;
+  flex-direction: column; align-items: stretch;
+  margin-bottom: 6px; padding: 4px 0;
   border-radius: 999px;
-  border: 1px solid transparent;
+  border: 1px solid var(--dock-border);
   background: var(--dock-bg);
   backdrop-filter: blur(12px);
-  transition:
-    height .18s ease, opacity .18s ease, margin-bottom .18s ease,
-    visibility 0s linear .18s;
+  box-shadow: 0 6px 20px rgb(0 0 0 / .22);
 }
 
 /* Aberto no hover E no foco de teclado: um handler de mouse deixaria de fora
    quem chega pelo Tab. */
 .zoom-dial:hover .zoom-dial-options,
 .zoom-dial:focus-within .zoom-dial-options {
-  /* 3 botões de 30 + separador (1+8 de margem) + padding 8 = 107 */
-  height: 107px; opacity: 1; visibility: visible;
-  margin-bottom: 6px;
-  padding: 4px 0;
-  border-color: var(--dock-border);
-  box-shadow: 0 6px 20px rgb(0 0 0 / .22);
-  transition:
-    height .18s ease, opacity .18s ease, margin-bottom .18s ease,
-    visibility 0s;
+  display: flex;
+  animation: zoom-dial-in .14s ease-out;
+}
+
+/* A entrada ainda é suave: o que não dá para animar é a saída, porque o
+   elemento sai do fluxo no mesmo instante. */
+@keyframes zoom-dial-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
 }
 
 .zoom-btn {
@@ -1893,9 +1900,8 @@ button { font: inherit; color: inherit; }
 
 .zoom-sep { flex-shrink: 0; height: 1px; margin: 4px 10px; background: var(--dock-border); }
 
-/* Sem animação para quem pediu: o painel aparece e some seco. */
+/* Sem animação para quem pediu: o painel aparece seco. */
 @media (prefers-reduced-motion: reduce) {
-  .zoom-dial-options { transition: none; }
   .zoom-dial:hover .zoom-dial-options,
-  .zoom-dial:focus-within .zoom-dial-options { transition: none; }
+  .zoom-dial:focus-within .zoom-dial-options { animation: none; }
 }

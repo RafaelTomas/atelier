@@ -20,6 +20,9 @@ const ROOT = resolve(import.meta.dirname, '..')
 const home = await mkdtemp(join(tmpdir(), 'atelier-smoke-'))
 process.env.ATELIER_HOME = home
 process.env.NODE_ENV = 'development'
+// Sem renderer, o wake de portal só tem o caminho de timeout para percorrer —
+// e cinco segundos parados não é teste, é espera.
+process.env.ATELIER_PORTAL_WAKE_MS = '300'
 
 let passed = 0
 let failed = 0
@@ -322,8 +325,58 @@ await test('comando desconhecido não derruba o servidor', async () => {
 })
 
 await test('comando não portado responde de forma honesta', async () => {
-  const out = await cli(['portal', 'info', 'x'], terminalId)
+  const out = await cli(['recruit', 'x'], terminalId)
   assert.match(out, /ainda não implementado/)
+})
+
+// ─── Portais pelo CLI ─────────────────────────────────────────────────────────
+
+let portalId
+
+await test('atelier portal open cria portal já conectado ao chamador', async () => {
+  const out = await cli(['portal', 'open', 'localhost:5173', 'Dev'], terminalId)
+  assert.match(out, /Opened portal 'Dev'/)
+  // A mesma normalização da barra de endereço: sem ela o dev server não abriria
+  assert.match(out, /http:\/\/localhost:5173/)
+
+  const criado = ws.nodes.filter((n) => n.content.type === 'portal')
+  portalId = criado[criado.length - 1].id
+  assert.ok(
+    ws.connections.some(
+      (c) => (c.nodeIdA === portalId || c.nodeIdB === portalId) && c.kind === 'portal'
+    ),
+    'o portal nasceu solto, sem cabo para o terminal'
+  )
+
+  const list = await cli(['portal', 'list'], terminalId)
+  assert.match(list, /Dev/)
+})
+
+await test('atelier portal go escreve a URL no conteúdo, não no webview', async () => {
+  const out = await cli(['portal', 'go', 'Dev', 'example.com'], terminalId)
+  assert.match(out, /navigating to https:\/\/example.com/)
+  const node = ws.node(portalId)
+  assert.equal(node.content.value.currentURL, 'https://example.com')
+  // Escrever no conteúdo é o que faz o nó reabrir onde parou, mesmo desmontado
+  await appState.saveDirtyWorkspaces()
+  const doc = JSON.parse(readFileSync(paths.workspaceFile(ws.id), 'utf8'))
+  const gravado = doc.payload.nodes.find((n) => n.id === portalId)
+  assert.equal(gravado.content.portal._0.currentURL, 'https://example.com')
+})
+
+await test('atelier portal read sem webview montado explica em vez de pendurar', async () => {
+  const out = await cli(['portal', 'read', 'Dev'], terminalId)
+  assert.match(out, /error: portal .* não respondeu/)
+})
+
+await test('atelier portal close leva o cabo junto', async () => {
+  const out = await cli(['portal', 'close', 'Dev'], terminalId)
+  assert.match(out, /Closed portal 'Dev'/)
+  assert.equal(ws.node(portalId), undefined)
+  assert.ok(
+    !ws.connections.some((c) => c.nodeIdA === portalId || c.nodeIdB === portalId),
+    'a conexão sobreviveu ao nó'
+  )
 })
 
 // ─── Responsabilidades (agentes) ──────────────────────────────────────────────

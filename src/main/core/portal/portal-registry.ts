@@ -23,8 +23,13 @@ import type { UUID } from '@shared/types'
 import { log } from '../logger'
 import { notifyRenderer } from '../../ipc/notify'
 
-/** Tempo que `wake` espera o renderer montar um portal adormecido. */
-const WAKE_TIMEOUT_MS = 5000
+/**
+ * Tempo que `wake` espera o renderer montar um portal adormecido. O escape por
+ * variável existe pelo mesmo motivo do ATELIER_HOME: o smoke headless não tem
+ * renderer nenhum, e esperar cinco segundos pelo caminho de timeout é o teste
+ * inteiro parado.
+ */
+const WAKE_TIMEOUT_MS = Number(process.env.ATELIER_PORTAL_WAKE_MS) || 5000
 
 const guests = new Map<UUID, number>()
 const waiters = new Map<UUID, ((id: number) => void)[]>()

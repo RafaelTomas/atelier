@@ -16,34 +16,19 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CanvasNode, PortalContent, UUID } from '@shared/types'
 import { portalPartition } from '@shared/types'
+import { HOME_URL, normalizeURL } from '@shared/portal-url'
 import { viewport } from '../canvas/viewport'
+import { portalWake } from '../state/portal-wake'
+// Reexportados: o dock importa HOME_URL daqui desde antes de shared/portal-url
+export { HOME_URL, normalizeURL } from '@shared/portal-url'
 import { store } from '../state/store'
 
 const FREEZE_ZOOM = 0.1
-
-/** Página inicial de um portal novo e destino da busca. */
-export const HOME_URL = 'https://www.google.com'
 
 interface Props {
   node: CanvasNode
   content: PortalContent
   workspaceId: UUID
-}
-
-/** `electron.com` → `https://electron.com`; termo solto → busca. */
-export function normalizeURL(input: string): string {
-  const raw = input.trim()
-  if (!raw) return ''
-  // localhost:3000 vem ANTES do teste de esquema: `localhost:` casa com a cara
-  // de um scheme, e sem isso o dev server mais comum do mundo não abriria.
-  // http, porque em https o servidor local normalmente não responde.
-  if (/^localhost(:\d+)?(\/|$)/i.test(raw) || /^127\.0\.0\.1(:\d+)?(\/|$)/.test(raw)) {
-    return `http://${raw}`
-  }
-  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return raw
-  // Tem cara de domínio: tem ponto e nenhum espaço
-  if (/\./.test(raw) && !/\s/.test(raw)) return `https://${raw}`
-  return `https://www.google.com/search?q=${encodeURIComponent(raw)}`
 }
 
 /**
@@ -87,6 +72,10 @@ type WebviewEl = HTMLElement & {
 
 export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
   const viewRef = useRef<WebviewEl | null>(null)
+  // Acordado pelo agente: monta o webview mesmo com o zoom no fundo. É o mesmo
+  // motivo do TerminalNode continuar vivo — só que aqui quem precisa do nó de pé
+  // é quem está lendo a página, não quem está olhando.
+  const [awake, setAwake] = useState(portalWake.has(node.id))
   const [frozen, setFrozen] = useState(viewport.zoom < FREEZE_ZOOM)
   const [draft, setDraft] = useState(content.currentURL)
   const [editing, setEditing] = useState(false)
@@ -95,6 +84,10 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
   const [nav, setNav] = useState({ back: false, forward: false })
 
   useEffect(() => viewport.subscribe((v) => setFrozen(v.zoom < FREEZE_ZOOM)), [])
+  useEffect(() => portalWake.subscribe(() => setAwake(portalWake.has(node.id))), [node.id])
+
+  /** Congelado pelo zoom, mas não se o agente pediu para ler agora. */
+  const asleep = frozen && !awake
 
   // A URL pode mudar por fora (patchContent vindo do CLI ou de outra sessão).
   useEffect(() => {
@@ -105,7 +98,7 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
 
   useEffect(() => {
     const el = viewRef.current
-    if (frozen || !el) return
+    if (asleep || !el) return
 
     const syncNav = (): void => {
       setNav({ back: el.canGoBack(), forward: el.canGoForward() })
@@ -171,7 +164,7 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
       el.removeEventListener('did-navigate-in-page', onNavigated)
       el.removeEventListener('did-fail-load', onFail)
     }
-  }, [frozen, node.id, content.currentURL])
+  }, [asleep, node.id, content.currentURL])
 
   // ─── Ações ──────────────────────────────────────────────────────────────────
 
@@ -187,7 +180,7 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
     if (viewRef.current) viewRef.current.src = url
   }
 
-  if (frozen) {
+  if (asleep) {
     return (
       <div className="portal-frozen">
         <span>{content.currentURL ? hostLabel(content.currentURL) : content.name}</span>

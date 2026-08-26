@@ -26,7 +26,7 @@ const OWNER_MARKER = '<!-- installed-by: atelier -->'
 
 const SKILL_MD = `---
 name: atelier
-description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', or 'describe the projects'.
+description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', or 'describe the projects'.
 ---
 
 ${OWNER_MARKER}
@@ -75,6 +75,31 @@ atelier note read "Note Name" [offset] [limit]
 atelier note write "Note Name" "content"
 atelier note edit "Note Name" "old text" "new text"
 \`\`\`
+
+## Portals
+
+A portal is a browser inside the canvas. Connected ones are yours to read — they
+are usually the page the user is looking at right now.
+
+\`\`\`
+atelier portal list
+atelier portal open <url> [name]
+atelier portal go "Portal" <url>
+atelier portal read "Portal" [offset] [limit]
+atelier portal html "Portal" [selector]
+atelier portal shot "Portal" [path]
+atelier portal close "Portal"
+\`\`\`
+
+\`open\` creates a portal already connected to you; \`localhost:5173\` and bare
+domains work, exactly as in the address bar. \`read\` gives the visible TEXT of
+the page, with \`offset\`/\`limit\` in lines, like \`note read\`. For a PDF or an
+image there is no text to read — use \`shot\`, which writes a PNG and prints its
+path for you to open.
+
+A portal that is off-screen or zoomed out is woken up for the read, so the first
+one may take a second. You cannot run arbitrary JavaScript in a portal: these
+sessions are often logged in as the user.
 
 ## Projects
 
@@ -154,7 +179,7 @@ export function injectSkillInto(terminalId: UUID): void {
   notified.add(terminalId)
   terminals.write(
     terminalId,
-    '# atelier: connected — run `atelier list` to see connected agents and notes\r'
+    '# atelier: connected — run `atelier list` to see connected agents, notes and portals\r'
   )
 }
 

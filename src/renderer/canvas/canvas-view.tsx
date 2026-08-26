@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CanvasNode, Point, Rect, UUID } from '@shared/types'
 import { ContextMenu } from '../context-menu'
 import { FILE_DRAG_TYPE, PROJECT_DRAG_TYPE, readFileDrag } from '../drag'
+import { portalWake } from '../state/portal-wake'
 import { store, useStore } from '../state/store'
 import { NodeShell } from '../nodes/node-shell'
 import { FormatBar } from '../nodes/format-bar'
@@ -86,6 +87,8 @@ export function CanvasView(): JSX.Element {
   const liveStroke = useRef<LiveStroke | null>(null)
   const strokeTick = useRef(0)
   const [visibleIds, setVisibleIds] = useState<Set<UUID>>(new Set())
+  /** Redesenha quando o agente acorda (ou solta) um portal fora da viewport. */
+  const [, setWakeTick] = useState(0)
   const [marquee, setMarquee] = useState<Rect | null>(null)
   /**
    * Projeto solto no canvas, esperando o usuário dizer o que fazer com ele.
@@ -138,6 +141,8 @@ export function CanvasView(): JSX.Element {
     if (!workspace) return
     viewport.reset(workspace.canvasOrigin, workspace.canvasZoom)
   }, [workspace?.id])
+
+  useEffect(() => portalWake.subscribe(() => setWakeTick((t) => t + 1)), [])
 
   // ─── Transform + virtualização ──────────────────────────────────────────────
 
@@ -661,7 +666,9 @@ export function CanvasView(): JSX.Element {
     e.preventDefault()
   }
 
-  const visibleNodes = renderOrder.filter((n) => visibleIds.has(n.id))
+  // Um portal acordado pelo agente renderiza mesmo fora da viewport: sem isso a
+  // leitura só funcionaria com o nó na tela, que é o mesmo que não funcionar.
+  const visibleNodes = renderOrder.filter((n) => visibleIds.has(n.id) || portalWake.has(n.id))
 
   /**
    * Nó formatável selecionado — só com seleção única: com vários nós a barra

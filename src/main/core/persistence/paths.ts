@@ -32,6 +32,8 @@ export const paths = {
   notesDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'notes'),
   terminalsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'terminals'),
   snapshotsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'snapshots'),
+  /** Capturas de portal pedidas pelo agente (`atelier portal shot`). */
+  shotsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'shots'),
   scrollback: (workspaceId: UUID, terminalId: UUID) =>
     join(dataDir(), 'workspaces', workspaceId, 'terminals', `${terminalId}.scrollback`)
 }

@@ -90,6 +90,9 @@ function armGuest(contents: WebContents): void {
 /** Chamado uma vez no boot, antes da janela existir. */
 export function armPopupHandling(): void {
   app.on('web-contents-created', (_event, contents) => {
+    // Diagnóstico barato e decisivo: se um clique abre janela, ele APARECE aqui.
+    // Silêncio nesta linha significa que o clique era navegação, não popup.
+    log.debug('portal', `webContents ${contents.id} criado (${contents.getType()})`)
     if (contents.getType() === 'webview') armGuest(contents)
   })
 

@@ -25,6 +25,18 @@ import { store } from '../state/store'
 
 const FREEZE_ZOOM = 0.1
 
+/**
+ * `allowpopups` PRECISA chegar ao DOM como string.
+ *
+ * O react-dom não conhece esse atributo (não está na tabela dele), e para
+ * atributo desconhecido com valor booleano o React AVISA E DESCARTA: "Received
+ * `true` for a non-boolean attribute". O atributo nunca era escrito, e o
+ * Electron decide popup por `hasAttribute` — ou seja, ficava tudo desligado sem
+ * erro nenhum. O tipo de @types/react diz boolean; o runtime discorda, e é ele
+ * que manda.
+ */
+const ALLOW_POPUPS = 'true' as unknown as boolean
+
 interface Props {
   node: CanvasNode
   content: PortalContent
@@ -72,7 +84,15 @@ type WebviewEl = HTMLElement & {
 
 export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
   const viewRef = useRef<WebviewEl | null>(null)
-  /** URL da montagem: o `src` do webview é escrito uma vez e só. */
+  /**
+   * URL da MONTAGEM, e ela nunca muda enquanto o nó vive.
+   *
+   * O `src` do JSX é lido deste ref, e é justamente por ele ser imutável que o
+   * React nunca reescreve o atributo: reescrever dispara uma navegação nova para
+   * a mesma URL — reload completo, estado de SPA perdido, usuário de volta na
+   * tela de login. Quem navega depois da montagem é o próprio webview ou o
+   * efeito imperativo abaixo, nunca o React.
+   */
   const initialURL = useRef(content.currentURL)
   /** Última URL que veio DO webview — para não mandá-lo de volta para onde já está. */
   const lastSeen = useRef(content.currentURL)
@@ -125,7 +145,6 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
       // Antes do patch: senão o efeito de navegação externa leria esta mesma
       // URL como se fosse ordem de fora e recarregaria a página.
       lastSeen.current = url
-      initialURL.current = url
       setDraft(url)
       void store.patchContent(node.id, { currentURL: url, source: { kind: 'url', url } })
     }
@@ -183,7 +202,6 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
     if (asleep || !el || !content.currentURL) return
     if (content.currentURL === lastSeen.current) return
     lastSeen.current = content.currentURL
-    initialURL.current = content.currentURL
     el.src = content.currentURL
   }, [asleep, content.currentURL])
 
@@ -198,7 +216,6 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
     // Escreve o conteúdo mesmo se o webview estiver congelado: ao voltar o zoom
     // ele monta já com o src certo.
     lastSeen.current = url
-    initialURL.current = url
     void store.patchContent(node.id, { currentURL: url, source: { kind: 'url', url } })
     if (viewRef.current) viewRef.current.src = url
   }
@@ -305,7 +322,7 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
             ref={(el) => (viewRef.current = el as WebviewEl | null)}
             src={initialURL.current}
             partition={portalPartition(content)}
-            allowpopups
+            allowpopups={ALLOW_POPUPS}
           />
           {failure && (
             <div className="portal-error">

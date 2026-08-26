@@ -582,10 +582,19 @@ export function CanvasView(): JSX.Element {
     }
   }, [selection])
 
+  /**
+   * Botão direito no canvas não CRIA nada.
+   *
+   * Ele criava uma nota no ponto clicado, e isso é ação destrutiva por engano:
+   * um clique direito acidental — ou um trackpad interpretando dois dedos —
+   * deixava um nó no canvas sem o usuário ter pedido. Criar é papel da dock,
+   * onde o gesto é deliberado.
+   *
+   * O handler fica, só para segurar o preventDefault: sem ele o menu nativo do
+   * Chromium aparece por cima do canvas.
+   */
   const onContextMenu = (e: React.MouseEvent): void => {
     e.preventDefault()
-    const cp = viewport.toCanvas(screenPoint(e))
-    void store.addNode('note', { x: cp.x, y: cp.y })
   }
 
   const visibleNodes = renderOrder.filter((n) => visibleIds.has(n.id))

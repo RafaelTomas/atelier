@@ -134,19 +134,33 @@ export function Minimap(): JSX.Element | null {
       ctx.globalAlpha = 1
 
       // Área visível por último, por cima de tudo: é o que se procura ao olhar.
-      const [vx, vy] = toMap(view.x, view.y)
-      const vw = view.width * scale
-      const vh = view.height * scale
-      ctx.strokeStyle = 'rgba(255,255,255,.9)'
-      ctx.lineWidth = 1.5
-      ctx.strokeRect(vx, vy, vw, vh)
-      ctx.fillStyle = 'rgba(255,255,255,.08)'
-      ctx.fillRect(vx, vy, vw, vh)
+      //
+      // Só depois que o ResizeObserver mediu o host. No primeiro frame o
+      // viewport ainda é 0×0, e o retângulo sairia com 0 de lado — invisível.
+      // Era isso que fazia o mapa parecer vazio até o primeiro pan.
+      if (view.width > 0 && view.height > 0) {
+        const [vx, vy] = toMap(view.x, view.y)
+        const vw = view.width * scale
+        const vh = view.height * scale
+        ctx.strokeStyle = 'rgba(255,255,255,.9)'
+        ctx.lineWidth = 1.5
+        ctx.strokeRect(vx, vy, vw, vh)
+        ctx.fillStyle = 'rgba(255,255,255,.08)'
+        ctx.fillRect(vx, vy, vw, vh)
+      }
     }
 
-    // Redesenha a cada notificação do viewport (no máximo uma por frame) e
-    // uma vez agora, para o mapa já nascer preenchido.
-    draw()
+    // subscribe() desenha na hora e a cada notificação seguinte.
+    //
+    // Só que "a cada notificação" não cobre o boot: o canvas-view monta antes
+    // do workspace chegar, então o ResizeObserver dele já mediu o host quando
+    // o minimapa aparece. Sem uma MUDANÇA de tamanho depois disso, setSize()
+    // não é chamado de novo e nenhuma notificação vem — o mapa ficava sem o
+    // retângulo da área visível até o primeiro pan. Por isso o desenho inicial
+    // lê `viewport.width/height` como estão, em vez de esperar um evento.
+    //
+    // (Um requestAnimationFrame extra não resolveria: pela spec o rAF roda
+    // antes do ResizeObserver no mesmo frame, e veria o viewport ainda 0×0.)
     return viewport.subscribe(draw)
     // `workspace?.nodes` entra nas deps para o mapa redesenhar quando um nó
     // nasce ou morre — o viewport não é notificado disso.

@@ -120,5 +120,31 @@ console.log('\ncasos de borda')
     fx >= -0.01 && fy >= -0.01 && fx <= WIDTH && fy <= HEIGHT, `${fx},${fy}`)
 }
 
+console.log('\nboot: as duas ordens de montagem')
+{
+  // O retângulo da área visível só é desenhado com tamanho > 0. Era isto que
+  // faltava: no primeiro desenho o viewport pode ainda ser 0×0, e um retângulo
+  // de lado zero é invisível — o mapa parecia vazio até o primeiro pan.
+  const drawsViewport = (view) => view.width > 0 && view.height > 0
+
+  check('viewport 0×0 (montou antes da medição): não desenha o retângulo',
+    drawsViewport({ x: 9800, y: 8500, width: 0, height: 0 }) === false)
+
+  check('viewport medido: desenha o retângulo',
+    drawsViewport({ x: 9800, y: 8500, width: 1200, height: 800 }) === true)
+
+  // Montando DEPOIS do ResizeObserver — o caso do boot real, em que o
+  // workspace chega tarde e nenhuma notificação de setSize vem depois. O
+  // desenho inicial precisa ler o tamanho atual, não esperar um evento.
+  const p = project(nodes, view)
+  const [vx, vy] = toMap(p, view.x, view.y)
+  const vw = view.width * p.scale, vh = view.height * p.scale
+  check('montando com o viewport já medido, o retângulo tem área',
+    vw > 1 && vh > 1, `${vw}x${vh}`)
+  check('e cai dentro do painel',
+    vx >= -0.01 && vy >= -0.01 && vx + vw <= WIDTH + 0.01 && vy + vh <= HEIGHT + 0.01,
+    `${vx},${vy} ${vw}x${vh}`)
+}
+
 console.log(`\n${pass} passaram, ${fail} falharam`)
 process.exit(fail === 0 ? 0 : 1)

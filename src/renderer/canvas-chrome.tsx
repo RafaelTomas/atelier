@@ -10,9 +10,10 @@
  * sem workspace aberto — que é justamente quando algo deu errado.
  */
 import { useEffect, useState } from 'react'
-import { viewport } from './canvas/viewport'
+import { nodesBounds, viewport } from './canvas/viewport'
 import { GitMenu } from './git-menu'
 import { store, useStore } from './state/store'
+import type { CanvasNode } from '@shared/types'
 import type { ThemeMode } from './theme'
 
 const THEMES: { id: ThemeMode; icon: string; label: string }[] = [
@@ -59,7 +60,12 @@ export function CanvasChrome(): JSX.Element {
         </div>
       </div>
 
-      <ViewControls theme={theme} themeMenu={themeMenu} setThemeMenu={setThemeMenu} />
+      <ViewControls
+        theme={theme}
+        themeMenu={themeMenu}
+        setThemeMenu={setThemeMenu}
+        nodes={workspace?.nodes ?? []}
+      />
 
       {connectingFrom && (
         <div className="canvas-hint">clique no nó de destino para conectar · Esc cancela</div>
@@ -88,11 +94,14 @@ export function CanvasChrome(): JSX.Element {
 function ViewControls({
   theme,
   themeMenu,
-  setThemeMenu
+  setThemeMenu,
+  nodes
 }: {
   theme: ThemeMode
   themeMenu: boolean
   setThemeMenu: (fn: (v: boolean) => boolean) => void
+  /** Só para o "enquadrar tudo" saber o que precisa caber na tela. */
+  nodes: CanvasNode[]
 }): JSX.Element {
   const [zoom, setZoom] = useState(viewport.zoom)
 
@@ -131,6 +140,21 @@ function ViewControls({
         </button>
         <button type="button" title="Aproximar" onClick={() => viewport.setZoom(viewport.zoom + 0.25)}>
           +
+        </button>
+        {/* Enquadrar tudo fecha o grupo: os três antes dele mudam o zoom em
+            passos, e este resolve "me perdi" de uma vez. */}
+        <button
+          type="button"
+          className="vc-fit"
+          title="Enquadrar tudo — traz todos os nós para a tela"
+          aria-label="Enquadrar tudo"
+          disabled={nodes.length === 0}
+          onClick={() => {
+            const bounds = nodesBounds(nodes)
+            if (bounds) viewport.fit(bounds)
+          }}
+        >
+          ⤢
         </button>
       </div>
 

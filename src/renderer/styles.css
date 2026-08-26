@@ -28,17 +28,12 @@
   /* Largura do painel lateral. Escrita aqui pelo arrasto (ver sidebar.tsx) e
      relida das preferências no boot. */
   --sidebar-width: 220px;
-  /* Geometria do canto do canvas. O minimapa e a barra de zoom têm a MESMA
-     altura e a mesma linha de base, então ela mora num token só — dois números
-     soltos acabariam divergindo no primeiro ajuste. O 132 é a altura do
-     <canvas> do mapa (ver HEIGHT em canvas/minimap.tsx); o resto é padding
-     e borda. */
+  /* Geometria do canto do canvas, hoje só do minimapa. A altura vem daqui e
+     não do <canvas> de dentro: assim mudar o tamanho do mapa não desalinha
+     nada em silêncio. O 132 é a altura do <canvas> (ver HEIGHT em
+     canvas/minimap.tsx); o resto é padding e borda. */
   --corner-height: 146px;
-  --corner-gap: 8px;
   --corner-inset: 14px;
-  /* Diâmetro do botão redondo de zoom. É o mesmo valor da largura da coluna
-     quando ele abre — o painel cresce só na vertical. */
-  --zoom-dial-size: 40px;
 }
 
 /* Modo sistema: escuro só quando o SO pede E o usuário não forçou claro. */
@@ -1807,8 +1802,8 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   /* z-index 50: acima da prévia de conexão (40), abaixo das barras de nó e do
      aviso de projetos (60) — uma barra ancorada num nó do canto de baixo tem
      de continuar clicável por cima do mapa. */
-  /* O zoom saiu da linha de base (virou o botão redondo mais acima), então o
-     mapa volta a encostar no recuo da borda. */
+  /* O zoom vive na barra de controles do topo (canvas-chrome.tsx), então o
+     canto é só do mapa. */
   position: absolute; z-index: 50;
   right: var(--corner-inset);
   bottom: 18px;
@@ -1860,105 +1855,6 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   .minimap { display: none; }
 }
 
-/* ─── Zoom: botão redondo que abre no hover ───────────────────────────────── */
-
-/* Na borda direita, acima do minimapa e do dock — fora da linha de base, que
-   já está ocupada. `bottom` em porcentagem para acompanhar janelas baixas. */
-.zoom-dial {
-  position: absolute; z-index: 50;
-  right: var(--corner-inset); bottom: 38%;
-  display: flex; flex-direction: column; align-items: center;
-  user-select: none;
-}
-
-/* O :hover mora no .zoom-dial, e não no círculo: assim o respiro entre o
-   gatilho e o painel fica DENTRO da área que mantém o menu aberto. Com o
-   hover no círculo, esses 6px seriam terra de ninguém — o ponteiro os
-   atravessaria, o hover cairia e o painel fecharia debaixo do cursor. */
-
-/* O gatilho: círculo com a porcentagem. Fica sempre visível — o zoom atual é
-   informação, não só um botão. */
-.zoom-dial-trigger {
-  width: var(--zoom-dial-size); height: var(--zoom-dial-size);
-  flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--dock-border); border-radius: 50%;
-  background: var(--dock-bg); color: var(--dock-fg);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 6px 20px rgb(0 0 0 / .22);
-  cursor: pointer; font: inherit;
-}
-.zoom-dial:hover .zoom-dial-trigger,
-.zoom-dial:focus-within .zoom-dial-trigger { color: var(--dock-fg-strong); }
-.zoom-dial:hover .zoom-dial-trigger,
-.zoom-dial:focus-within .zoom-dial-trigger { border-color: var(--dock-fg); }
-
-/* Tabular-nums: sem isso o rótulo muda de largura entre "100%" e "75%" e a
-   coluna inteira treme durante o zoom. */
-.zoom-level {
-  height: 22px; flex-shrink: 0;
-  border: 0; background: transparent; color: var(--dock-fg-strong);
-  cursor: pointer; font: inherit;
-  font-size: 10px; font-weight: 600;
-  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
-}
-.zoom-level:hover { color: var(--accent); }
-
-/* Fechado: altura zero e invisível, mas ainda no fluxo — animar `height` de um
-   conteúdo de altura conhecida é o que dá a expansão suave sem medir nada em
-   JS. `visibility` entra junto para o painel fechado não capturar o mouse. */
-/* Fechado: fora do fluxo de vez.
- *
- * A primeira versão usava `height: 0` com `overflow: hidden`, para animar a
- * abertura. Não funcionava: com `box-sizing: content-box` (o padrão) o padding
- * ainda contava, e o painel "fechado" continuava sendo uma caixa de alguns
- * pixels ACIMA do círculo — bem no caminho de quem sobe o ponteiro. O hover
- * pegava nele, não no gatilho, e o menu piscava ou não abria.
- *
- * `display: none` não anima, e é o preço certo: um menu que abre e fecha na
- * hora certa vale mais que uma transição de altura que atrapalha o gesto. */
-.zoom-dial-options {
-  display: none;
-  width: var(--zoom-dial-size);
-  flex-direction: column; align-items: stretch;
-  margin-bottom: 6px; padding: 4px 0;
-  border-radius: 999px;
-  border: 1px solid var(--dock-border);
-  background: var(--dock-bg);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 6px 20px rgb(0 0 0 / .22);
-}
-
-/* Aberto no hover E no foco de teclado: um handler de mouse deixaria de fora
-   quem chega pelo Tab. */
-.zoom-dial:hover .zoom-dial-options,
-.zoom-dial:focus-within .zoom-dial-options {
-  display: flex;
-  animation: zoom-dial-in .14s ease-out;
-}
-
-/* A entrada ainda é suave: o que não dá para animar é a saída, porque o
-   elemento sai do fluxo no mesmo instante. */
-@keyframes zoom-dial-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: none; }
-}
-
-.zoom-btn {
-  height: 30px; flex-shrink: 0;
-  border: 0; background: transparent; color: var(--dock-fg);
-  cursor: pointer; font: inherit; font-size: 16px; line-height: 1;
-}
-.zoom-btn:hover:not(:disabled) { color: var(--dock-fg-strong); }
-.zoom-btn:disabled { opacity: .35; cursor: default; }
-
-.zoom-sep { flex-shrink: 0; height: 1px; margin: 4px 10px; background: var(--dock-border); }
-
-/* Sem animação para quem pediu: o painel aparece seco. */
-@media (prefers-reduced-motion: reduce) {
-  .zoom-dial:hover .zoom-dial-options,
-  .zoom-dial:focus-within .zoom-dial-options { animation: none; }
-}
 /* ─── Árvore: renomear inline, alvo de arrasto e confirmação ───────────────── */
 
 .file-tree-row.is-drop-target {
@@ -2026,3 +1922,7 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   padding: 10px 12px; font-size: 11px; color: var(--text-dim); font-style: italic;
 }
 .code-editor-error { color: var(--rope-error); font-style: normal; }
+
+/* O ⤢ é um glifo mais alto que os sinais de − e +; sem o ajuste ele estica a
+   pílula e desalinha a linha de base do grupo. */
+.vc-fit { font-size: 12px; }

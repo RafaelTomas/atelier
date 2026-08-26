@@ -19,6 +19,7 @@ import { appState } from './core/state/app-state'
 import { scanOnLaunch } from './core/projects/scan-controller'
 import { terminals } from './core/terminal/terminal-manager'
 import { fileWatcher } from './core/projects/file-watcher'
+import { armPopupHandling } from './core/portal/portal-popup'
 import { registerIPC } from './ipc/bridge'
 import { createMainWindow } from './window'
 
@@ -75,6 +76,9 @@ async function boot(): Promise<void> {
 
   // 4. UI
   registerIPC()
+  // Popup de dentro de um portal vira nó no canvas. Antes da janela: o handler
+  // é armado quando o guest se registra, e isso pode acontecer no primeiro paint.
+  armPopupHandling()
   createMainWindow()
 
   log.info('boot', `pronto em ${Date.now() - started}ms`)

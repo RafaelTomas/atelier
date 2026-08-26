@@ -1,11 +1,13 @@
 /** Codecs de manifest.json, app-state.json e preferences.json. */
 import type {
   AppStateData,
+  PortalPopupMode,
   Preferences,
   TerminalTheme,
   WorkspaceEntry,
   WorkspaceManifest
 } from '@shared/types'
+import { PORTAL_POPUP_MODES } from '@shared/types'
 import { asRecord, bool, decodeDate, decodeOptionalDate, normalizeUUID, num, str } from '../coding'
 import { nowISO, uuid } from '../coding'
 
@@ -110,7 +112,8 @@ export function makePreferences(): Preferences {
     sidebarCollapsed: false,
     sidebarWidth: 220,
     autoScanOnLaunch: true,
-    terminalThemes: []
+    terminalThemes: [],
+    portalPopups: 'node'
   }
 }
 
@@ -140,6 +143,10 @@ export function decodePreferences(value: unknown): Preferences {
     // Ausente em preferences.json escrito antes dos temas de terminal
     terminalThemes: Array.isArray(o.terminalThemes)
       ? o.terminalThemes.map(decodeTerminalTheme)
-      : []
+      : [],
+    // Ausente em preferences.json escrito antes do popup virar nó
+    portalPopups: PORTAL_POPUP_MODES.includes(o.portalPopups as PortalPopupMode)
+      ? (o.portalPopups as PortalPopupMode)
+      : base.portalPopups
   }
 }

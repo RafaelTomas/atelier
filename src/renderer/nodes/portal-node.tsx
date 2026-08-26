@@ -15,6 +15,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { CanvasNode, PortalContent, UUID } from '@shared/types'
+import { portalPartition } from '@shared/types'
 import { viewport } from '../canvas/viewport'
 import { store } from '../state/store'
 
@@ -74,6 +75,8 @@ export function portalLabel(content: PortalContent): string {
 type WebviewEl = HTMLElement & {
   src: string
   getURL(): string
+  /** Só válido depois do `dom-ready`: antes disso o guest não está anexado. */
+  getWebContentsId(): number
   canGoBack(): boolean
   canGoForward(): boolean
   goBack(): void
@@ -138,6 +141,21 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
       setFailure(errorDescription || `falha ao carregar (${errorCode ?? '?'})`)
     }
 
+    /**
+     * O main precisa saber com qual webContents este nó fala — é o que permite
+     * tratar popup, ler a página e tirar captura (core/portal/portal-registry.ts).
+     * `dom-ready` é o primeiro momento em que `getWebContentsId()` responde, e
+     * ele dispara de novo a cada navegação: o registro é idempotente.
+     */
+    const onReady = (): void => {
+      try {
+        void window.atelier.portal.register(node.id, el.getWebContentsId())
+      } catch {
+        // webview desanexado no meio do caminho — o unmount já cuida do resto
+      }
+    }
+
+    el.addEventListener('dom-ready', onReady)
     el.addEventListener('did-start-loading', onStart)
     el.addEventListener('did-stop-loading', onStop)
     el.addEventListener('did-navigate', onNavigated)
@@ -145,6 +163,8 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
     el.addEventListener('did-fail-load', onFail)
 
     return () => {
+      void window.atelier.portal.unregister(node.id)
+      el.removeEventListener('dom-ready', onReady)
       el.removeEventListener('did-start-loading', onStart)
       el.removeEventListener('did-stop-loading', onStop)
       el.removeEventListener('did-navigate', onNavigated)
@@ -250,18 +270,16 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
 
       {content.currentURL ? (
         <div className="portal-viewport">
-          {/* `partition` isola cookies/sessão por nó quando storageScope for
-              'isolated' — mesma semântica do app nativo. Sem `allowpopups`: um
-              target=_blank vai para o navegador do sistema (setWindowOpenHandler
-              em window.ts), em vez de abrir uma janela solta dentro do app. */}
+          {/* `partition` isola cookies/sessão por nó — e um popup herda a do
+              pai, senão nasceria deslogado (portalPartition, em shared/types).
+              Continua sem `allowpopups`: quem trata window.open é o main, no
+              setWindowOpenHandler armado sobre o guest deste webview
+              (core/portal/portal-popup.ts). Uma janela nativa solta dentro do
+              app nunca é a resposta certa aqui. */}
           <webview
             ref={(el) => (viewRef.current = el as WebviewEl | null)}
             src={content.currentURL}
-            partition={
-              content.storageScope === 'shared'
-                ? 'persist:atelier-portal'
-                : `persist:portal-${content.id}`
-            }
+            partition={portalPartition(content)}
           />
           {failure && (
             <div className="portal-error">

@@ -1,0 +1,142 @@
+/* Barra de formatação de texto. Mesma pílula da barra de ações, e como ela
+   vive em coordenadas de tela. */
+
+.format-bar {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  z-index: 60;
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 16%);
+  white-space: nowrap;
+}
+
+.fb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 3px; flex-shrink: 0; }
+
+.fb-group { display: flex; gap: 1px; }
+
+/* Mesma barra flutuante da .action-btn — mesmo hover discreto. Diferente dos
+   outros da família, o texto aqui é --text e não --text-dim: os glifos B/I/S
+   são o conteúdo, não um ícone de apoio. */
+.fb-btn {
+  gap: var(--s-1);
+  min-width: 24px; height: 24px; padding: 0 5px;
+  border-radius: var(--r-md); color: var(--text);
+  font-size: var(--fs-md);
+}
+.fb-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.fb-btn.is-on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+
+.fb-wide { padding: 0 7px; font-size: var(--fs-sm); }
+.fb-caret { font-size: 8px; opacity: .6; }
+
+/* Stepper de tamanho */
+.fb-stepper { display: flex; align-items: center; gap: 1px; }
+.fb-size {
+  width: 46px; height: 24px; padding: 0 2px;
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface); color: var(--text);
+  font: inherit; font-size: var(--fs-sm); text-align: center;
+  cursor: pointer;
+}
+
+/* Botão de cor: glifo + amostra embaixo */
+.fb-color { flex-direction: column; gap: 1px; padding: 0 6px; }
+.fb-color-glyph { font-size: var(--fs-sm); line-height: 1; font-weight: 600; }
+.fb-color-chip {
+  width: 14px; height: 3px; border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 15%);
+}
+/* Transparente: xadrez diagonal, para não parecer branco */
+.fb-color-chip.is-empty {
+  background:
+    linear-gradient(45deg, transparent 45%, var(--rope-error) 45%, var(--rope-error) 55%, transparent 55%),
+    var(--surface-2);
+}
+
+/* Ícones de alinhamento desenhados em CSS — barras de comprimento variável
+   comunicam melhor que glifos unicode, que variam muito entre plataformas. */
+.fb-align-glyph {
+  display: block; width: 12px; height: 9px;
+  background-image: linear-gradient(currentColor, currentColor), linear-gradient(currentColor, currentColor),
+    linear-gradient(currentColor, currentColor);
+  background-size: 12px 1.5px, 8px 1.5px, 12px 1.5px;
+  background-repeat: no-repeat;
+}
+[data-align='left'] .fb-align-glyph { background-position: left 0, left 3.75px, left 7.5px; }
+[data-align='center'] .fb-align-glyph { background-position: center 0, center 3.75px, center 7.5px; }
+[data-align='right'] .fb-align-glyph { background-position: right 0, right 3.75px, right 7.5px; }
+
+/* Popovers */
+.fb-pop-host { position: relative; display: flex; }
+
+/* Abre para CIMA: a barra já fica acima do nó, então um popover para baixo
+   cobriria justamente o texto que está sendo formatado. */
+.fb-popover {
+  position: absolute; bottom: calc(100% + 8px); left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  min-width: 152px; padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 20%);
+}
+
+.fb-popover-title {
+  font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--text-dim);
+  margin: 2px 2px 5px;
+}
+.fb-popover-title:not(:first-child) { margin-top: 9px; }
+
+.fb-list { display: flex; flex-direction: column; gap: 1px; }
+.fb-row {
+  border: 0; background: transparent; color: var(--text);
+  text-align: left; padding: 4px 6px; border-radius: var(--r-sm);
+  font-size: var(--fs-md); cursor: pointer;
+}
+.fb-row:hover { background: var(--surface-2); }
+.fb-row.is-on { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+
+/* Cada opção de fonte é exibida na própria fonte — espelha FONT_STACKS. */
+.fb-row[data-family='sans'] { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif; }
+.fb-row[data-family='serif'] { font-family: ui-serif, Georgia, 'Iowan Old Style', 'Times New Roman', serif; }
+.fb-row[data-family='mono'] { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.fb-row[data-family='rounded'] { font-family: 'SF Pro Rounded', ui-rounded, Nunito, 'Avenir Next', system-ui, sans-serif; }
+
+.fb-swatches {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+}
+.fb-swatch {
+  width: 20px; height: 20px; padding: 0;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.fb-swatch:hover { transform: scale(1.12); }
+.fb-swatch.is-on { box-shadow: 0 0 0 2px var(--accent); border-color: transparent; }
+
+.fb-popover-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--border);
+}
+
+.fb-custom {
+  display: flex; align-items: center; gap: 5px;
+  font-size: var(--fs-sm); color: var(--text-dim); cursor: pointer;
+}
+.fb-custom input[type='color'] {
+  width: 22px; height: 20px; padding: 0;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: transparent; cursor: pointer;
+}
+
+.fb-clear {
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  background: transparent; color: var(--text-dim);
+  font-size: var(--fs-sm); padding: 2px 7px; cursor: pointer;
+}
+.fb-clear:hover { color: var(--text); background: var(--surface-2); }

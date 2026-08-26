@@ -9,12 +9,17 @@
    especificidade. É o que permite a um componente ajustar uma primitiva
    escrevendo só a diferença, sem seletor mais forte e sem !important.
 
-   ÁREAS, sem camada — o CSS de componente. A ordem abaixo é significativa:
+   ÁREAS, sem camada — o CSS de componente, um arquivo por área; os nós, que são
+   a maior delas, têm ainda um arquivo por TIPO de nó. A ordem abaixo é
+   significativa:
    `canvas` vem antes de `nodes` porque `.node.is-connect-target` (do canvas) e
    `.node.is-chromeless` (dos nós) têm a mesma especificidade e caem no mesmo
    elemento — um nó sem moldura que é alvo de conexão. Quem vem depois vence, e
    hoje é o is-chromeless. Trocar a ordem muda esse comportamento em silêncio;
-   `scripts/test-css-order.mjs` falha se isso acontecer. */
+   `scripts/test-css-order.mjs` falha se isso acontecer.
+
+   Nenhum arquivo aqui é `*.module.css`, e isso foi medido, não presumido: ver
+   a seção "Por que os modules foram retirados" em PLANO-estilos.md. */
 
 @layer tokens, base, primitives;
 
@@ -24,6 +29,19 @@
 
 @import './styles/panels.css';
 @import './styles/canvas.css';
+
+/* A casca comum de um nó, e depois um arquivo por tipo — mesmo nome do .tsx que
+   o renderiza. A casca vem primeiro para um tipo poder ajustá-la escrevendo só
+   a diferença, na mesma lógica das primitivas mas sem precisar de camada. */
 @import './styles/nodes.css';
+@import './styles/nodes/terminal-node.css';
+@import './styles/nodes/note-node.css';
+@import './styles/nodes/text-node.css';
+@import './styles/nodes/portal-node.css';
+@import './styles/nodes/placeholder-node.css';
+@import './styles/nodes/code-editor-node.css';
+@import './styles/nodes/node-action-bar.css';
+@import './styles/nodes/format-bar.css';
+
 @import './styles/git.css';
 @import './styles/dialogs.css';

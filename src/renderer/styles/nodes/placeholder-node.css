@@ -1,0 +1,9 @@
+/* Nó Placeholder — o que aparece quando este binário não entende o tipo do nó. */
+
+/* Placeholder */
+.placeholder-node {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; color: var(--text-dim); font-size: var(--fs-md); text-align: center; padding: 8px;
+}
+.placeholder-node strong { color: var(--text); }
+.placeholder-node small { opacity: .7; font-size: var(--fs-xs); }

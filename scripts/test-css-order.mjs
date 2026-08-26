@@ -24,7 +24,15 @@ const dir = join(root, 'src/renderer/styles')
 const ESPERADA = [
   ['panels',  'sem dependência de ordem com as outras'],
   ['canvas',  'ANTES de nodes: .node.is-connect-target (canvas) e .node.is-chromeless (nodes) têm a mesma especificidade e caem no mesmo elemento — um nó sem moldura que é alvo de conexão. Hoje o is-chromeless vence, e é o esperado.'],
-  ['nodes',   'DEPOIS de canvas — ver acima'],
+  ['nodes',   'DEPOIS de canvas (ver acima) e ANTES de todo nodes/*: a casca comum vem primeiro para um tipo de nó poder ajustá-la escrevendo só a diferença.'],
+  ['nodes/terminal-node',    'depois da casca'],
+  ['nodes/note-node',        'depois da casca'],
+  ['nodes/text-node',        'depois da casca'],
+  ['nodes/portal-node',      'depois da casca'],
+  ['nodes/placeholder-node', 'depois da casca'],
+  ['nodes/code-editor-node', 'depois da casca'],
+  ['nodes/node-action-bar',  'depois da casca'],
+  ['nodes/format-bar',       'depois da casca'],
   ['git',     'sem dependência de ordem com as outras'],
   ['dialogs', 'sem dependência de ordem com as outras']
 ]
@@ -74,7 +82,7 @@ const fail = (m) => { console.error(`  ✗ ${m}`); falhas++ }
 
 // ── 1. ordem dos imports ─────────────────────────────────────────────────────
 const entrada = readFileSync(join(root, 'src/renderer/styles.css'), 'utf8')
-const areas = [...entrada.matchAll(/@import '\.\/styles\/([\w-]+)\.css';/g)]
+const areas = [...entrada.matchAll(/@import '\.\/styles\/([\w-]+(?:\/[\w-]+)?)\.css';/g)]
   .map((m) => m[1])
   .filter((n) => !['tokens', 'base', 'primitives'].includes(n))
 

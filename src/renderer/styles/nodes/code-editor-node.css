@@ -1,0 +1,31 @@
+/* Nó Editor de Código — barra de arquivo + host do CodeMirror. */
+
+.code-editor {
+  display: flex; flex-direction: column; height: 100%; width: 100%;
+  background: var(--term-bg); overflow: hidden;
+}
+.code-editor.is-empty { padding: 12px; font-size: var(--fs-sm); color: var(--text-dim); }
+
+.code-editor-bar {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+  padding: 3px 6px; border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm); background: var(--surface-2);
+}
+.code-editor-name { font-weight: 600; color: var(--text); flex-shrink: 0; }
+.code-editor-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  flex-shrink: 0;
+}
+.code-editor-path {
+  font-family: ui-monospace, monospace; font-size: var(--fs-xs); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
+}
+.code-editor-actions { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
+.code-editor-actions .ghost-btn { font-size: var(--fs-md); padding: 1px 5px; }
+
+.code-editor-host { flex: 1; min-height: 0; overflow: hidden; }
+.code-editor-host .cm-editor { height: 100%; }
+.code-editor-loading, .code-editor-error {
+  padding: 10px 12px; font-size: var(--fs-sm); color: var(--text-dim); font-style: italic;
+}
+.code-editor-error { color: var(--rope-error); font-style: normal; }

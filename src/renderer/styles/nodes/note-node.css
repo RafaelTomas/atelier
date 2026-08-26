@@ -1,0 +1,7 @@
+/* Nó Nota — só o textarea; a moldura vem de nodes.css. */
+
+/* Note */
+.note-editor {
+  flex: 1; border: 0; resize: none; outline: none;
+  padding: 10px; user-select: text;
+}

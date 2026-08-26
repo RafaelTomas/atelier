@@ -127,18 +127,18 @@ function ViewControls({
       </div>
 
       <div className="vc-group">
-        <button type="button" title="Afastar" onClick={() => viewport.setZoom(viewport.zoom - 0.25)}>
+        <button type="button" title="Afastar (⌘−)" onClick={() => viewport.zoomStep(-1)}>
           −
         </button>
         <button
           type="button"
           className="vc-zoom"
-          title="Voltar a 100%"
+          title="Voltar a 100% (⌘0)"
           onClick={() => viewport.setZoom(1)}
         >
           {Math.round(zoom * 100)}%
         </button>
-        <button type="button" title="Aproximar" onClick={() => viewport.setZoom(viewport.zoom + 0.25)}>
+        <button type="button" title="Aproximar (⌘+)" onClick={() => viewport.zoomStep(1)}>
           +
         </button>
         {/* Enquadrar tudo fecha o grupo: os três antes dele mudam o zoom em

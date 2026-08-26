@@ -589,9 +589,22 @@ export function CanvasView(): JSX.Element {
         if (key === 'm') store.setTool('highlighter')
         if (key === 'e') store.setTool('eraser')
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === '0') {
-        e.preventDefault()
-        viewport.setZoom(1)
+      // Zoom pelo teclado, no padrão de todo editor. O `=` entra junto do `+`
+      // porque no teclado sem numérico o mais exige Shift, e ninguém segura
+      // Shift para dar zoom; `-` e `_` pelo mesmo motivo.
+      if (e.metaKey || e.ctrlKey) {
+        if (e.key === '0') {
+          e.preventDefault()
+          viewport.setZoom(1)
+        }
+        if (e.key === '+' || e.key === '=') {
+          e.preventDefault()
+          viewport.zoomStep(1)
+        }
+        if (e.key === '-' || e.key === '_') {
+          e.preventDefault()
+          viewport.zoomStep(-1)
+        }
       }
 
       // Espaço: mão. preventDefault porque senão a tecla ativa o botão focado.

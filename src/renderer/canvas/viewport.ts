@@ -12,6 +12,27 @@ import type { Point, Rect } from '@shared/types'
 
 export const MIN_ZOOM = 0.1
 export const MAX_ZOOM = 3.0
+
+/**
+ * As paradas dos botões − e +.
+ *
+ * A escada é APERTADA perto de 100% e larga nos extremos, porque é assim que o
+ * olho percebe zoom: a diferença entre 90% e 100% é a mesma, para quem olha,
+ * que entre 200% e 250%. O passo aditivo que existia antes (0,25 fixo) errava
+ * nas duas pontas — de 100% para 75% era um salto grande demais para ajustar
+ * enquadramento, e lá embaixo o mesmo 0,25 pulava de 35% direto para o piso.
+ *
+ * Os números são redondos de propósito: quem lê "67%" reconhece o valor de
+ * qualquer navegador, e voltar a um zoom conhecido vale mais do que uma
+ * progressão geométrica exata.
+ */
+const ZOOM_STOPS = [
+  0.1, 0.15, 0.2, 0.25, 0.33, 0.4, 0.5, 0.6, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2,
+  2.5, 3
+]
+
+/** Folga na comparação: o zoom da roda cai em valores como 0.9999999. */
+const EPSILON = 0.001
 export const CULL_MARGIN = 200
 
 export interface ViewportState {
@@ -82,6 +103,23 @@ class Viewport {
   setZoom(zoom: number): void {
     const center = { x: this.width / 2, y: this.height / 2 }
     this.zoomAt(center, Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom)) / this.zoom)
+  }
+
+  /**
+   * Um degrau para cima (+1) ou para baixo (-1) na escada de zoom.
+   *
+   * Anda até a PRÓXIMA parada acima ou abaixo do valor atual, e não até o
+   * vizinho de um índice: o zoom da roda é contínuo, então quase sempre o
+   * valor está entre duas paradas, e um índice fixo daria um salto para trás
+   * antes de andar para frente.
+   */
+  zoomStep(direction: 1 | -1): void {
+    const atual = this.zoom
+    const alvo =
+      direction > 0
+        ? ZOOM_STOPS.find((z) => z > atual + EPSILON)
+        : [...ZOOM_STOPS].reverse().find((z) => z < atual - EPSILON)
+    if (alvo !== undefined) this.setZoom(alvo)
   }
 
   /**

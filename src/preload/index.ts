@@ -153,7 +153,13 @@ const api = {
 
   portal: {
     openExternal: (url: string): Promise<boolean> =>
-      ipcRenderer.invoke('portal:open-external', url)
+      ipcRenderer.invoke('portal:open-external', url),
+    /** `dom-ready` do webview: diz ao main com qual webContents ele fala. */
+    register: (nodeId: UUID, webContentsId: number): Promise<void> =>
+      ipcRenderer.invoke('portal:register', nodeId, webContentsId),
+    unregister: (nodeId: UUID): Promise<void> => ipcRenderer.invoke('portal:unregister', nodeId),
+    /** O main pede que um portal adormecido (zoom/virtualização) seja montado. */
+    onWake: (cb: (p: { nodeId: UUID }) => void): Unsubscribe => on('portal:wake', cb)
   },
 
   note: {

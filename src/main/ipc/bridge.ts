@@ -47,6 +47,7 @@ import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manag
 import { interAgentServer } from '../core/interagent/server'
 import { onConnectionCreated, restoreConnections } from '../core/connection/connection-manager'
 import { forgetTerminal } from '../core/connection/skill-injector'
+import { registerGuest, unregisterGuest } from '../core/portal/portal-registry'
 import { notifyRenderer } from './notify'
 
 type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor'
@@ -644,6 +645,19 @@ export function registerIPC(): void {
    * Abre a URL no navegador do sistema. Só http(s): sem isso um `file://` ou
    * um esquema custom vindo da página embutida viraria execução arbitrária.
    */
+  /**
+   * O renderer avisa qual webContents pertence a qual nó, no `dom-ready` do
+   * webview. É o que permite ao main falar com a página embutida — ver
+   * core/portal/portal-registry.ts.
+   */
+  ipcMain.handle('portal:register', (_e, nodeId: UUID, webContentsId: number) => {
+    registerGuest(nodeId, webContentsId)
+  })
+
+  ipcMain.handle('portal:unregister', (_e, nodeId: UUID) => {
+    unregisterGuest(nodeId)
+  })
+
   ipcMain.handle('portal:open-external', async (_e, url: string) => {
     try {
       const parsed = new URL(url)

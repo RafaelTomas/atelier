@@ -200,6 +200,12 @@ const api = {
   git: {
     status: (path: string): Promise<GitStatus | { error: string }> =>
       ipcRenderer.invoke('git:status', path),
+    /** O que a árvore de arquivos marca: não versionado e modificado. */
+    treeStatus: (
+      path: string
+    ): Promise<
+      { root: string; unversioned: string[]; changed: string[] } | { error: string }
+    > => ipcRenderer.invoke('git:tree-status', path),
     stage: (path: string, paths: string[]): Promise<GitActionResult> =>
       ipcRenderer.invoke('git:stage', path, paths),
     stageAll: (path: string): Promise<GitActionResult> => ipcRenderer.invoke('git:stage-all', path),
@@ -229,10 +235,9 @@ const api = {
 
   fs: {
     listDir: (
-      path: string,
-      opts?: { root?: string; showIgnored?: boolean }
-    ): Promise<{ entries: FsEntry[]; truncated: number; ignored: number } | { error: string }> =>
-      ipcRenderer.invoke('fs:list-dir', path, opts),
+      path: string
+    ): Promise<{ entries: FsEntry[]; truncated: number } | { error: string }> =>
+      ipcRenderer.invoke('fs:list-dir', path),
     reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:reveal', path),
     /** URL `file://` do caminho — o que o <webview> de um PDF precisa. */
     fileUrl: (path: string): Promise<{ url: string } | { error: FileOpError }> =>

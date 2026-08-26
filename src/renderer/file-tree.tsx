@@ -27,10 +27,19 @@ interface Props {
   root: string
 }
 
+/** O que o git respondeu, já em caminhos absolutos e normalizados. */
+interface GitMarks {
+  /** Não rastreado ou ignorado — a linha fica esmaecida. */
+  unversioned: Set<string>
+  /** Rastreado e alterado — ponto na linha. */
+  changed: Set<string>
+  /** Pastas que contêm alguma alteração — ponto na pasta, mesmo fechada. */
+  changedDirs: Set<string>
+}
+
 interface DirState {
   entries: FsEntry[]
   truncated: number
-  ignored: number
   error: string | null
 }
 
@@ -54,13 +63,22 @@ export function FileTree({ root }: Props): JSX.Element {
   /** A entrada inteira, não só o caminho: o botão "novo agente" precisa saber
    *  se o que está selecionado é pasta ou arquivo. */
   const [selected, setSelected] = useState<FsEntry | null>(null)
-  const [showIgnored, setShowIgnored] = useState(false)
   const [menu, setMenu] = useState<{ entry: FsEntry; x: number; y: number } | null>(null)
   /** Caminho em edição inline. Renomear é uma palavra, não merece diálogo. */
   const [renaming, setRenaming] = useState<string | null>(null)
   const [trash, setTrash] = useState<TrashTarget | null>(null)
   /** Pasta sob o cursor durante um arrasto de arquivo. */
   const [dropTarget, setDropTarget] = useState<string | null>(null)
+  /**
+   * O que o git diz sobre os caminhos desta árvore. null = a pasta não é
+   * repositório, ou a resposta ainda não chegou: nesse caso nada é marcado, que
+   * é melhor do que marcar errado.
+   *
+   * Quem responde é o git, não um palpite sobre o .gitignore: um arquivo novo é
+   * tão não versionado quanto um ignorado, e nenhuma leitura de .gitignore
+   * saberia disso.
+   */
+  const [marks, setMarks] = useState<GitMarks | null>(null)
   const renameInput = useRef<HTMLInputElement>(null)
   /**
    * Tirar o input do DOM dispara `blur`, e o blur também comita. Sem esta
@@ -73,16 +91,16 @@ export function FileTree({ root }: Props): JSX.Element {
 
   const load = useCallback(
     async (path: string): Promise<void> => {
-      const result = await window.atelier.fs.listDir(path, { root, showIgnored })
+      const result = await window.atelier.fs.listDir(path)
       setDirs((prev) => ({
         ...prev,
         [path]:
           'error' in result
-            ? { entries: [], truncated: 0, ignored: 0, error: DENIAL_TEXT[result.error] ?? result.error }
-            : { entries: result.entries, truncated: result.truncated, ignored: result.ignored, error: null }
+            ? { entries: [], truncated: 0, error: DENIAL_TEXT[result.error] ?? result.error }
+            : { entries: result.entries, truncated: result.truncated, error: null }
       }))
     },
-    [root, showIgnored]
+    [root]
   )
 
   /**
@@ -94,14 +112,48 @@ export function FileTree({ root }: Props): JSX.Element {
     if (dirs[dir]) void load(dir)
   }
 
-  // Trocar o filtro ou a raiz invalida tudo que já foi lido: o que está aberto
-  // precisa ser relido com a nova regra.
+  /**
+   * Uma consulta por árvore, não uma por diretório: o git responde pelo
+   * repositório inteiro de uma vez, e os caminhos vêm relativos à RAIZ DELE,
+   * que pode ser um ancestral da raiz da árvore.
+   */
+  const loadMarks = useCallback(async (): Promise<void> => {
+    if (!root) return
+    const result = await window.atelier.git.treeStatus(root)
+    if ('error' in result) {
+      setMarks(null)
+      return
+    }
+    const base = normalizePath(result.root)
+    const absoluto = (p: string): string => `${base}/${normalizePath(p)}`
+
+    // As pastas ANCESTRAIS de cada mudança entram num conjunto próprio: com a
+    // árvore fechada, o ponto na pasta é a única pista de que há trabalho lá
+    // dentro. Calculado uma vez, não a cada linha desenhada.
+    const changed = new Set(result.changed.map(absoluto))
+    const changedDirs = new Set<string>()
+    for (const path of changed) {
+      let dir = parentOf(path)
+      while (dir.length > base.length) {
+        if (changedDirs.has(dir)) break // este ramo já foi subido
+        changedDirs.add(dir)
+        dir = parentOf(dir)
+      }
+    }
+    setMarks({ unversioned: new Set(result.unversioned.map(absoluto)), changed, changedDirs })
+  }, [root])
+
+  // Trocar a raiz invalida tudo que já foi lido.
   useEffect(() => {
     setDirs({})
     setExpanded(new Set())
     setSelected(null)
-    if (root) void load(root)
-  }, [root, showIgnored, load])
+    setMarks(null)
+    if (root) {
+      void load(root)
+      void loadMarks()
+    }
+  }, [root, load, loadMarks])
 
   useEffect(() => {
     if (renaming) renameInput.current?.select()
@@ -123,7 +175,10 @@ export function FileTree({ root }: Props): JSX.Element {
   const refresh = (): void => {
     setDirs({})
     setExpanded(new Set())
-    if (root) void load(root)
+    if (root) {
+      void load(root)
+      void loadMarks()
+    }
   }
 
   // ─── Ações do menu ──────────────────────────────────────────────────────────
@@ -176,7 +231,7 @@ export function FileTree({ root }: Props): JSX.Element {
       setTrash({ entry, childCount: null })
       return
     }
-    const listed = await window.atelier.fs.listDir(entry.path, { root, showIgnored: true })
+    const listed = await window.atelier.fs.listDir(entry.path)
     setTrash({ entry, childCount: 'error' in listed ? null : listed.entries.length })
   }
 
@@ -222,7 +277,12 @@ export function FileTree({ root }: Props): JSX.Element {
     return <div className="file-tree is-empty">Nenhuma pasta definida.</div>
   }
 
-  const renderLevel = (path: string, depth: number): JSX.Element | null => {
+  /**
+   * `parentUnversioned` desce por herança: o git colapsa diretório inteiramente
+   * ignorado num registro só (`node_modules/`), então os filhos dele não
+   * aparecem na resposta — mas são tão não versionados quanto o pai.
+   */
+  const renderLevel = (path: string, depth: number, parentUnversioned = false): JSX.Element | null => {
     const state = dirs[path]
     if (!state) return <div className="file-tree-loading" style={{ paddingLeft: depth * 12 + 8 }}>carregando…</div>
     if (state.error) {
@@ -238,6 +298,12 @@ export function FileTree({ root }: Props): JSX.Element {
         {state.entries.map((entry) => {
           const isOpen = expanded.has(entry.path)
           const indent = { paddingLeft: depth * 12 + 8 }
+          const key = normalizePath(entry.path)
+          const isUnversioned = parentUnversioned || (marks?.unversioned.has(key) ?? false)
+          // Pasta herda o ponto de quem está dentro; arquivo só responde por si.
+          const isChanged =
+            !isUnversioned &&
+            (entry.isDirectory ? marks?.changedDirs.has(key) : marks?.changed.has(key)) === true
 
           if (renaming === entry.path) {
             return (
@@ -271,6 +337,7 @@ export function FileTree({ root }: Props): JSX.Element {
                 draggable
                 className={[
                   'file-tree-row',
+                  isUnversioned ? 'is-unversioned' : '',
                   selected?.path === entry.path ? 'is-selected' : '',
                   dropTarget === entry.path ? 'is-drop-target' : ''
                 ]
@@ -327,8 +394,14 @@ export function FileTree({ root }: Props): JSX.Element {
                 </span>
                 <span className="file-tree-icon">{entry.isDirectory ? '📁' : '📄'}</span>
                 <span className="file-tree-name">{entry.name}</span>
+                {isChanged && (
+                  <span
+                    className="file-tree-dot"
+                    title={entry.isDirectory ? 'Contém alterações não commitadas' : 'Alterado desde o último commit'}
+                  />
+                )}
               </button>
-              {entry.isDirectory && isOpen && renderLevel(entry.path, depth + 1)}
+              {entry.isDirectory && isOpen && renderLevel(entry.path, depth + 1, isUnversioned)}
             </div>
           )
         })}
@@ -357,14 +430,6 @@ export function FileTree({ root }: Props): JSX.Element {
             onClick={() => store.openNewTerminal(null, selectedDir(selected, root))}
           >
             ⌘
-          </button>
-          <button
-            type="button"
-            className={showIgnored ? 'ghost-btn is-active' : 'ghost-btn'}
-            title={showIgnored ? 'Ocultar arquivos ignorados pelo git' : 'Mostrar arquivos ignorados pelo git'}
-            onClick={() => setShowIgnored((v) => !v)}
-          >
-            ◌
           </button>
           <button type="button" className="ghost-btn" title="Recarregar" onClick={refresh}>
             ⟳
@@ -565,6 +630,11 @@ function TrashConfirm({
 // ─── Caminhos ─────────────────────────────────────────────────────────────────
 // O renderer não tem `path`: os caminhos vêm prontos do main, e no Windows
 // chegam com `\`. Por isso as duas funções aceitam os dois separadores.
+
+/** Compara caminhos numa forma só: o git responde com `/`, o main com `\` no Windows. */
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, '/')
+}
 
 function separatorOf(path: string): string {
   return path.includes('\\') && !path.includes('/') ? '\\' : '/'

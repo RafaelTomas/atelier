@@ -237,6 +237,62 @@ async function pendingOperation(root: string): Promise<GitStatus['operation']> {
 }
 
 /** Retrato completo do repositório — o que o painel desenha a cada refresh. */
+/**
+ * O que a árvore de arquivos precisa saber do git, numa consulta só:
+ *
+ *   • `unversioned` — não rastreado (`??`) e ignorado (`!!`). Juntos, são
+ *     exatamente o que não está no repositório;
+ *   • `changed` — rastreado e com mudança, no índice ou na árvore de trabalho.
+ *
+ * Consulta separada do `status()` do painel, de propósito: aqui `--ignored` é
+ * metade da resposta, e ligá-lo lá faria o painel de Git listar node_modules
+ * inteiro como mudança pendente.
+ *
+ * `--untracked-files=normal` e não `=all`: é o que faz o git COLAPSAR diretório
+ * inteiro em um registro só — `node_modules/`, `snapshots/`. Medido num projeto
+ * real: 44 registros contra 13.426 com `=all`, porque ali o git lista arquivo
+ * por arquivo mesmo dentro do que ignora. Quem consome trata o diretório como
+ * cobertura dos filhos.
+ */
+export interface TreeGitStatus {
+  /** Raiz do REPOSITÓRIO — pode ser ancestral da pasta consultada. */
+  root: string
+  /** Relativos à raiz, sem barra no fim. */
+  unversioned: string[]
+  changed: string[]
+}
+
+export async function treeStatus(cwd: string): Promise<TreeGitStatus | { error: string }> {
+  const root = await repoRoot(cwd)
+  if (!root) return { error: 'not-a-repo' }
+
+  const st = await git(root, [
+    'status',
+    '--porcelain=v1',
+    '-z',
+    '--untracked-files=normal',
+    '--ignored'
+  ])
+  if (!st.ok) return { error: firstLine(st.stderr) || 'status falhou' }
+
+  const unversioned: string[] = []
+  const changed: string[] = []
+  const records = st.stdout.split('\0')
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i]
+    if (record.length < 4) continue
+    const code = record.slice(0, 2)
+    const path = record.slice(3).replace(/\/$/, '')
+    // Rename/copy consomem o registro seguinte (a origem); sem pular, ele seria
+    // lido como se fosse um caminho com código próprio.
+    if (code[0] === 'R' || code[0] === 'C') i++
+
+    if (code === '??' || code === '!!') unversioned.push(path)
+    else changed.push(path)
+  }
+  return { root, unversioned, changed }
+}
+
 export async function status(cwd: string): Promise<GitStatus | { error: string }> {
   const root = await repoRoot(cwd)
   if (!root) return { error: 'not-a-repo' }

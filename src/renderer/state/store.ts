@@ -26,6 +26,7 @@ import type {
 import { viewport } from '../canvas/viewport'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { quoteForShell } from '../paths'
+import { PDF_NODE_SIZE, isPdf } from '../pdf-viewer'
 import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
 
 /**
@@ -395,9 +396,22 @@ class Store {
     await this.removeNode(id, { force: true })
   }
 
+  /**
+   * Abre o arquivo no canvas, no nó que sabe mostrá-lo.
+   *
+   * Nem todo arquivo é texto: um PDF no editor de código dava "arquivo grande
+   * demais" — tecnicamente verdade, e inútil. Quem renderiza PDF aqui é o
+   * visor do Chromium dentro de um nó Portal com a barra de endereço
+   * escondida, exatamente como o item "Documento PDF" da dock. Não é tipo de nó
+   * novo: é o mesmo Portal.
+   */
   async openFileInWorkspace(path: string, position?: { x: number; y: number }): Promise<void> {
     if (!this.workspaceId) {
       this.showNotice('nenhum workspace aberto para receber o arquivo')
+      return
+    }
+    if (isPdf(path)) {
+      await this.openPdfInWorkspace(path, position)
       return
     }
     // Já aberto: seleciona em vez de criar um segundo editor do mesmo arquivo,
@@ -413,6 +427,40 @@ class Store {
     await this.addNode('codeEditor', at, { filePath: path })
   }
 
+  /**
+   * O nó nasce estreito de propósito: acima de ~500px o visor do Chromium abre
+   * sozinho a barra de miniaturas e come metade da largura. Ver pdf-viewer.ts,
+   * onde o número está medido e explicado.
+   */
+  private async openPdfInWorkspace(
+    path: string,
+    position?: { x: number; y: number }
+  ): Promise<void> {
+    const [width, height] = PDF_NODE_SIZE
+    const size = { width, height }
+    // A URL vem do main: `pathToFileURL` resolve espaço, acento e unidade do
+    // Windows, e a allowlist é conferida no caminho.
+    const result = await window.atelier.fs.fileUrl(path)
+    if ('error' in result) {
+      this.showNotice('não foi possível abrir este PDF')
+      return
+    }
+
+    const existing = this.state.workspace?.nodes.find(
+      (n) => n.content.type === 'portal' && n.content.value.currentURL === result.url
+    )
+    if (existing) {
+      this.set({ selection: [existing.id] })
+      return
+    }
+
+    const at = position ?? centerOfViewport(size.width, size.height)
+    const name = path.split(/[\\/]/).pop() || 'Documento'
+    const node = await this.addNode('portal', at, { url: result.url, name }, size)
+    // `chromeHidden` tira a barra de endereço: num documento local ela não
+    // serve para nada, e o visor de PDF já traz os controles dele.
+    if (node) await this.patchContent(node.id, { chromeHidden: true })
+  }
 
   /** Pasta solta no canvas: o análogo natural é o nó de árvore. */
   async addFolderTreeToWorkspace(

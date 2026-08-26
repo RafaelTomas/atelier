@@ -26,6 +26,7 @@ import {
 } from './icons'
 import { HOME_URL } from './nodes/portal-node'
 import { store, useStore } from './state/store'
+import { PDF_NODE_SIZE } from './pdf-viewer'
 
 /**
  * Piso por tipo, em pontos de canvas. Mora aqui, e não só no processo
@@ -148,10 +149,11 @@ export function Dock(): JSX.Element {
       hint: 'abre um arquivo e renderiza no canvas',
       run: () => {
         setOpenMenu(null)
-        // Proporção de página em pé como padrão do clique seco.
+        // Página em pé, e estreita o bastante para o visor do Chromium não
+        // abrir a barra de miniaturas — ver pdf-viewer.ts.
         store.startPlacing({
           label: 'documento PDF',
-          defaultSize: [560, 720],
+          defaultSize: PDF_NODE_SIZE,
           minSize: MIN_SIZE.portal,
           finish: (frame) => void openPDF(frame)
         })

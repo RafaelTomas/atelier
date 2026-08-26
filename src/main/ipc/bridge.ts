@@ -419,6 +419,21 @@ export function registerIPC(): void {
     }
   })
 
+  /**
+   * O caminho como URL `file://`, para o que é renderizado por <webview> — um
+   * PDF, por exemplo.
+   *
+   * A conversão fica no main, e não no renderer, pela mesma razão do
+   * `dialog:choose-file`: `pathToFileURL` resolve espaço, acento e letra de
+   * unidade do Windows, que uma concatenação de string erraria. E passa pela
+   * allowlist como qualquer outro acesso a disco.
+   */
+  ipcMain.handle('fs:file-url', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    return { url: pathToFileURL(allowed.path).href }
+  })
+
   ipcMain.handle('fs:reveal', async (_e, path: string) => {
     const allowed = await resolveAllowedPath(path, allowedRoots())
     if (!allowed.ok) return false

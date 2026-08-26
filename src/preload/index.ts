@@ -234,6 +234,9 @@ const api = {
     ): Promise<{ entries: FsEntry[]; truncated: number; ignored: number } | { error: string }> =>
       ipcRenderer.invoke('fs:list-dir', path, opts),
     reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:reveal', path),
+    /** URL `file://` do caminho — o que o <webview> de um PDF precisa. */
+    fileUrl: (path: string): Promise<{ url: string } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:file-url', path),
     /** Texto do arquivo, ou o motivo da recusa (grande demais, binário, …). */
     readFile: (path: string): Promise<{ text: string; bytes: number } | { error: FileOpError }> =>
       ipcRenderer.invoke('fs:read-file', path),

@@ -14,6 +14,8 @@ import type {
   Connection,
   Drawing,
   FsEntry,
+  GitCommitEntry,
+  GitStatus,
   Point,
   Project,
   Preferences,
@@ -24,6 +26,12 @@ import type {
 } from '@shared/types'
 
 type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree'
+
+/** `ok` diz se a ação passou; `message` é o que o git respondeu, resumido. */
+interface GitActionResult {
+  ok: boolean
+  message: string
+}
 type Unsubscribe = () => void
 
 function on<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
@@ -175,6 +183,41 @@ const api = {
       command: string
     ): Promise<{ node: CanvasNode } | { error: string }> =>
       ipcRenderer.invoke('project:start-scanner', workspaceId, position, command)
+  },
+
+  /**
+   * Git. Todo método recebe um caminho dentro do repositório — o processo
+   * principal resolve a raiz e confere a allowlist; o renderer não escolhe
+   * comando nem monta linha de comando.
+   */
+  git: {
+    status: (path: string): Promise<GitStatus | { error: string }> =>
+      ipcRenderer.invoke('git:status', path),
+    stage: (path: string, paths: string[]): Promise<GitActionResult> =>
+      ipcRenderer.invoke('git:stage', path, paths),
+    stageAll: (path: string): Promise<GitActionResult> => ipcRenderer.invoke('git:stage-all', path),
+    unstage: (path: string, paths: string[]): Promise<GitActionResult> =>
+      ipcRenderer.invoke('git:unstage', path, paths),
+    unstageAll: (path: string): Promise<GitActionResult> =>
+      ipcRenderer.invoke('git:unstage-all', path),
+    /** Destrutivo: rastreados voltam ao HEAD, não-rastreados são apagados. */
+    discard: (path: string, tracked: string[], untracked: string[]): Promise<GitActionResult> =>
+      ipcRenderer.invoke('git:discard', path, tracked, untracked),
+    commit: (path: string, message: string, amend?: boolean): Promise<GitActionResult> =>
+      ipcRenderer.invoke('git:commit', path, message, amend === true),
+    pull: (path: string): Promise<GitActionResult> => ipcRenderer.invoke('git:pull', path),
+    fetch: (path: string): Promise<GitActionResult> => ipcRenderer.invoke('git:fetch', path),
+    push: (path: string): Promise<GitActionResult> => ipcRenderer.invoke('git:push', path),
+    log: (path: string, limit?: number): Promise<{ commits: GitCommitEntry[] } | { error: string }> =>
+      ipcRenderer.invoke('git:log', path, limit),
+    diff: (path: string, file: string, staged: boolean): Promise<{ patch: string } | { error: string }> =>
+      ipcRenderer.invoke('git:diff', path, file, staged),
+    branches: (path: string): Promise<{ names: string[]; current: string | null } | { error: string }> =>
+      ipcRenderer.invoke('git:branches', path),
+    switchTo: (path: string, name: string): Promise<GitActionResult> =>
+      ipcRenderer.invoke('git:switch', path, name),
+    createBranch: (path: string, name: string): Promise<GitActionResult> =>
+      ipcRenderer.invoke('git:create-branch', path, name)
   },
 
   fs: {

@@ -7,6 +7,7 @@
  */
 import { useEffect, useRef } from 'react'
 import { FilesPanel } from './panels/files-panel'
+import { GitPanel } from './panels/git-panel'
 import { ProjectPanel } from './panels/project-panel'
 import { WorkspacePanel } from './panels/workspace-panel'
 import { store, useStore, type SidebarTab } from './state/store'
@@ -14,7 +15,8 @@ import { store, useStore, type SidebarTab } from './state/store'
 const TABS: Array<[SidebarTab, string]> = [
   ['workspaces', 'Workspaces'],
   ['projetos', 'Projetos'],
-  ['arquivos', 'Arquivos']
+  ['arquivos', 'Arquivos'],
+  ['git', 'Git']
 ]
 
 /** Padrão, e os limites do arrasto. O teto relativo é aplicado à parte. */
@@ -98,6 +100,7 @@ export function Sidebar(): JSX.Element {
       {tab === 'workspaces' && <WorkspacePanel />}
       {tab === 'projetos' && <ProjectPanel />}
       {tab === 'arquivos' && <FilesPanel />}
+      {tab === 'git' && <GitPanel />}
 
       <div
         className="sidebar-resizer"

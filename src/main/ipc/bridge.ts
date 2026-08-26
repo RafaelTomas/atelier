@@ -11,6 +11,7 @@ import type {
   AgentRole,
   AgentStatus,
   CanvasNode,
+  GitStatus,
   NodeContent,
   Point,
   Rect,
@@ -30,6 +31,8 @@ import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir } from '../core/persistence/paths'
 import { listDirectory, readIgnoreNames } from '../core/projects/file-tree'
 import { resolveAllowedPath } from '../core/projects/fs-access'
+import * as gitActions from '../core/git/actions'
+import { status as gitStatus } from '../core/git/git'
 import { addProjectFolder } from '../core/projects/add-folder'
 import { candidates, clearCandidates, scanController } from '../core/projects/scan-controller'
 import { startScannerAgent } from '../core/projects/scanner-agent'
@@ -525,6 +528,138 @@ export function registerIPC(): void {
     } catch {
       return false
     }
+  })
+
+  // ─── Git ────────────────────────────────────────────────────────────────────
+
+  /**
+   * Toda ação de git passa por aqui primeiro.
+   *
+   * O renderer manda um caminho; quem decide se ele vale é a mesma allowlist da
+   * árvore de arquivos. Sem isto, `git:*` seria "rode git em qualquer diretório
+   * da máquina" para qualquer código que executasse no renderer — que hospeda
+   * `<webview>` com páginas arbitrárias nos nós Portal.
+   *
+   * Devolve a RAIZ do repositório, não o caminho pedido: as ações valem para o
+   * repositório inteiro, e a pasta consultada pode ser uma subpasta dele.
+   */
+  async function gitRoot(path: string): Promise<{ ok: true; root: string } | { ok: false; error: string }> {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { ok: false, error: 'denied' }
+    const st = await gitStatus(allowed.path)
+    if ('error' in st) return { ok: false, error: st.error }
+    return { ok: true, root: st.root }
+  }
+
+  /**
+   * Caminhos de arquivo vindos do renderer.
+   *
+   * Chegam relativos à raiz (é como o porcelain os devolve) e é assim que vão
+   * para o git. Rejeitamos `..` e caminho absoluto: um `../../.ssh/id_rsa` num
+   * `git add` sairia do repositório, e o allowlist da raiz não veria isso.
+   */
+  function safeRelPaths(paths: unknown): string[] {
+    if (!Array.isArray(paths)) return []
+    return paths
+      .filter((p): p is string => typeof p === 'string' && p.length > 0)
+      .filter((p) => !p.startsWith('/') && !p.startsWith('\\') && !/(^|[\\/])\.\.([\\/]|$)/.test(p))
+      .slice(0, 2000)
+  }
+
+  ipcMain.handle('git:status', async (_e, path: string): Promise<GitStatus | { error: string }> => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: 'denied' }
+    return gitStatus(allowed.path)
+  })
+
+  ipcMain.handle('git:stage', async (_e, path: string, paths: string[]) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { ok: false, message: r.error }
+    return gitActions.stage(r.root, safeRelPaths(paths))
+  })
+
+  ipcMain.handle('git:stage-all', async (_e, path: string) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { ok: false, message: r.error }
+    return gitActions.stageAll(r.root)
+  })
+
+  ipcMain.handle('git:unstage', async (_e, path: string, paths: string[]) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { ok: false, message: r.error }
+    return gitActions.unstage(r.root, safeRelPaths(paths))
+  })
+
+  ipcMain.handle('git:unstage-all', async (_e, path: string) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { ok: false, message: r.error }
+    return gitActions.unstageAll(r.root)
+  })
+
+  ipcMain.handle('git:discard', async (_e, path: string, tracked: string[], untracked: string[]) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { ok: false, message: r.error }
+    return gitActions.discard(r.root, safeRelPaths(tracked), safeRelPaths(untracked))
+  })
+
+  ipcMain.handle('git:commit', async (_e, path: string, message: string, amend?: boolean) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { ok: false, message: r.error }
+    return gitActions.commit(r.root, String(message ?? ''), amend === true)
+  })
+
+  ipcMain.handle('git:pull', async (_e, path: string) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { ok: false, message: r.error }
+    return gitActions.pull(r.root)
+  })
+
+  ipcMain.handle('git:fetch', async (_e, path: string) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { ok: false, message: r.error }
+    return gitActions.fetch(r.root)
+  })
+
+  ipcMain.handle('git:push', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { ok: false, message: 'denied' }
+    // O push precisa saber se há upstream: sem ele, publica o branch em vez de
+    // falhar. Um status fresco é a única fonte confiável disso.
+    const st = await gitStatus(allowed.path)
+    if ('error' in st) return { ok: false, message: st.error }
+    return gitActions.push(st.root, st.branch, st.upstream !== null)
+  })
+
+  ipcMain.handle('git:log', async (_e, path: string, limit?: number) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { error: r.error }
+    return gitActions.log(r.root, typeof limit === 'number' ? limit : 30)
+  })
+
+  ipcMain.handle('git:diff', async (_e, path: string, file: string, staged: boolean) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { error: r.error }
+    const [safe] = safeRelPaths([file])
+    if (!safe) return { error: 'denied' }
+    return gitActions.diff(r.root, safe, staged === true)
+  })
+
+  ipcMain.handle('git:branches', async (_e, path: string) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { error: r.error }
+    return gitActions.branches(r.root)
+  })
+
+  ipcMain.handle('git:switch', async (_e, path: string, name: string) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { ok: false, message: r.error }
+    return gitActions.switchBranch(r.root, String(name ?? ''))
+  })
+
+  ipcMain.handle('git:create-branch', async (_e, path: string, name: string) => {
+    const r = await gitRoot(path)
+    if (!r.ok) return { ok: false, message: r.error }
+    return gitActions.createBranch(r.root, String(name ?? ''))
   })
 
   // ─── Notas ──────────────────────────────────────────────────────────────────

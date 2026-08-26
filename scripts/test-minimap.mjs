@@ -120,6 +120,65 @@ console.log('\ncasos de borda')
     fx >= -0.01 && fy >= -0.01 && fx <= WIDTH && fy <= HEIGHT, `${fx},${fy}`)
 }
 
+console.log('\nenquadrar tudo (viewport.fit)')
+{
+  const MIN_ZOOM = 0.1, MAX_ZOOM = 3.0
+  // Espelha viewport.fit()
+  const fit = (rect, W, H, padding = 60) => {
+    const scale = Math.min((W - padding * 2) / rect.width, (H - padding * 2) / rect.height)
+    const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale))
+    const cx = rect.x + rect.width / 2, cy = rect.y + rect.height / 2
+    return { zoom, origin: { x: cx - W / zoom / 2, y: cy - H / zoom / 2 } }
+  }
+  const nodesBounds = (ns) => {
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity
+    for (const {frame} of ns) {
+      minX=Math.min(minX,frame.x); minY=Math.min(minY,frame.y)
+      maxX=Math.max(maxX,frame.x+frame.width); maxY=Math.max(maxY,frame.y+frame.height)
+    }
+    return {x:minX,y:minY,width:Math.max(1,maxX-minX),height:Math.max(1,maxY-minY)}
+  }
+
+  const W = 1200, H = 800
+  const b = nodesBounds(nodes)
+  const r = fit(b, W, H)
+
+  // Todos os nós devem cair dentro da tela depois de enquadrar.
+  let allInside = true
+  for (const n of nodes) {
+    const sx = (n.frame.x - r.origin.x) * r.zoom
+    const sy = (n.frame.y - r.origin.y) * r.zoom
+    const ex = (n.frame.x + n.frame.width - r.origin.x) * r.zoom
+    const ey = (n.frame.y + n.frame.height - r.origin.y) * r.zoom
+    if (sx < -0.01 || sy < -0.01 || ex > W + 0.01 || ey > H + 0.01) {
+      allInside = false
+      console.log(`       fora: ${sx.toFixed(1)},${sy.toFixed(1)} → ${ex.toFixed(1)},${ey.toFixed(1)}`)
+    }
+  }
+  check('todos os nós cabem na tela depois de enquadrar', allInside)
+
+  // O centro do conjunto vira o centro da tela.
+  const centerX = r.origin.x + W / r.zoom / 2
+  const centerY = r.origin.y + H / r.zoom / 2
+  check('o conjunto fica centralizado',
+    near(centerX, b.x + b.width / 2, 0.01) && near(centerY, b.y + b.height / 2, 0.01),
+    `${centerX},${centerY}`)
+
+  // Dois nós colados pediriam zoom altíssimo — tem de respeitar o teto.
+  const tiny = fit({ x: 10000, y: 9000, width: 20, height: 15 }, W, H)
+  check('zoom respeita MAX_ZOOM', tiny.zoom <= MAX_ZOOM + 1e-9, tiny.zoom)
+
+  // Um workspace gigante pediria zoom minúsculo — respeita o piso.
+  const huge = fit({ x: 0, y: 0, width: 500000, height: 400000 }, W, H)
+  check('zoom respeita MIN_ZOOM', huge.zoom >= MIN_ZOOM - 1e-9, huge.zoom)
+
+  // Proporção: enquadrar não pode esticar um eixo.
+  const wide = fit({ x: 0, y: 0, width: 4000, height: 400 }, W, H)
+  const tall = fit({ x: 0, y: 0, width: 400, height: 4000 }, W, H)
+  check('retângulo largo e alto usam escala única (sem distorção)',
+    Number.isFinite(wide.zoom) && Number.isFinite(tall.zoom) && wide.zoom > 0 && tall.zoom > 0)
+}
+
 console.log('\nboot: as duas ordens de montagem')
 {
   // O retângulo da área visível só é desenhado com tamanho > 0. Era isto que
@@ -144,6 +203,63 @@ console.log('\nboot: as duas ordens de montagem')
   check('e cai dentro do painel',
     vx >= -0.01 && vy >= -0.01 && vx + vw <= WIDTH + 0.01 && vy + vh <= HEIGHT + 0.01,
     `${vx},${vy} ${vw}x${vh}`)
+}
+
+console.log('\nauto-ocultar: quando o mapa aparece')
+{
+  // Espelha onViewportChange + o ref revealArmed. O ponto do teste é que o
+  // "armar" sobreviva à re-execução do efeito: ela acontece a cada mudança de
+  // nó ou de seleção, e arrastar um nó muda os nós — se o flag resetasse, o
+  // mapa deixaria de aparecer justamente nesse gesto.
+  const makeMap = () => {
+    const state = { visible: false, armed: false }
+    return {
+      state,
+      // Uma notificação do viewport (pan, zoom, setSize).
+      notify() {
+        if (!state.armed) { state.armed = true; return }
+        state.visible = true
+      },
+      // O efeito re-roda (mudou nó ou seleção). NÃO pode desarmar.
+      rerunEffect() { /* o ref sobrevive: nada a fazer */ },
+      idle() { state.visible = false }
+    }
+  }
+
+  {
+    const m = makeMap()
+    m.notify()                       // desenho inicial do subscribe
+    check('boot: o mapa nasce escondido', m.state.visible === false)
+    m.notify()                       // primeiro pan
+    check('primeiro pan: aparece', m.state.visible === true)
+  }
+
+  {
+    const m = makeMap()
+    m.notify()                       // boot
+    m.idle()
+    m.rerunEffect()                  // arrastou um nó → nodes mudou
+    m.notify()                       // o pan desse mesmo gesto
+    check('pan depois de mexer num nó: ainda aparece', m.state.visible === true)
+  }
+
+  {
+    const m = makeMap()
+    m.notify()
+    m.idle()
+    m.rerunEffect()                  // trocou a seleção
+    m.notify()
+    check('pan depois de trocar a seleção: ainda aparece', m.state.visible === true)
+  }
+
+  {
+    // Enquadrar tudo mexe no viewport → conta como gesto e revela o mapa.
+    const m = makeMap()
+    m.notify()                       // boot
+    m.idle()
+    m.notify()                       // clique em "enquadrar tudo"
+    check('enquadrar tudo revela o mapa', m.state.visible === true)
+  }
 }
 
 console.log(`\n${pass} passaram, ${fail} falharam`)

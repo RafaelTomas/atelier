@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { viewport } from './canvas/viewport'
+import { nodesBounds, viewport } from './canvas/viewport'
 import { GitMenu } from './git-menu'
 import { store, useStore } from './state/store'
 import type { ThemeMode } from './theme'
@@ -55,6 +55,17 @@ export function Toolbar(): JSX.Element {
 
         <button type="button" onClick={() => viewport.setZoom(viewport.zoom - 0.25)}>−</button>
         <button type="button" onClick={() => viewport.setZoom(1)}>100%</button>
+        <button
+          type="button"
+          disabled={!workspace || workspace.nodes.length === 0}
+          onClick={() => {
+            const bounds = nodesBounds(workspace?.nodes ?? [])
+            if (bounds) viewport.fit(bounds)
+          }}
+          title="Enquadrar tudo — traz todos os nós para a tela"
+        >
+          ⤢
+        </button>
         <button type="button" onClick={() => viewport.setZoom(viewport.zoom + 0.25)}>+</button>
 
         <span className="toolbar-sep" />

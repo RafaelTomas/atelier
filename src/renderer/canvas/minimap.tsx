@@ -13,6 +13,11 @@
  * máximo uma vez por frame (ver canvas/viewport.ts) e nós redesenhamos ali,
  * fora do React — um setState por frame de arrasto re-renderizaria a árvore
  * inteira junto.
+ *
+ * Fica escondido enquanto o canvas está parado: só aparece durante o pan/zoom
+ * e some sozinho pouco depois. A visibilidade é escrita direto no `style` do
+ * elemento, pela mesma razão — um useState por frame de arrasto colocaria de
+ * volta exatamente o re-render que o resto do arquivo evita.
  */
 import { useEffect, useRef } from 'react'
 import type { CanvasNode, Rect } from '@shared/types'
@@ -24,6 +29,14 @@ const WIDTH = 208
 const HEIGHT = 132
 /** Respiro entre o conteúdo e a borda, para nada encostar no canto. */
 const PADDING = 10
+
+/**
+ * Quanto o mapa fica na tela depois que o canvas para de se mexer.
+ *
+ * Longo o bastante para sobreviver à pausa entre dois arrastos do mesmo
+ * gesto — some no meio de uma navegação seria pior que não aparecer.
+ */
+const LINGER_MS = 1500
 
 /**
  * Cor por tipo de nó — a mesma leitura que a pessoa tem no canvas, reduzida a
@@ -62,7 +75,18 @@ function contentBounds(nodes: CanvasNode[], view: Rect): Rect {
 export function Minimap(): JSX.Element | null {
   const { workspace, selection, candidates } = useStore()
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const hostRef = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
+  const hovering = useRef(false)
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /**
+   * O desenho inicial não revela o mapa — no boot ele nasce escondido. Mora
+   * num ref, e não numa variável do efeito: o efeito re-roda a cada mudança de
+   * nó ou de seleção, e uma variável local voltaria a `true` ali, engolindo a
+   * revelação do pan seguinte. Arrastar um nó muda `nodes` — seria justamente
+   * o gesto em que o mapa deixaria de aparecer.
+   */
+  const revealArmed = useRef(false)
 
   // Os nós mudam por evento (store), o pan muda por frame (viewport). Um ref
   // deixa o loop de desenho ler os dois sem reassinar o viewport a cada
@@ -88,6 +112,25 @@ export function Minimap(): JSX.Element | null {
     canvas.width = WIDTH * dpr
     canvas.height = HEIGHT * dpr
     ctx.scale(dpr, dpr)
+
+    /**
+     * Mostra o mapa e arma o desligamento. Escreve no style direto: um
+     * useState aqui rodaria a cada frame de pan.
+     */
+    const reveal = (): void => {
+      const host = hostRef.current
+      if (host) host.classList.add('is-visible')
+      if (hideTimer.current) clearTimeout(hideTimer.current)
+      hideTimer.current = setTimeout(() => {
+        // Não some debaixo do ponteiro: quem está com o mouse em cima está
+        // usando o mapa, e quem está arrastando, mais ainda.
+        if (dragging.current || hovering.current) {
+          reveal()
+          return
+        }
+        hostRef.current?.classList.remove('is-visible')
+      }, LINGER_MS)
+    }
 
     const draw = (): void => {
       const nodes = nodesRef.current
@@ -150,6 +193,19 @@ export function Minimap(): JSX.Element | null {
       }
     }
 
+    // O primeiro desenho não revela: no boot o mapa deve nascer escondido.
+    // Só as notificações SEGUINTES são pan/zoom de verdade.
+    const onViewportChange = (): void => {
+      draw()
+      // A primeira notificação da sessão é o desenho inicial do subscribe, não
+      // um gesto: o mapa fica escondido. Da segunda em diante, é pan ou zoom.
+      if (!revealArmed.current) {
+        revealArmed.current = true
+        return
+      }
+      reveal()
+    }
+
     // subscribe() desenha na hora e a cada notificação seguinte.
     //
     // Só que "a cada notificação" não cobre o boot: o canvas-view monta antes
@@ -161,7 +217,11 @@ export function Minimap(): JSX.Element | null {
     //
     // (Um requestAnimationFrame extra não resolveria: pela spec o rAF roda
     // antes do ResizeObserver no mesmo frame, e veria o viewport ainda 0×0.)
-    return viewport.subscribe(draw)
+    const unsubscribe = viewport.subscribe(onViewportChange)
+    return () => {
+      if (hideTimer.current) clearTimeout(hideTimer.current)
+      unsubscribe()
+    }
     // `workspace?.nodes` entra nas deps para o mapa redesenhar quando um nó
     // nasce ou morre — o viewport não é notificado disso.
   }, [workspace?.nodes, selection])
@@ -191,8 +251,16 @@ export function Minimap(): JSX.Element | null {
 
   return (
     <div
+      ref={hostRef}
       className="minimap"
       title="Clique ou arraste para mover o quadro"
+      // Enquanto o ponteiro estiver em cima, o mapa não some — e chegar perto
+      // dele já o traz de volta, que é como se pega um mapa que acabou de
+      // sumir sem precisar mexer no canvas antes.
+      onMouseEnter={() => {
+        hovering.current = true
+        hostRef.current?.classList.add('is-visible')
+      }}
       // stopPropagation: sem isto o mousedown desce para o canvas e abre um
       // marquee de seleção por baixo do mapa.
       onMouseDown={(e) => {
@@ -211,6 +279,7 @@ export function Minimap(): JSX.Element | null {
       // arrasto continuaria "ligado" e o próximo hover moveria o quadro.
       onMouseLeave={() => {
         dragging.current = false
+        hovering.current = false
       }}
     >
       <canvas ref={canvasRef} style={{ width: WIDTH, height: HEIGHT }} />

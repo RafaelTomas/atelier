@@ -1369,19 +1369,14 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 .file-tree-actions { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
 .file-tree-actions .ghost-btn { font-size: 12px; padding: 1px 5px; }
 
-/* Barra fina e discreta: a de sistema tem ~15px e, num nó estreito, come a
-   largura que os nomes de arquivo precisam. Some quando não há o que rolar. */
-.file-tree-body { flex: 1; overflow: auto; overflow-x: hidden; padding: 4px 0; scrollbar-width: thin; }
-.file-tree-body::-webkit-scrollbar { width: 8px; }
-.file-tree-body::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--text-dim) 35%, transparent);
-  border-radius: 999px; border: 2px solid transparent; background-clip: content-box;
+/* A rolagem continua; o que some é a BARRA — a mesma escolha já feita na
+   sidebar. Num nó estreito ela come a largura que os nomes precisam, e o nó
+   tem canto arredondado: a barra encostava nele e ficava cortada. */
+.file-tree-body {
+  flex: 1; overflow: auto; overflow-x: hidden; padding: 4px 0;
+  scrollbar-width: none;
 }
-.file-tree-body::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--text-dim) 60%, transparent);
-  background-clip: content-box;
-}
-.file-tree-body::-webkit-scrollbar-track { background: transparent; }
+.file-tree-body::-webkit-scrollbar { width: 0; height: 0; display: none; }
 
 .file-tree-row {
   width: 100%; border: 0; background: transparent; cursor: pointer;

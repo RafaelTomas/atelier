@@ -36,7 +36,7 @@ import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../cor
 import { fileWatcher } from '../core/projects/file-watcher'
 import { resolveAllowedPath, resolveAllowedTarget } from '../core/projects/fs-access'
 import * as gitActions from '../core/git/actions'
-import { status as gitStatus, unversioned as gitUnversioned } from '../core/git/git'
+import { status as gitStatus, treeStatus as gitTreeStatus } from '../core/git/git'
 import { addProjectFolder } from '../core/projects/add-folder'
 import { candidates, clearCandidates, scanController } from '../core/projects/scan-controller'
 import { startScannerAgent } from '../core/projects/scanner-agent'
@@ -697,11 +697,11 @@ export function registerIPC(): void {
     return gitStatus(allowed.path)
   })
 
-  /** O que a árvore de arquivos esmaece: não rastreado e ignorado. */
-  ipcMain.handle('git:unversioned', async (_e, path: string) => {
+  /** O que a árvore marca: não versionado (esmaece) e modificado (ponto). */
+  ipcMain.handle('git:tree-status', async (_e, path: string) => {
     const allowed = await resolveAllowedPath(path, allowedRoots())
     if (!allowed.ok) return { error: 'denied' }
-    return gitUnversioned(allowed.path)
+    return gitTreeStatus(allowed.path)
   })
 
   ipcMain.handle('git:stage', async (_e, path: string, paths: string[]) => {

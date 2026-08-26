@@ -200,11 +200,12 @@ const api = {
   git: {
     status: (path: string): Promise<GitStatus | { error: string }> =>
       ipcRenderer.invoke('git:status', path),
-    /** Caminhos não versionados (não rastreados + ignorados), para a árvore. */
-    unversioned: (
+    /** O que a árvore de arquivos marca: não versionado e modificado. */
+    treeStatus: (
       path: string
-    ): Promise<{ root: string; paths: string[] } | { error: string }> =>
-      ipcRenderer.invoke('git:unversioned', path),
+    ): Promise<
+      { root: string; unversioned: string[]; changed: string[] } | { error: string }
+    > => ipcRenderer.invoke('git:tree-status', path),
     stage: (path: string, paths: string[]): Promise<GitActionResult> =>
       ipcRenderer.invoke('git:stage', path, paths),
     stageAll: (path: string): Promise<GitActionResult> => ipcRenderer.invoke('git:stage-all', path),

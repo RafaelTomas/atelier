@@ -1207,18 +1207,18 @@ button.canvas-chip:hover { background: var(--dock-hover); }
    ficam encolhidos à esquerda e sobra um vazio dentro do pill ao alargar a
    sidebar. Com ele, os três dividem o espaço e continuam centrados. */
 .sidebar-tabs .segmented { flex: 1; min-width: 0; }
-/* `flex: 1 1 auto`, não `1 1 0`: com frações iguais o rótulo mais longo
-   ("Workspaces") trunca antes dos outros. Crescendo a partir da largura do
-   texto, a sobra é dividida e a folga aparece como respiro em volta de cada
-   rótulo — que é o vazio que sobrava dentro do pill antes.
-   O recuo lateral é apertado (4px) porque os quatro rótulos pedem ~162px de
-   texto e o pill oferece ~166px na largura padrão de 220px: com o padrão de
-   6px eles não cabem. A folga volta a crescer sozinha quando a sidebar é
-   alargada. */
+/* Ícones, não rótulos (ver sidebar.tsx): os quatro nomes não cabiam na largura
+   padrão e truncavam. `flex: 1` divide o pill em quatro alvos iguais — com
+   ícone isso é o certo, ao contrário do texto, onde frações iguais cortariam
+   o rótulo mais longo primeiro. */
 .sidebar-tabs .segment {
-  flex: 1 1 auto; min-width: 0; font-size: 11px; padding: 4px 4px;
-  text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0; padding: 5px 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim);
 }
+.sidebar-tabs .segment:hover { color: var(--text); }
+/* O ícone herda currentColor, então o estado ativo já o pinta de branco. */
+.sidebar-tabs .segment.is-active { color: #fff; }
 
 .sidebar-count {
   font-style: normal; opacity: .55; margin-left: 4px; font-weight: 500;

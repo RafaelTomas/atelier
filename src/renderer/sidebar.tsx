@@ -6,17 +6,36 @@
  * rolagem deixariam as três inutilizáveis.
  */
 import { useEffect, useRef } from 'react'
+import { IconBranch, IconCube, IconFolder, IconWindows } from './icons'
 import { FilesPanel } from './panels/files-panel'
 import { GitPanel } from './panels/git-panel'
 import { ProjectPanel } from './panels/project-panel'
 import { WorkspacePanel } from './panels/workspace-panel'
 import { store, useStore, type SidebarTab } from './state/store'
 
-const TABS: Array<[SidebarTab, string]> = [
-  ['workspaces', 'Workspaces'],
-  ['projetos', 'Projetos'],
-  ['arquivos', 'Arquivos'],
-  ['git', 'Git']
+/**
+ * Ícone em vez de rótulo, e o nome só no hover.
+ *
+ * Com quatro abas os rótulos não cabiam: pedem ~162px de texto num pill de
+ * ~166px na largura padrão, e qualquer recuo lateral os fazia truncar
+ * ("Worksp…"). Um nome pela metade não identifica nada — o ícone identifica, e
+ * o nome inteiro fica a um hover de distância.
+ *
+ * A legenda é em inglês porque é o vocabulário do domínio aqui: workspace,
+ * project, file, git são os mesmos termos do formato em disco e do CLI.
+ */
+interface Tab {
+  id: SidebarTab
+  icon: (p: { size?: number }) => JSX.Element
+  /** Legenda do hover, e também o nome acessível do botão. */
+  label: string
+}
+
+const TABS: Tab[] = [
+  { id: 'workspaces', icon: IconWindows, label: 'Workspaces' },
+  { id: 'projetos', icon: IconCube, label: 'Projects' },
+  { id: 'arquivos', icon: IconFolder, label: 'Files' },
+  { id: 'git', icon: IconBranch, label: 'Git' }
 ]
 
 /** Padrão, e os limites do arrasto. O teto relativo é aplicado à parte. */
@@ -76,14 +95,17 @@ export function Sidebar(): JSX.Element {
     <aside className="sidebar">
       <div className="sidebar-tabs">
         <div className="segmented">
-          {TABS.map(([id, label]) => (
+          {TABS.map(({ id, icon: Icon, label }) => (
             <button
               key={id}
               type="button"
               className={tab === id ? 'segment is-active' : 'segment'}
+              title={label}
+              aria-label={label}
+              aria-pressed={tab === id}
               onClick={() => store.setSidebarTab(id)}
             >
-              {label}
+              <Icon size={16} />
             </button>
           ))}
         </div>

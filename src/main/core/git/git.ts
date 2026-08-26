@@ -237,6 +237,49 @@ async function pendingOperation(root: string): Promise<GitStatus['operation']> {
 }
 
 /** Retrato completo do repositório — o que o painel desenha a cada refresh. */
+/**
+ * Os caminhos que o git NÃO versiona: não rastreados (`??`) e ignorados (`!!`).
+ *
+ * É o que a árvore de arquivos usa para esmaecer uma linha. Consulta separada,
+ * e não o `status()` acima, por duas razões: aqui `--ignored` é obrigatório (é
+ * metade da resposta) e ali seria estrago — o painel de Git passaria a listar
+ * node_modules inteiro como mudança pendente.
+ *
+ * `--untracked-files=normal` (e não `=all`) é o que faz o git COLAPSAR
+ * diretório inteiro em um registro só — `node_modules/`, `snapshots/`. Medido
+ * num projeto real: 44 registros contra 13.426 com `=all`, porque ali o git
+ * lista arquivo por arquivo mesmo dentro do que ignora. Quem consome trata o
+ * diretório como cobertura dos filhos.
+ */
+export async function unversioned(
+  cwd: string
+): Promise<{ root: string; paths: string[] } | { error: string }> {
+  const root = await repoRoot(cwd)
+  if (!root) return { error: 'not-a-repo' }
+
+  const st = await git(root, [
+    'status',
+    '--porcelain=v1',
+    '-z',
+    '--untracked-files=normal',
+    '--ignored'
+  ])
+  if (!st.ok) return { error: firstLine(st.stderr) || 'status falhou' }
+
+  const paths: string[] = []
+  const records = st.stdout.split('\0')
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i]
+    if (record.length < 4) continue
+    const code = record.slice(0, 2)
+    // Rename/copy consomem o registro seguinte (a origem); sem pular, ele seria
+    // lido como se fosse um caminho com código próprio.
+    if (code[0] === 'R' || code[0] === 'C') i++
+    if (code === '??' || code === '!!') paths.push(record.slice(3).replace(/\/$/, ''))
+  }
+  return { root, paths }
+}
+
 export async function status(cwd: string): Promise<GitStatus | { error: string }> {
   const root = await repoRoot(cwd)
   if (!root) return { error: 'not-a-repo' }

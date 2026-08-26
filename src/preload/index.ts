@@ -200,6 +200,11 @@ const api = {
   git: {
     status: (path: string): Promise<GitStatus | { error: string }> =>
       ipcRenderer.invoke('git:status', path),
+    /** Caminhos não versionados (não rastreados + ignorados), para a árvore. */
+    unversioned: (
+      path: string
+    ): Promise<{ root: string; paths: string[] } | { error: string }> =>
+      ipcRenderer.invoke('git:unversioned', path),
     stage: (path: string, paths: string[]): Promise<GitActionResult> =>
       ipcRenderer.invoke('git:stage', path, paths),
     stageAll: (path: string): Promise<GitActionResult> => ipcRenderer.invoke('git:stage-all', path),

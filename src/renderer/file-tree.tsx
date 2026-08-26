@@ -59,6 +59,16 @@ export function FileTree({ root }: Props): JSX.Element {
   const [trash, setTrash] = useState<TrashTarget | null>(null)
   /** Pasta sob o cursor durante um arrasto de arquivo. */
   const [dropTarget, setDropTarget] = useState<string | null>(null)
+  /**
+   * Caminhos que o git não versiona — não rastreados e ignorados. null = a
+   * pasta não é repositório, ou a resposta ainda não chegou: nesse caso nada é
+   * esmaecido, que é melhor do que esmaecer o que não devia.
+   *
+   * Quem responde é o git, não um palpite sobre o .gitignore: um arquivo novo
+   * é tão não versionado quanto um ignorado, e nenhuma leitura de .gitignore
+   * saberia disso.
+   */
+  const [unversioned, setUnversioned] = useState<Set<string> | null>(null)
   const renameInput = useRef<HTMLInputElement>(null)
   /**
    * Tirar o input do DOM dispara `blur`, e o blur também comita. Sem esta
@@ -92,13 +102,33 @@ export function FileTree({ root }: Props): JSX.Element {
     if (dirs[dir]) void load(dir)
   }
 
+  /**
+   * Uma consulta por árvore, não uma por diretório: o git responde pelo
+   * repositório inteiro de uma vez, e os caminhos vêm relativos à RAIZ DELE,
+   * que pode ser um ancestral da raiz da árvore.
+   */
+  const loadUnversioned = useCallback(async (): Promise<void> => {
+    if (!root) return
+    const result = await window.atelier.git.unversioned(root)
+    if ('error' in result) {
+      setUnversioned(null)
+      return
+    }
+    const base = normalizePath(result.root)
+    setUnversioned(new Set(result.paths.map((p) => `${base}/${normalizePath(p)}`)))
+  }, [root])
+
   // Trocar a raiz invalida tudo que já foi lido.
   useEffect(() => {
     setDirs({})
     setExpanded(new Set())
     setSelected(null)
-    if (root) void load(root)
-  }, [root, load])
+    setUnversioned(null)
+    if (root) {
+      void load(root)
+      void loadUnversioned()
+    }
+  }, [root, load, loadUnversioned])
 
   useEffect(() => {
     if (renaming) renameInput.current?.select()
@@ -120,7 +150,10 @@ export function FileTree({ root }: Props): JSX.Element {
   const refresh = (): void => {
     setDirs({})
     setExpanded(new Set())
-    if (root) void load(root)
+    if (root) {
+      void load(root)
+      void loadUnversioned()
+    }
   }
 
   // ─── Ações do menu ──────────────────────────────────────────────────────────
@@ -219,7 +252,12 @@ export function FileTree({ root }: Props): JSX.Element {
     return <div className="file-tree is-empty">Nenhuma pasta definida.</div>
   }
 
-  const renderLevel = (path: string, depth: number): JSX.Element | null => {
+  /**
+   * `parentUnversioned` desce por herança: o git colapsa diretório inteiramente
+   * ignorado num registro só (`node_modules/`), então os filhos dele não
+   * aparecem na resposta — mas são tão não versionados quanto o pai.
+   */
+  const renderLevel = (path: string, depth: number, parentUnversioned = false): JSX.Element | null => {
     const state = dirs[path]
     if (!state) return <div className="file-tree-loading" style={{ paddingLeft: depth * 12 + 8 }}>carregando…</div>
     if (state.error) {
@@ -235,6 +273,8 @@ export function FileTree({ root }: Props): JSX.Element {
         {state.entries.map((entry) => {
           const isOpen = expanded.has(entry.path)
           const indent = { paddingLeft: depth * 12 + 8 }
+          const isUnversioned =
+            parentUnversioned || (unversioned?.has(normalizePath(entry.path)) ?? false)
 
           if (renaming === entry.path) {
             return (
@@ -268,6 +308,7 @@ export function FileTree({ root }: Props): JSX.Element {
                 draggable
                 className={[
                   'file-tree-row',
+                  isUnversioned ? 'is-unversioned' : '',
                   selected?.path === entry.path ? 'is-selected' : '',
                   dropTarget === entry.path ? 'is-drop-target' : ''
                 ]
@@ -325,7 +366,7 @@ export function FileTree({ root }: Props): JSX.Element {
                 <span className="file-tree-icon">{entry.isDirectory ? '📁' : '📄'}</span>
                 <span className="file-tree-name">{entry.name}</span>
               </button>
-              {entry.isDirectory && isOpen && renderLevel(entry.path, depth + 1)}
+              {entry.isDirectory && isOpen && renderLevel(entry.path, depth + 1, isUnversioned)}
             </div>
           )
         })}
@@ -554,6 +595,11 @@ function TrashConfirm({
 // ─── Caminhos ─────────────────────────────────────────────────────────────────
 // O renderer não tem `path`: os caminhos vêm prontos do main, e no Windows
 // chegam com `\`. Por isso as duas funções aceitam os dois separadores.
+
+/** Compara caminhos numa forma só: o git responde com `/`, o main com `\` no Windows. */
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, '/')
+}
 
 function separatorOf(path: string): string {
   return path.includes('\\') && !path.includes('/') ? '\\' : '/'

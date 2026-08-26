@@ -1390,6 +1390,12 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   font-size: 11px; line-height: 1.6;
 }
 .file-tree-row:hover { background: var(--border); }
+/* Esmaecido, nunca escondido: diz o que o git não versiona — arquivo novo ou
+   ignorado — sem tirar nada da vista. Volta ao normal sob o cursor e na
+   seleção, senão o item escolhido pareceria desabilitado. */
+.file-tree-row.is-unversioned { opacity: .5; }
+.file-tree-row.is-unversioned:hover,
+.file-tree-row.is-unversioned.is-selected { opacity: 1; }
 .file-tree-row.is-selected { background: var(--accent); color: #fff; }
 
 .file-tree-caret { width: 10px; flex-shrink: 0; opacity: .6; }

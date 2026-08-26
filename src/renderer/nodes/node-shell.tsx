@@ -80,7 +80,7 @@ export function NodeShell({
       case 'portal':
         return <PortalNode node={node} content={node.content.value} workspaceId={workspaceId} />
       case 'fileTree':
-        return <FileTreeNode content={node.content.value} />
+        return <FileTreeNode node={node} content={node.content.value} />
       case 'codeEditor':
         return <CodeEditorNode node={node} content={node.content.value} />
       default:

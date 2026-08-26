@@ -14,6 +14,7 @@ import type { UUID } from '@shared/types'
 import { log } from '../logger'
 import { claudeSkillsDir } from '../persistence/paths'
 import { terminals } from '../terminal/terminal-manager'
+import { notifyRenderer } from '../../ipc/notify'
 
 const SKILL_NAME = 'atelier'
 
@@ -171,9 +172,16 @@ export async function installSkillsIfNeeded(): Promise<void> {
 const notified = new Set<UUID>()
 
 /**
- * Avisa o terminal, uma vez só, que ele ganhou acesso ao CLI. Escreve um
- * comentário de shell (linha iniciada por #) — inerte se o agente for um shell,
- * informativo se for um agente de IA lendo a tela.
+ * Avisa o terminal, uma vez só, que ele ganhou acesso ao CLI.
+ *
+ * NA TELA, NUNCA NO STDIN. A versão anterior escrevia no PTY, como o app
+ * nativo: num shell isso é um comentário inofensivo, mas num agente de IA a
+ * linha cai dentro do campo de digitação — e o `\r` do fim podia mandá-la como
+ * prompt. O aviso é para ser lido, não digitado.
+ *
+ * Ir pelo canal de dados do renderer resolve os dois lados: o texto aparece no
+ * xterm e some no próximo redesenho de quem tem interface de tela cheia, e não
+ * entra no scrollback (que é gravado a partir da saída do processo, no main).
  */
 export function injectSkillInto(terminalId: UUID): void {
   if (notified.has(terminalId)) return
@@ -181,10 +189,10 @@ export function injectSkillInto(terminalId: UUID): void {
   if (!session || session.exited) return
 
   notified.add(terminalId)
-  terminals.write(
-    terminalId,
-    '# atelier: connected — run `atelier list` to see connected agents, notes and portals\r'
-  )
+  notifyRenderer('terminal:data', {
+    id: terminalId,
+    data: '\r\n\x1b[90m# atelier: conectado — `atelier list` mostra agentes, notas e portais\x1b[0m\r\n'
+  })
 }
 
 export function forgetTerminal(terminalId: UUID): void {

@@ -5,7 +5,7 @@
  * scanner sem poda: abrir um `node_modules` por engano mandaria dezenas de
  * milhares de objetos pelo IPC estruturado, que os clona um a um.
  */
-import { readFile, readdir } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { FsEntry } from '@shared/types'
 
@@ -15,43 +15,27 @@ const MAX_ENTRIES = 1000
 export interface ListDirResult {
   entries: FsEntry[]
   truncated: number
-  /** Quantas entradas o .gitignore escondeu — a UI oferece revelá-las. */
-  ignored: number
 }
 
 /**
- * Nomes ignorados pelo .gitignore da raiz do projeto.
+ * Lista um nível: TUDO que está na pasta, sem filtro.
  *
- * Deliberadamente ingênuo: só linhas que são um nome simples, sem glob, sem
- * caminho e sem negação. Implementar a semântica real do gitignore (âncoras,
- * precedência, `**`, negações) é um projeto próprio, e o que resolve 95% do
- * ruído visual são as poucas linhas triviais: node_modules, dist, .env.
- * Quem quiser ver o resto tem o botão de revelar.
+ * Houve um filtro por .gitignore aqui, e ele fazia mais mal do que bem — pasta
+ * de trabalho de verdade (`docs/`, `.env`) sumia da árvore sem aviso, e a regra
+ * ingênua de casar nomes errava nas duas direções. Uma árvore de arquivos que
+ * esconde arquivos não é uma árvore de arquivos.
+ *
+ * `.git` é a ÚNICA exceção: ninguém navega nele pela árvore, e são milhares de
+ * objetos internos. Se algum dia alguém precisar, é aqui que a exceção mora.
  */
-export async function readIgnoreNames(root: string): Promise<Set<string>> {
-  const names = new Set<string>(['.git'])
-  let text: string
-  try {
-    text = await readFile(join(root, '.gitignore'), 'utf8')
-  } catch {
-    return names
-  }
-  for (const raw of text.split('\n')) {
-    const line = raw.trim().replace(/\/$/, '')
-    if (!line || line.startsWith('#') || line.startsWith('!')) continue
-    if (/[*?\[\]]/.test(line) || line.includes('/')) continue
-    names.add(line)
-  }
-  return names
-}
-
-export async function listDirectory(path: string, ignore?: ReadonlySet<string>): Promise<ListDirResult> {
+export async function listDirectory(path: string): Promise<ListDirResult> {
   const raw = await readdir(path, { withFileTypes: true })
 
-  const usable = raw.filter((e) => e.isDirectory() || e.isFile() || e.isSymbolicLink())
-  const kept = ignore ? usable.filter((e) => !ignore.has(e.name)) : usable
+  const usable = raw
+    .filter((e) => e.isDirectory() || e.isFile() || e.isSymbolicLink())
+    .filter((e) => e.name !== '.git')
 
-  const entries: FsEntry[] = kept
+  const entries: FsEntry[] = usable
     .map((e) => ({
       name: e.name,
       path: join(path, e.name),
@@ -67,7 +51,6 @@ export async function listDirectory(path: string, ignore?: ReadonlySet<string>):
 
   return {
     entries: entries.slice(0, MAX_ENTRIES),
-    truncated: Math.max(0, entries.length - MAX_ENTRIES),
-    ignored: usable.length - kept.length
+    truncated: Math.max(0, entries.length - MAX_ENTRIES)
   }
 }

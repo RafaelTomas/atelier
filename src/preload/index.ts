@@ -229,10 +229,9 @@ const api = {
 
   fs: {
     listDir: (
-      path: string,
-      opts?: { root?: string; showIgnored?: boolean }
-    ): Promise<{ entries: FsEntry[]; truncated: number; ignored: number } | { error: string }> =>
-      ipcRenderer.invoke('fs:list-dir', path, opts),
+      path: string
+    ): Promise<{ entries: FsEntry[]; truncated: number } | { error: string }> =>
+      ipcRenderer.invoke('fs:list-dir', path),
     reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:reveal', path),
     /** URL `file://` do caminho — o que o <webview> de um PDF precisa. */
     fileUrl: (path: string): Promise<{ url: string } | { error: FileOpError }> =>

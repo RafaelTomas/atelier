@@ -31,7 +31,7 @@ import {
 import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir } from '../core/persistence/paths'
-import { listDirectory, readIgnoreNames } from '../core/projects/file-tree'
+import { listDirectory } from '../core/projects/file-tree'
 import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../core/projects/file-ops'
 import { fileWatcher } from '../core/projects/file-watcher'
 import { resolveAllowedPath, resolveAllowedTarget } from '../core/projects/fs-access'
@@ -405,15 +405,13 @@ export function registerIPC(): void {
     return { roots }
   }
 
-  ipcMain.handle('fs:list-dir', async (_e, path: string, opts?: { root?: string; showIgnored?: boolean }) => {
+  ipcMain.handle('fs:list-dir', async (_e, path: string) => {
     const allowed = await resolveAllowedPath(path, allowedRoots())
     // O motivo volta como código, nunca como erro do sistema: a mensagem do fs
     // revela a existência e o nome de caminhos fora do escopo permitido.
     if (!allowed.ok) return { error: allowed.reason }
     try {
-      const ignore =
-        opts?.root && !opts.showIgnored ? await readIgnoreNames(opts.root) : undefined
-      return await listDirectory(allowed.path, ignore)
+      return await listDirectory(allowed.path)
     } catch {
       return { error: 'error' as const }
     }

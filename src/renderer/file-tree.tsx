@@ -30,7 +30,6 @@ interface Props {
 interface DirState {
   entries: FsEntry[]
   truncated: number
-  ignored: number
   error: string | null
 }
 
@@ -54,7 +53,6 @@ export function FileTree({ root }: Props): JSX.Element {
   /** A entrada inteira, não só o caminho: o botão "novo agente" precisa saber
    *  se o que está selecionado é pasta ou arquivo. */
   const [selected, setSelected] = useState<FsEntry | null>(null)
-  const [showIgnored, setShowIgnored] = useState(false)
   const [menu, setMenu] = useState<{ entry: FsEntry; x: number; y: number } | null>(null)
   /** Caminho em edição inline. Renomear é uma palavra, não merece diálogo. */
   const [renaming, setRenaming] = useState<string | null>(null)
@@ -73,16 +71,16 @@ export function FileTree({ root }: Props): JSX.Element {
 
   const load = useCallback(
     async (path: string): Promise<void> => {
-      const result = await window.atelier.fs.listDir(path, { root, showIgnored })
+      const result = await window.atelier.fs.listDir(path)
       setDirs((prev) => ({
         ...prev,
         [path]:
           'error' in result
-            ? { entries: [], truncated: 0, ignored: 0, error: DENIAL_TEXT[result.error] ?? result.error }
-            : { entries: result.entries, truncated: result.truncated, ignored: result.ignored, error: null }
+            ? { entries: [], truncated: 0, error: DENIAL_TEXT[result.error] ?? result.error }
+            : { entries: result.entries, truncated: result.truncated, error: null }
       }))
     },
-    [root, showIgnored]
+    [root]
   )
 
   /**
@@ -94,14 +92,13 @@ export function FileTree({ root }: Props): JSX.Element {
     if (dirs[dir]) void load(dir)
   }
 
-  // Trocar o filtro ou a raiz invalida tudo que já foi lido: o que está aberto
-  // precisa ser relido com a nova regra.
+  // Trocar a raiz invalida tudo que já foi lido.
   useEffect(() => {
     setDirs({})
     setExpanded(new Set())
     setSelected(null)
     if (root) void load(root)
-  }, [root, showIgnored, load])
+  }, [root, load])
 
   useEffect(() => {
     if (renaming) renameInput.current?.select()
@@ -176,7 +173,7 @@ export function FileTree({ root }: Props): JSX.Element {
       setTrash({ entry, childCount: null })
       return
     }
-    const listed = await window.atelier.fs.listDir(entry.path, { root, showIgnored: true })
+    const listed = await window.atelier.fs.listDir(entry.path)
     setTrash({ entry, childCount: 'error' in listed ? null : listed.entries.length })
   }
 
@@ -357,14 +354,6 @@ export function FileTree({ root }: Props): JSX.Element {
             onClick={() => store.openNewTerminal(null, selectedDir(selected, root))}
           >
             ⌘
-          </button>
-          <button
-            type="button"
-            className={showIgnored ? 'ghost-btn is-active' : 'ghost-btn'}
-            title={showIgnored ? 'Ocultar arquivos ignorados pelo git' : 'Mostrar arquivos ignorados pelo git'}
-            onClick={() => setShowIgnored((v) => !v)}
-          >
-            ◌
           </button>
           <button type="button" className="ghost-btn" title="Recarregar" onClick={refresh}>
             ⟳

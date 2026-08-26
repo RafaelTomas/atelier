@@ -533,3 +533,21 @@ export interface GitCommitEntry {
 export interface GitLogResult {
   commits: GitCommitEntry[]
 }
+/**
+ * Por que uma operação de arquivo foi recusada.
+ *
+ * Código, nunca a mensagem do sistema: o texto do `fs` revela a existência e o
+ * nome de caminhos fora do escopo permitido. Quem traduz para o usuário é o
+ * renderer (ver FILE_OP_TEXT em renderer/file-tree.tsx).
+ *
+ * Mora aqui, e não em core/projects/file-ops.ts, porque o preload é tipado
+ * contra @shared e não pode importar nada do processo principal.
+ */
+export type FileOpError =
+  | 'missing'
+  | 'denied'
+  | 'too-large'
+  | 'binary'
+  | 'exists'
+  | 'not-a-file'
+  | 'error'

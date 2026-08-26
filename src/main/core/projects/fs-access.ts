@@ -15,7 +15,7 @@
  *      '/home/u/projeto-do-cliente', que é outro diretório.
  */
 import { realpath } from 'node:fs/promises'
-import { isAbsolute, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, sep } from 'node:path'
 
 export type FsDenialReason = 'denied' | 'missing' | 'error'
 
@@ -48,18 +48,57 @@ function isWithin(target: string, root: string): boolean {
 export async function resolveAllowedPath(
   path: string,
   allowed: AllowedRoots
-): Promise<{ ok: true; path: string } | { ok: false; reason: FsDenialReason }> {
+): Promise<AllowedPath | { ok: false; reason: FsDenialReason }> {
   if (!path || !isAbsolute(path)) return { ok: false, reason: 'denied' }
 
   const target = await realpathSafe(path)
   if (!target) return { ok: false, reason: 'missing' }
 
+  return matchRoot(target, allowed)
+}
+
+/** O caminho real e a raiz permitida sob a qual ele caiu. */
+export interface AllowedPath {
+  ok: true
+  path: string
+  /** Qual raiz autorizou. É o que permite exigir origem e destino na MESMA. */
+  root: string
+}
+
+async function matchRoot(
+  target: string,
+  allowed: AllowedRoots
+): Promise<AllowedPath | { ok: false; reason: FsDenialReason }> {
   for (const root of allowed.roots) {
     if (!root) continue
     const realRoot = await realpathSafe(root)
-    if (realRoot && isWithin(target, realRoot)) return { ok: true, path: target }
+    if (realRoot && isWithin(target, realRoot)) return { ok: true, path: target, root: realRoot }
   }
   return { ok: false, reason: 'denied' }
+}
+
+/**
+ * Resolve um caminho que AINDA NÃO EXISTE — o destino de um renomear, mover ou
+ * duplicar.
+ *
+ * `realpath` de um arquivo inexistente falha, então quem valida é o diretório
+ * pai: ele existe, é resolvido de verdade (symlink incluído) e o último
+ * componente é colado de volta. Um nome com separador é recusado de saída — é
+ * assim que "renomear para `../../.ssh/authorized_keys`" morre aqui.
+ */
+export async function resolveAllowedTarget(
+  path: string,
+  allowed: AllowedRoots
+): Promise<AllowedPath | { ok: false; reason: FsDenialReason }> {
+  if (!path || !isAbsolute(path)) return { ok: false, reason: 'denied' }
+
+  const name = basename(path)
+  if (!name || name === '.' || name === '..') return { ok: false, reason: 'denied' }
+
+  const parent = await realpathSafe(dirname(path))
+  if (!parent) return { ok: false, reason: 'missing' }
+
+  return matchRoot(join(parent, name), allowed)
 }
 
 /** Versão booleana, para testes e verificações rápidas. */

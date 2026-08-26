@@ -5,6 +5,7 @@
  * o que preserva a regra do app nativo de que toda I/O é centralizada.
  */
 import { homedir } from 'node:os'
+import { sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
@@ -30,7 +31,8 @@ import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir } from '../core/persistence/paths'
 import { listDirectory, readIgnoreNames } from '../core/projects/file-tree'
-import { resolveAllowedPath } from '../core/projects/fs-access'
+import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../core/projects/file-ops'
+import { resolveAllowedPath, resolveAllowedTarget } from '../core/projects/fs-access'
 import * as gitActions from '../core/git/actions'
 import { status as gitStatus } from '../core/git/git'
 import { addProjectFolder } from '../core/projects/add-folder'
@@ -399,6 +401,72 @@ export function registerIPC(): void {
     if (!allowed.ok) return false
     shell.showItemInFolder(allowed.path)
     return true
+  })
+
+  // ─── Arquivos: ler, gravar, renomear, duplicar, lixeira ─────────────────────
+  // Cada canal resolve o caminho pela allowlist ANTES de tocar em disco. Foi a
+  // ausência de `fs:read-file` que eliminava a classe "leitura arbitrária de
+  // ~/.ssh/id_rsa" enquanto a árvore só navegava; agora que ela existe, a
+  // allowlist é o que ficou no lugar daquela ausência — não há caminho aqui que
+  // não passe por ela.
+
+  ipcMain.handle('fs:read-file', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    return readTextFile(allowed.path)
+  })
+
+  ipcMain.handle('fs:write-file', async (_e, path: string, text: string) => {
+    if (typeof text !== 'string') return { error: 'error' as const }
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    return writeTextFile(allowed.path, text)
+  })
+
+  /**
+   * Renomear e mover são o mesmo canal: `to` é o caminho final.
+   *
+   * A regra que separa os dois usos é a raiz — origem e destino têm de cair sob
+   * a MESMA raiz permitida. Sem isso, arrastar um arquivo de um projeto para
+   * outro seria uma forma de mover dados entre escopos que o usuário nunca
+   * autorizou junto.
+   */
+  ipcMain.handle('fs:rename', async (_e, from: string, to: string) => {
+    const roots = allowedRoots()
+    const src = await resolveAllowedPath(from, roots)
+    if (!src.ok) return { error: src.reason }
+    const dst = await resolveAllowedTarget(to, roots)
+    if (!dst.ok) return { error: dst.reason }
+    if (dst.root !== src.root) return { error: 'denied' as const }
+    // Pasta para dentro de si mesma: o rename "funcionaria" e sumiria com a
+    // subárvore inteira.
+    if (dst.path === src.path || dst.path.startsWith(src.path + sep)) {
+      return { error: 'denied' as const }
+    }
+    return renameEntry(src.path, dst.path)
+  })
+
+  ipcMain.handle('fs:duplicate', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    return duplicateEntry(allowed.path)
+  })
+
+  /**
+   * Lixeira do sistema, nunca `unlink`: apagar aqui é reversível pelo Finder,
+   * pelo Explorer ou pelo gerenciador de arquivos do Linux. É por isso que este
+   * canal usa `shell` e mora no bridge, não em core/projects/.
+   */
+  ipcMain.handle('fs:trash', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    try {
+      await shell.trashItem(allowed.path)
+      return { ok: true as const }
+    } catch (err) {
+      log.error('fs', `falha mandando ${allowed.path} para a lixeira`, err)
+      return { error: 'error' as const }
+    }
   })
 
   // ─── Diálogos nativos ───────────────────────────────────────────────────────

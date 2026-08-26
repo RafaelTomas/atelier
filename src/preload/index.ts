@@ -9,6 +9,7 @@ import type {
   AgentRole,
   AgentStatus,
   BootInfo,
+  FileOpError,
   CanvasNode,
   DiscoveredProject,
   Connection,
@@ -226,7 +227,20 @@ const api = {
       opts?: { root?: string; showIgnored?: boolean }
     ): Promise<{ entries: FsEntry[]; truncated: number; ignored: number } | { error: string }> =>
       ipcRenderer.invoke('fs:list-dir', path, opts),
-    reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:reveal', path)
+    reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:reveal', path),
+    /** Texto do arquivo, ou o motivo da recusa (grande demais, binário, …). */
+    readFile: (path: string): Promise<{ text: string; bytes: number } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:read-file', path),
+    writeFile: (path: string, text: string): Promise<{ ok: true } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:write-file', path, text),
+    /** Renomear e mover são a mesma coisa: `to` é o caminho final. */
+    rename: (from: string, to: string): Promise<{ ok: true; path: string } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:rename', from, to),
+    duplicate: (path: string): Promise<{ ok: true; path: string } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:duplicate', path),
+    /** Lixeira do sistema — reversível. Nunca apaga de verdade. */
+    trash: (path: string): Promise<{ ok: true } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:trash', path),
   },
 
   events: {

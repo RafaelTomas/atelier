@@ -19,7 +19,8 @@ export function App(): JSX.Element {
     newTerminalFrame,
     newTerminalCwd,
     editTerminalId,
-    scanDialogOpen
+    scanDialogOpen,
+    closingEditor
   } = useStore()
   const [boot, setBoot] = useState<BootInfo | null>(null)
 
@@ -47,11 +48,17 @@ export function App(): JSX.Element {
       store.setCandidates(candidates)
     )
     void store.loadCandidates()
+    // O agente no canvas edita o arquivo que está aberto no editor ao lado: o
+    // main avisa que mudou, a store relê e entrega a quem tem o arquivo aberto.
+    const offFile = window.atelier.fs.onFileChanged(({ path }) => {
+      void store.notifyFileChanged(path)
+    })
     return () => {
       offWorkspace()
       offStatus()
       offStatus2()
       offCandidates()
+      offFile()
     }
   }, [])
 
@@ -136,7 +143,41 @@ export function App(): JSX.Element {
 
       {scanDialogOpen && <ScanDialog />}
 
+      {closingEditor && <UnsavedEditorDialog />}
+
       <ProjectCandidates />
+    </div>
+  )
+}
+
+/** Fechar um editor com alteração pendente pergunta antes de descartar. */
+function UnsavedEditorDialog(): JSX.Element {
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) store.cancelCloseEditor()
+      }}
+    >
+      <div className="modal is-compact" role="dialog" aria-label="Fechar editor">
+        <h2 className="modal-title">Fechar sem salvar?</h2>
+        <p className="trash-hint">
+          Este editor tem alterações que não foram gravadas em disco. Fechar o nó descarta o que
+          você digitou.
+        </p>
+        <div className="modal-footer">
+          <button type="button" className="btn" onClick={() => store.cancelCloseEditor()}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="btn is-danger"
+            onClick={() => void store.confirmCloseEditor()}
+          >
+            Fechar sem salvar
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -33,6 +33,7 @@ import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir } from '../core/persistence/paths'
 import { listDirectory, readIgnoreNames } from '../core/projects/file-tree'
 import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../core/projects/file-ops'
+import { fileWatcher } from '../core/projects/file-watcher'
 import { resolveAllowedPath, resolveAllowedTarget } from '../core/projects/fs-access'
 import * as gitActions from '../core/git/actions'
 import { status as gitStatus } from '../core/git/git'
@@ -473,6 +474,27 @@ export function registerIPC(): void {
     if (!allowed.ok) return { error: allowed.reason }
     return duplicateEntry(allowed.path)
   })
+
+  /**
+   * Vigia um arquivo aberto no editor. Um caminho exato por assinatura, nunca
+   * uma árvore — ver core/projects/file-watcher.ts.
+   */
+  ipcMain.handle('fs:watch', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return false
+    fileWatcher.watch(allowed.path)
+    return true
+  })
+
+  ipcMain.handle('fs:unwatch', async (_e, path: string) => {
+    // Sem allowlist aqui de propósito: parar de vigiar não lê nada, e o
+    // arquivo pode já ter sido apagado — resolver o caminho falharia e
+    // deixaria o watcher vivo para sempre.
+    fileWatcher.unwatch(path)
+  })
+
+  fileWatcher.on('changed', (path: string) => notifyRenderer('fs:file-changed', { path }))
+  fileWatcher.on('removed', (path: string) => notifyRenderer('fs:file-removed', { path }))
 
   /**
    * Lixeira do sistema, nunca `unlink`: apagar aqui é reversível pelo Finder,

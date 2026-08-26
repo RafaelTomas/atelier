@@ -23,6 +23,7 @@ import type {
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
+import { viewport } from '../canvas/viewport'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
 
@@ -144,6 +145,8 @@ export interface AppSnapshot {
    * apagaria esses nós. null = ainda não consultado.
    */
   integrity: { safeMode: boolean; droppedNodes: number; fileSchemaVersion: number } | null
+  /** Nó de editor com alteração pendente, esperando resposta antes de fechar. */
+  closingEditor: UUID | null
   loading: boolean
   bootError: string | null
 }
@@ -177,6 +180,7 @@ const initial: AppSnapshot = {
   prefs: null,
   notice: null,
   integrity: null,
+  closingEditor: null,
   loading: true,
   bootError: null
 }
@@ -284,7 +288,7 @@ class Store {
   }
 
   async addNode(
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor',
     position: { x: number; y: number },
     opts: Record<string, unknown> = {},
     size?: { width: number; height: number }
@@ -310,15 +314,114 @@ class Store {
     return node
   }
 
-  async removeNode(nodeId: UUID): Promise<void> {
+  async removeNode(nodeId: UUID, opts?: { force?: boolean }): Promise<void> {
     const id = this.workspaceId
     if (!id) return
+    // Editor com alteração pendente não fecha calado: pergunta primeiro.
+    if (!opts?.force && this.dirtyEditors.has(nodeId)) {
+      this.set({ closingEditor: nodeId })
+      return
+    }
     await window.atelier.node.remove(id, nodeId)
     this.mutateWorkspace((ws) => {
       ws.nodes = ws.nodes.filter((n) => n.id !== nodeId)
       ws.connections = ws.connections.filter((c) => c.nodeIdA !== nodeId && c.nodeIdB !== nodeId)
     })
     this.set({ selection: this.state.selection.filter((s) => s !== nodeId) })
+  }
+
+  // ─── Editor de código ───────────────────────────────────────────────────────
+
+  /** Nós de editor com alteração pendente. Fora do snapshot: muda a cada tecla. */
+  private dirtyEditors = new Set<UUID>()
+  /** path → quem quer saber que o arquivo mudou em disco. */
+  private fileListeners = new Map<string, Set<(text: string) => void>>()
+
+  setEditorDirty(nodeId: UUID, dirty: boolean): void {
+    if (dirty) this.dirtyEditors.add(nodeId)
+    else this.dirtyEditors.delete(nodeId)
+  }
+
+  hasUnsavedEditor(nodeId: UUID): boolean {
+    return this.dirtyEditors.has(nodeId)
+  }
+
+  /** Fechar com alteração pendente pergunta; o diálogo mora no App. */
+  cancelCloseEditor(): void {
+    this.set({ closingEditor: null })
+  }
+
+  async confirmCloseEditor(): Promise<void> {
+    const id = this.state.closingEditor
+    if (!id) return
+    this.set({ closingEditor: null })
+    this.dirtyEditors.delete(id)
+    await this.removeNode(id, { force: true })
+  }
+
+  async openFileInWorkspace(path: string, position?: { x: number; y: number }): Promise<void> {
+    if (!this.workspaceId) {
+      this.showNotice('nenhum workspace aberto para receber o arquivo')
+      return
+    }
+    // Já aberto: seleciona em vez de criar um segundo editor do mesmo arquivo,
+    // que seriam dois buffers disputando o mesmo disco.
+    const existing = this.state.workspace?.nodes.find(
+      (n) => n.content.type === 'codeEditor' && n.content.value.filePath === path
+    )
+    if (existing) {
+      this.set({ selection: [existing.id] })
+      return
+    }
+    const at = position ?? centerOfViewport(620, 440)
+    await this.addNode('codeEditor', at, { filePath: path })
+  }
+
+  /**
+   * O arquivo mudou de lugar (renomeado ou arrastado para outra pasta): o
+   * editor aberto nele segue o caminho novo em vez de virar um nó quebrado.
+   */
+  fileMoved(from: string, to: string): void {
+    const nodes = this.state.workspace?.nodes ?? []
+    for (const node of nodes) {
+      if (node.content.type === 'codeEditor' && node.content.value.filePath === from) {
+        void this.patchContent(node.id, { filePath: to })
+      }
+    }
+  }
+
+  /**
+   * Assina as mudanças em disco de UM arquivo. Devolve a função de cancelar.
+   *
+   * O main vigia caminho por caminho (nunca uma árvore) e avisa só que mudou;
+   * quem relê é aqui, pelo mesmo canal com allowlist que abriu o arquivo.
+   */
+  onExternalFileChange(path: string, cb: (text: string) => void): () => void {
+    if (!path) return () => {}
+    const set = this.fileListeners.get(path)
+    if (set) {
+      set.add(cb)
+    } else {
+      this.fileListeners.set(path, new Set([cb]))
+      void window.atelier.fs.watch(path)
+    }
+    return () => {
+      const current = this.fileListeners.get(path)
+      if (!current) return
+      current.delete(cb)
+      if (current.size > 0) return
+      this.fileListeners.delete(path)
+      void window.atelier.fs.unwatch(path)
+    }
+  }
+
+  /** Chamado pelo evento do main: relê e distribui para quem assinou. */
+  async notifyFileChanged(path: string): Promise<void> {
+    const listeners = this.fileListeners.get(path)
+    if (!listeners || listeners.size === 0) return
+    const result = await window.atelier.fs.readFile(path)
+    if ('error' in result) return
+    for (const cb of listeners) cb(result.text)
   }
 
   /** Commit do frame ao SOLTAR o nó — durante o arrasto escrevemos direto no DOM. */
@@ -748,6 +851,12 @@ class Store {
     const workspace = await window.atelier.workspace.open(id)
     this.set({ workspace })
   }
+}
+
+/** Retângulo centrado no que está à vista — onde o usuário está olhando. */
+function centerOfViewport(width: number, height: number): { x: number; y: number } {
+  const c = viewport.toCanvas({ x: viewport.width / 2, y: viewport.height / 2 })
+  return { x: c.x - width / 2, y: c.y - height / 2 }
 }
 
 export const store = new Store()

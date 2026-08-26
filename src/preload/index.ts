@@ -246,6 +246,11 @@ const api = {
     /** Lixeira do sistema — reversível. Nunca apaga de verdade. */
     trash: (path: string): Promise<{ ok: true } | { error: FileOpError }> =>
       ipcRenderer.invoke('fs:trash', path),
+    /** Vigia UM arquivo (o aberto no editor). Nunca uma árvore. */
+    watch: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:watch', path),
+    unwatch: (path: string): Promise<void> => ipcRenderer.invoke('fs:unwatch', path),
+    onFileChanged: (cb: (p: { path: string }) => void): Unsubscribe => on('fs:file-changed', cb),
+    onFileRemoved: (cb: (p: { path: string }) => void): Unsubscribe => on('fs:file-removed', cb)
   },
 
   events: {

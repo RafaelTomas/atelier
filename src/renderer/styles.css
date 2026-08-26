@@ -36,7 +36,9 @@
   --corner-height: 146px;
   --corner-gap: 8px;
   --corner-inset: 14px;
-  --zoom-bar-width: 38px;
+  /* Diâmetro do botão redondo de zoom. É o mesmo valor da largura da coluna
+     quando ele abre — o painel cresce só na vertical. */
+  --zoom-dial-size: 40px;
 }
 
 /* Modo sistema: escuro só quando o SO pede E o usuário não forçou claro. */
@@ -1757,10 +1759,10 @@ button { font: inherit; color: inherit; }
   /* z-index 50: acima da prévia de conexão (40), abaixo das barras de nó e do
      aviso de projetos (60) — uma barra ancorada num nó do canto de baixo tem
      de continuar clicável por cima do mapa. */
-  /* `right` deixa a coluna da barra de zoom livre. Os dois compartilham a
-     mesma linha de base e a mesma altura (--corner-height). */
+  /* O zoom saiu da linha de base (virou o botão redondo mais acima), então o
+     mapa volta a encostar no recuo da borda. */
   position: absolute; z-index: 50;
-  right: calc(var(--corner-inset) + var(--zoom-bar-width) + var(--corner-gap));
+  right: var(--corner-inset);
   bottom: 18px;
   /* Altura fixada no mesmo token da barra de zoom, e não deixada a cargo do
      <canvas> de dentro: assim mudar o tamanho do mapa não desalinha os dois
@@ -1800,58 +1802,100 @@ button { font: inherit; color: inherit; }
    faixa de alguns pixels embaixo, desalinhando o padding. */
 .minimap canvas { display: block; border-radius: 5px; background: var(--canvas-bg); }
 
-/* ─── Barra de zoom do canto ──────────────────────────────────────────────── */
+/* Janela estreita: o dock é centrado e cresce para os dois lados, e abaixo de
+   ~780px ele alcança o minimapa na linha de base. Quem cede é o mapa — ele é o
+   item de conveniência, e some sozinho de qualquer forma quando o canvas está
+   parado.
+   O limite era 860px enquanto o zoom dividia a base com ele; agora o zoom é o
+   botão redondo mais acima e não entra nessa conta. */
+@media (max-width: 780px) {
+  .minimap { display: none; }
+}
 
-/* Coluna à direita do minimapa, na mesma linha de base. Vertical porque é uma
-   faixa estreita encostada na borda: em linha, ela empurraria o mapa para o
-   meio da tela. */
-.zoom-bar {
+/* ─── Zoom: botão redondo que abre no hover ───────────────────────────────── */
+
+/* Na borda direita, acima do minimapa e do dock — fora da linha de base, que
+   já está ocupada. `bottom` em porcentagem para acompanhar janelas baixas. */
+.zoom-dial {
   position: absolute; z-index: 50;
-  right: var(--corner-inset); bottom: 18px;
-  width: var(--zoom-bar-width);
-  /* Mesma altura do minimapa: os dois formam um bloco, alinhados em cima e
-     embaixo. `space-between` distribui os quatro controles nela em vez de
-     empilhá-los no topo e deixar uma sobra morta embaixo. */
-  height: var(--corner-height);
-  display: flex; flex-direction: column; align-items: stretch;
-  justify-content: space-between;
-  padding: 4px; border-radius: 12px;
-  border: 1px solid var(--dock-border);
-  background: var(--dock-bg);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 6px 20px rgb(0 0 0 / .22);
+  right: var(--corner-inset); bottom: 38%;
+  display: flex; flex-direction: column; align-items: center;
   user-select: none;
 }
 
-.zoom-btn,
-.zoom-level {
-  border: 0; background: transparent; color: var(--dock-fg);
-  border-radius: 6px; cursor: pointer;
-  font: inherit; line-height: 1;
+/* O :hover mora no .zoom-dial, e não no círculo: assim o respiro entre o
+   gatilho e o painel fica DENTRO da área que mantém o menu aberto. Com o
+   hover no círculo, esses 6px seriam terra de ninguém — o ponteiro os
+   atravessaria, o hover cairia e o painel fecharia debaixo do cursor. */
+
+/* O gatilho: círculo com a porcentagem. Fica sempre visível — o zoom atual é
+   informação, não só um botão. */
+.zoom-dial-trigger {
+  width: var(--zoom-dial-size); height: var(--zoom-dial-size);
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--dock-border); border-radius: 50%;
+  background: var(--dock-bg); color: var(--dock-fg-strong);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 20px rgb(0 0 0 / .22);
+  cursor: pointer; font: inherit;
 }
-.zoom-btn:hover:not(:disabled),
-.zoom-level:hover { background: var(--dock-hover); color: var(--dock-fg-strong); }
+.zoom-dial:hover .zoom-dial-trigger,
+.zoom-dial:focus-within .zoom-dial-trigger { border-color: var(--dock-fg); }
+
+/* Tabular-nums: sem isso o rótulo muda de largura entre "100%" e "75%" e o
+   número dança dentro do círculo durante o zoom. */
+.zoom-dial-label {
+  font-size: 10px; font-weight: 600;
+  font-variant-numeric: tabular-nums; letter-spacing: -.02em;
+}
+
+/* Fechado: altura zero e invisível, mas ainda no fluxo — animar `height` de um
+   conteúdo de altura conhecida é o que dá a expansão suave sem medir nada em
+   JS. `visibility` entra junto para o painel fechado não capturar o mouse. */
+.zoom-dial-options {
+  overflow: hidden;
+  width: var(--zoom-dial-size);
+  height: 0; opacity: 0; visibility: hidden;
+  display: flex; flex-direction: column; align-items: stretch;
+  margin-bottom: 0;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--dock-bg);
+  backdrop-filter: blur(12px);
+  transition:
+    height .18s ease, opacity .18s ease, margin-bottom .18s ease,
+    visibility 0s linear .18s;
+}
+
+/* Aberto no hover E no foco de teclado: um handler de mouse deixaria de fora
+   quem chega pelo Tab. */
+.zoom-dial:hover .zoom-dial-options,
+.zoom-dial:focus-within .zoom-dial-options {
+  /* 3 botões de 30 + separador (1+8 de margem) + padding 8 = 107 */
+  height: 107px; opacity: 1; visibility: visible;
+  margin-bottom: 6px;
+  padding: 4px 0;
+  border-color: var(--dock-border);
+  box-shadow: 0 6px 20px rgb(0 0 0 / .22);
+  transition:
+    height .18s ease, opacity .18s ease, margin-bottom .18s ease,
+    visibility 0s;
+}
+
+.zoom-btn {
+  height: 30px; flex-shrink: 0;
+  border: 0; background: transparent; color: var(--dock-fg);
+  cursor: pointer; font: inherit; font-size: 16px; line-height: 1;
+}
+.zoom-btn:hover:not(:disabled) { color: var(--dock-fg-strong); }
 .zoom-btn:disabled { opacity: .35; cursor: default; }
 
-/* flex:1 divide a altura disponível entre os três botões; o rótulo e o
-   separador têm tamanho fixo e ficam de fora da divisão. */
-.zoom-btn { flex: 1; min-height: 24px; font-size: 16px; }
+.zoom-sep { flex-shrink: 0; height: 1px; margin: 4px 10px; background: var(--dock-border); }
 
-/* Tabular-nums: sem isso o rótulo muda de largura entre "100%" e "75%" e a
-   coluna inteira treme durante o zoom. */
-.zoom-level {
-  flex-shrink: 0; height: 20px; font-size: 9px; font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -.02em;
-  color: var(--dock-fg-strong);
-}
-
-.zoom-sep { flex-shrink: 0; height: 1px; margin: 3px 6px; background: var(--dock-border); }
-
-/* Janela estreita: o dock é centrado e cresce para os dois lados, e abaixo de
-   ~860px ele alcança o canto. Quem cede é o minimapa — a barra de zoom precisa
-   continuar alcançável, e o mapa é o item de conveniência dos dois.
-   O canto passa a ter só a coluna da barra de zoom, que o dock não alcança. */
-@media (max-width: 860px) {
-  .minimap { display: none; }
+/* Sem animação para quem pediu: o painel aparece e some seco. */
+@media (prefers-reduced-motion: reduce) {
+  .zoom-dial-options { transition: none; }
+  .zoom-dial:hover .zoom-dial-options,
+  .zoom-dial:focus-within .zoom-dial-options { transition: none; }
 }

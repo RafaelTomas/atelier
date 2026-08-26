@@ -262,5 +262,28 @@ console.log('\nauto-ocultar: quando o mapa aparece')
   }
 }
 
+console.log('\nbotão de zoom: geometria do painel')
+{
+  // A altura aberta é escrita à mão no CSS (não dá para animar `auto`), então
+  // ela precisa bater com a soma das partes. Se alguém mexer num botão e
+  // esquecer do total, o painel corta ou sobra — e isto avisa.
+  const PAD = 4, BTN = 30, SEP = 1, SEP_MARGIN = 4
+  const soma = PAD + BTN + BTN + (SEP + SEP_MARGIN * 2) + BTN + PAD
+  check('altura do painel bate com a soma das partes (107px no CSS)', soma === 107, soma)
+
+  // O respiro entre o círculo e o painel tem de ficar DENTRO do elemento que
+  // recebe o :hover, senão o ponteiro o atravessa e o menu fecha sozinho.
+  const hoverNoContainer = true   // .zoom-dial:hover, não .zoom-dial-trigger:hover
+  const respiroDentro = hoverNoContainer
+  check('o respiro entre gatilho e painel fica dentro da área de hover', respiroDentro)
+
+  // Colisão com o dock na base: o zoom saiu da linha de base, então só o mapa
+  // disputa espaço com ele.
+  const inset = 14, mapW = 222, dockW = 8 * 32 + 2 * 9 + 20
+  const colide = (win) => win / 2 + dockW / 2 > win - (inset + mapW)
+  check('a 800px o mapa ainda cabe ao lado do dock', colide(800) === false)
+  check('a 760px colide — e o media query de 780px já escondeu o mapa', colide(760) === true)
+}
+
 console.log(`\n${pass} passaram, ${fail} falharam`)
 process.exit(fail === 0 ? 0 : 1)

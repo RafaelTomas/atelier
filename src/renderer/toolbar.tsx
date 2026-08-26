@@ -43,9 +43,10 @@ export function Toolbar(): JSX.Element {
       )}
       <div className="toolbar-title">{workspace?.name ?? '—'}</div>
 
-      {/* Criar nós e desenhar mudaram para a dock, e o zoom para a barra do
-          canto (canvas/zoom-bar.tsx) — é controle do canvas, e fica onde a mão
-          já está ao navegar. Aqui sobra o que é da JANELA: tema e gravação. */}
+      {/* Criar nós e desenhar mudaram para a dock, e o zoom para o botão
+          redondo da borda direita (canvas/zoom-bar.tsx) — é controle do canvas,
+          e fica onde a mão já está ao navegar. Aqui sobra o que é da JANELA:
+          Git, tema e gravação. */}
       <div className="toolbar-actions">
         {/* Git antes do zoom: é ação sobre o PROJETO, e as outras são sobre a
             janela. Junto delas, o commit ficaria a um clique do botão de zoom. */}

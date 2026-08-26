@@ -9,6 +9,7 @@ import type {
   AgentRole,
   AgentStatus,
   BootInfo,
+  FileOpError,
   CanvasNode,
   DiscoveredProject,
   Connection,
@@ -25,7 +26,7 @@ import type {
   WorkspacePayload
 } from '@shared/types'
 
-type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree'
+type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor'
 
 /** `ok` diz se a ação passou; `message` é o que o git respondeu, resumido. */
 interface GitActionResult {
@@ -58,6 +59,11 @@ const api = {
       ipcRenderer.invoke('workspace:rename', id, name),
     remove: (id: UUID): Promise<WorkspaceEntry[]> => ipcRenderer.invoke('workspace:delete', id),
     saveNow: (): Promise<number> => ipcRenderer.invoke('workspace:save-now'),
+    /** Modo seguro: o arquivo tem nós que este binário não entende. */
+    integrity: (
+      id: UUID
+    ): Promise<{ safeMode: boolean; droppedNodes: number; fileSchemaVersion: number } | null> =>
+      ipcRenderer.invoke('workspace:integrity', id),
     setViewport: (id: UUID, origin: Point, zoom: number): Promise<void> =>
       ipcRenderer.invoke('viewport:set', id, origin, zoom)
   },
@@ -118,7 +124,8 @@ const api = {
       rows: number
     ): Promise<{ buffer?: string; status?: AgentStatus; error?: string }> =>
       ipcRenderer.invoke('terminal:spawn', workspaceId, nodeId, cols, rows),
-    write: (nodeId: UUID, data: string): Promise<void> =>
+    /** false = não havia PTY vivo para receber o texto. */
+    write: (nodeId: UUID, data: string): Promise<boolean> =>
       ipcRenderer.invoke('terminal:write', nodeId, data),
     resize: (nodeId: UUID, cols: number, rows: number): Promise<void> =>
       ipcRenderer.invoke('terminal:resize', nodeId, cols, rows),
@@ -226,7 +233,28 @@ const api = {
       opts?: { root?: string; showIgnored?: boolean }
     ): Promise<{ entries: FsEntry[]; truncated: number; ignored: number } | { error: string }> =>
       ipcRenderer.invoke('fs:list-dir', path, opts),
-    reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:reveal', path)
+    reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:reveal', path),
+    /** URL `file://` do caminho — o que o <webview> de um PDF precisa. */
+    fileUrl: (path: string): Promise<{ url: string } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:file-url', path),
+    /** Texto do arquivo, ou o motivo da recusa (grande demais, binário, …). */
+    readFile: (path: string): Promise<{ text: string; bytes: number } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:read-file', path),
+    writeFile: (path: string, text: string): Promise<{ ok: true } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:write-file', path, text),
+    /** Renomear e mover são a mesma coisa: `to` é o caminho final. */
+    rename: (from: string, to: string): Promise<{ ok: true; path: string } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:rename', from, to),
+    duplicate: (path: string): Promise<{ ok: true; path: string } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:duplicate', path),
+    /** Lixeira do sistema — reversível. Nunca apaga de verdade. */
+    trash: (path: string): Promise<{ ok: true } | { error: FileOpError }> =>
+      ipcRenderer.invoke('fs:trash', path),
+    /** Vigia UM arquivo (o aberto no editor). Nunca uma árvore. */
+    watch: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:watch', path),
+    unwatch: (path: string): Promise<void> => ipcRenderer.invoke('fs:unwatch', path),
+    onFileChanged: (cb: (p: { path: string }) => void): Unsubscribe => on('fs:file-changed', cb),
+    onFileRemoved: (cb: (p: { path: string }) => void): Unsubscribe => on('fs:file-removed', cb)
   },
 
   events: {

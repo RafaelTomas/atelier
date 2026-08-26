@@ -10,6 +10,7 @@
  * anotadas abaixo.
  */
 import type {
+  CodeEditorContent,
   FileTreeContent,
   FreehandContent,
   NodeContent,
@@ -45,6 +46,7 @@ const VARIANTS = [
   'stickyNote',
   'portal',
   'fileTree',
+  'codeEditor',
   'text',
   'shape',
   'stroke',
@@ -147,6 +149,10 @@ function decodeFileTree(raw: Record<string, unknown>): FileTreeContent {
   }
 }
 
+function decodeCodeEditor(raw: Record<string, unknown>): CodeEditorContent {
+  return { filePath: str(raw.filePath) }
+}
+
 // ─── Enums de tipografia ──────────────────────────────────────────────────────
 // Validamos em vez de fazer cast: um valor estranho vindo do disco (ou de uma
 // versão futura do app nativo) cairia direto no CSS e quebraria o layout.
@@ -245,6 +251,8 @@ export function decodeNodeContent(value: unknown): NodeContent | null {
       return { type: 'portal', value: decodePortal(payload) }
     case 'fileTree':
       return { type: 'fileTree', value: decodeFileTree(payload) }
+    case 'codeEditor':
+      return { type: 'codeEditor', value: decodeCodeEditor(payload) }
     case 'text':
       return { type: 'text', value: decodeText(payload) }
     case 'shape':
@@ -365,6 +373,10 @@ export function makeFileTreeContent(name: string, rootPath: string): FileTreeCon
   return { name, rootPath, viewMode: 'list' }
 }
 
+export function makeCodeEditorContent(filePath: string): CodeEditorContent {
+  return { filePath }
+}
+
 /** Nome exibido no header do nó, por tipo. */
 export function nodeDisplayName(content: NodeContent): string {
   switch (content.type) {
@@ -385,9 +397,16 @@ export function nodeDisplayName(content: NodeContent): string {
     }
     case 'fileTree':
       return content.value.name
+    case 'codeEditor':
+      return fileNameOf(content.value.filePath) || 'Arquivo'
     case 'text':
       return content.value.text.slice(0, 24) || 'Text'
     default:
       return content.type
   }
+}
+
+/** Último componente do caminho. O main tem `path`, mas o Windows usa `\`. */
+export function fileNameOf(path: string): string {
+  return path.split(/[\\/]/).pop() ?? ''
 }

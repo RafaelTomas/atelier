@@ -209,10 +209,17 @@ class TerminalManager extends EventEmitter {
     this.emit('status', session.id, next)
   }
 
-  write(id: UUID, data: string): void {
+  /**
+   * Devolve `false` quando não havia PTY vivo para receber. Quem escreve por
+   * conta do usuário (colar um caminho, por exemplo) precisa saber disso: sem
+   * o retorno, um terminal ainda não iniciado engoliria o texto em silêncio e
+   * o clique pareceria não ter feito nada.
+   */
+  write(id: UUID, data: string): boolean {
     const session = this.sessions.get(id)
-    if (!session || session.exited) return
+    if (!session || session.exited) return false
     session.pty.write(data)
+    return true
   }
 
   resize(id: UUID, cols: number, rows: number): void {

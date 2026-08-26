@@ -5,6 +5,7 @@
  * o que preserva a regra do app nativo de que toda I/O é centralizada.
  */
 import { homedir } from 'node:os'
+import { sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
@@ -20,6 +21,7 @@ import type {
 import { Constants } from '../core/constants'
 import { log } from '../core/logger'
 import {
+  makeCodeEditorContent,
   makeFileTreeContent,
   makePortalContent,
   makeStickyNoteContent,
@@ -30,7 +32,9 @@ import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir } from '../core/persistence/paths'
 import { listDirectory, readIgnoreNames } from '../core/projects/file-tree'
-import { resolveAllowedPath } from '../core/projects/fs-access'
+import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../core/projects/file-ops'
+import { fileWatcher } from '../core/projects/file-watcher'
+import { resolveAllowedPath, resolveAllowedTarget } from '../core/projects/fs-access'
 import * as gitActions from '../core/git/actions'
 import { status as gitStatus } from '../core/git/git'
 import { addProjectFolder } from '../core/projects/add-folder'
@@ -45,7 +49,7 @@ import { onConnectionCreated, restoreConnections } from '../core/connection/conn
 import { forgetTerminal } from '../core/connection/skill-injector'
 import { notifyRenderer } from './notify'
 
-type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree'
+type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor'
 
 function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeContent {
   switch (kind) {
@@ -85,6 +89,8 @@ function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeConte
         type: 'fileTree',
         value: makeFileTreeContent(String(opts.name ?? 'Files'), String(opts.rootPath ?? ''))
       }
+    case 'codeEditor':
+      return { type: 'codeEditor', value: makeCodeEditorContent(String(opts.filePath ?? '')) }
   }
 }
 
@@ -102,6 +108,8 @@ function minSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: 240, height: 180 }
     case 'fileTree':
       return { width: 180, height: 140 }
+    case 'codeEditor':
+      return { width: 240, height: 160 }
     case 'text':
       return { width: 80, height: 32 }
   }
@@ -119,6 +127,8 @@ function defaultSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: 640, height: 440 }
     case 'fileTree':
       return { width: 300, height: 420 }
+    case 'codeEditor':
+      return { width: 620, height: 440 }
   }
 }
 
@@ -171,7 +181,22 @@ export function registerIPC(): void {
     return appState.manifest.workspaces
   })
 
-  ipcMain.handle('workspace:save-now', async () => appState.saveDirtyWorkspaces())
+  /**
+   * O botão Salvar da barra. `force` porque é ação explícita do usuário: é o
+   * único caminho que grava um workspace em modo seguro, e a faixa na tela já
+   * disse o que se perde.
+   */
+  ipcMain.handle('workspace:save-now', async () => appState.saveDirtyWorkspaces(true))
+
+  /**
+   * O que a UI precisa para decidir se mostra a faixa de modo seguro. Fica fora
+   * do payload do workspace de propósito: não é dado do canvas, é estado da
+   * leitura do arquivo.
+   */
+  ipcMain.handle('workspace:integrity', (_e, id: UUID) => {
+    const ws = appState.workspaces.get(id)
+    return ws ? ws.integrity() : null
+  })
 
   ipcMain.handle('viewport:set', (_e, id: UUID, origin: Point, zoom: number) => {
     appState.workspaces.get(id)?.setViewport(origin, zoom)
@@ -394,11 +419,113 @@ export function registerIPC(): void {
     }
   })
 
+  /**
+   * O caminho como URL `file://`, para o que é renderizado por <webview> — um
+   * PDF, por exemplo.
+   *
+   * A conversão fica no main, e não no renderer, pela mesma razão do
+   * `dialog:choose-file`: `pathToFileURL` resolve espaço, acento e letra de
+   * unidade do Windows, que uma concatenação de string erraria. E passa pela
+   * allowlist como qualquer outro acesso a disco.
+   */
+  ipcMain.handle('fs:file-url', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    return { url: pathToFileURL(allowed.path).href }
+  })
+
   ipcMain.handle('fs:reveal', async (_e, path: string) => {
     const allowed = await resolveAllowedPath(path, allowedRoots())
     if (!allowed.ok) return false
     shell.showItemInFolder(allowed.path)
     return true
+  })
+
+  // ─── Arquivos: ler, gravar, renomear, duplicar, lixeira ─────────────────────
+  // Cada canal resolve o caminho pela allowlist ANTES de tocar em disco. Foi a
+  // ausência de `fs:read-file` que eliminava a classe "leitura arbitrária de
+  // ~/.ssh/id_rsa" enquanto a árvore só navegava; agora que ela existe, a
+  // allowlist é o que ficou no lugar daquela ausência — não há caminho aqui que
+  // não passe por ela.
+
+  ipcMain.handle('fs:read-file', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    return readTextFile(allowed.path)
+  })
+
+  ipcMain.handle('fs:write-file', async (_e, path: string, text: string) => {
+    if (typeof text !== 'string') return { error: 'error' as const }
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    return writeTextFile(allowed.path, text)
+  })
+
+  /**
+   * Renomear e mover são o mesmo canal: `to` é o caminho final.
+   *
+   * A regra que separa os dois usos é a raiz — origem e destino têm de cair sob
+   * a MESMA raiz permitida. Sem isso, arrastar um arquivo de um projeto para
+   * outro seria uma forma de mover dados entre escopos que o usuário nunca
+   * autorizou junto.
+   */
+  ipcMain.handle('fs:rename', async (_e, from: string, to: string) => {
+    const roots = allowedRoots()
+    const src = await resolveAllowedPath(from, roots)
+    if (!src.ok) return { error: src.reason }
+    const dst = await resolveAllowedTarget(to, roots)
+    if (!dst.ok) return { error: dst.reason }
+    if (dst.root !== src.root) return { error: 'denied' as const }
+    // Pasta para dentro de si mesma: o rename "funcionaria" e sumiria com a
+    // subárvore inteira.
+    if (dst.path === src.path || dst.path.startsWith(src.path + sep)) {
+      return { error: 'denied' as const }
+    }
+    return renameEntry(src.path, dst.path)
+  })
+
+  ipcMain.handle('fs:duplicate', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    return duplicateEntry(allowed.path)
+  })
+
+  /**
+   * Vigia um arquivo aberto no editor. Um caminho exato por assinatura, nunca
+   * uma árvore — ver core/projects/file-watcher.ts.
+   */
+  ipcMain.handle('fs:watch', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return false
+    fileWatcher.watch(allowed.path)
+    return true
+  })
+
+  ipcMain.handle('fs:unwatch', async (_e, path: string) => {
+    // Sem allowlist aqui de propósito: parar de vigiar não lê nada, e o
+    // arquivo pode já ter sido apagado — resolver o caminho falharia e
+    // deixaria o watcher vivo para sempre.
+    fileWatcher.unwatch(path)
+  })
+
+  fileWatcher.on('changed', (path: string) => notifyRenderer('fs:file-changed', { path }))
+  fileWatcher.on('removed', (path: string) => notifyRenderer('fs:file-removed', { path }))
+
+  /**
+   * Lixeira do sistema, nunca `unlink`: apagar aqui é reversível pelo Finder,
+   * pelo Explorer ou pelo gerenciador de arquivos do Linux. É por isso que este
+   * canal usa `shell` e mora no bridge, não em core/projects/.
+   */
+  ipcMain.handle('fs:trash', async (_e, path: string) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    try {
+      await shell.trashItem(allowed.path)
+      return { ok: true as const }
+    } catch (err) {
+      log.error('fs', `falha mandando ${allowed.path} para a lixeira`, err)
+      return { error: 'error' as const }
+    }
   })
 
   // ─── Diálogos nativos ───────────────────────────────────────────────────────
@@ -476,9 +603,9 @@ export function registerIPC(): void {
     }
   )
 
-  ipcMain.handle('terminal:write', (_e, nodeId: UUID, data: string) => {
+  ipcMain.handle('terminal:write', (_e, nodeId: UUID, data: string) =>
     terminals.write(nodeId, data)
-  })
+  )
 
   ipcMain.handle('terminal:resize', (_e, nodeId: UUID, cols: number, rows: number) => {
     terminals.resize(nodeId, cols, rows)

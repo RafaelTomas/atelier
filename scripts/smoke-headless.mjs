@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict'
 import net from 'node:net'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -54,7 +54,11 @@ await esbuild.build({
       export { projectIndex } from './src/main/core/state/project-store.ts'
       export { scanForProjects } from './src/main/core/projects/scanner.ts'
       export { isRepository, inferKind } from './src/main/core/projects/detect.ts'
-      export { isPathAllowed } from './src/main/core/projects/fs-access.ts'
+      export { isPathAllowed, resolveAllowedPath, resolveAllowedTarget } from './src/main/core/projects/fs-access.ts'
+      export { readTextFile, writeTextFile, renameEntry, duplicateEntry, MAX_TEXT_BYTES } from './src/main/core/projects/file-ops.ts'
+      // Função pura do renderer (paths.ts não importa nada): entra aqui porque
+      // aspas erradas quebram em silêncio — o comando roda com o argumento errado.
+      export { quoteForShell } from './src/renderer/paths.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -75,6 +79,9 @@ const { roles } = core
 const { importLegacyDataIfNeeded } = core
 const { scanAgentStatus } = core
 const { projectIndex, scanForProjects, isRepository, inferKind, isPathAllowed } = core
+const { resolveAllowedPath, resolveAllowedTarget } = core
+const { readTextFile, writeTextFile, renameEntry, duplicateEntry, MAX_TEXT_BYTES } = core
+const { quoteForShell } = core
 
 /** Fala o protocolo real do atelier por socket. */
 function cli(args, terminalId) {
@@ -192,6 +199,82 @@ await test('workspace relê do disco preservando nós e conexões', async () => 
   assert.equal(reloaded.nodes.length, 3)
   assert.equal(reloaded.connections.length, 1)
   assert.equal(reloaded.connections[0].kind, 'note')
+})
+
+// ─── Formato: modo seguro e backup da subida de versão ────────────────────────
+// O teste que a perda silenciosa nunca teve. Um workspace com um caso de enum
+// que este binário não conhece tem de abrir SEM gravar por cima: o autosave
+// regravaria o arquivo sem aquele nó, de forma irreversível e invisível.
+
+await test('nó desconhecido põe o workspace em modo seguro e trava o autosave', async () => {
+  const criado = await appState.createWorkspace('Do Futuro', '')
+  const file = paths.workspaceFile(criado.id)
+
+  // Escreve à mão um arquivo v3 com um caso que o decoder não conhece —
+  // exatamente o que um binário mais VELHO veria ao abrir um workspace novo.
+  const doc = JSON.parse(readFileSync(file, 'utf8'))
+  doc.payload.nodes = [
+    {
+      id: 'AAAAAAAA-0000-0000-0000-0000000000FF',
+      frame: [[0, 0], [100, 100]],
+      zIndex: 1,
+      isLocked: false,
+      createdAt: '2026-05-16T00:00:00Z',
+      lastModifiedAt: '2026-05-16T00:00:00Z',
+      content: { hologram: { _0: { algo: 'do futuro' } } }
+    }
+  ]
+  await writeFile(file, JSON.stringify(doc, null, 2))
+  const antes = readFileSync(file, 'utf8')
+
+  // Reabre do disco (o manager em memória ainda é o da criação)
+  appState.workspaces.delete(criado.id)
+  const reaberto = await appState.openWorkspace(criado.id)
+  assert.equal(reaberto.droppedNodes, 1, 'o nó descartado não foi contado')
+  assert.equal(reaberto.isSafeMode, true)
+
+  // Mexer no canvas suja o workspace, e o autosave PULA
+  reaberto.markDirty()
+  assert.equal(await appState.saveDirtyWorkspaces(), 0, 'autosave gravou em modo seguro')
+  assert.equal(readFileSync(file, 'utf8'), antes, 'o arquivo mudou byte a byte')
+
+  // Só a ação explícita do usuário grava — e aí o aviso perde o objeto
+  assert.equal(await appState.saveDirtyWorkspaces(true), 1)
+  assert.notEqual(readFileSync(file, 'utf8'), antes)
+  assert.equal(reaberto.isSafeMode, false)
+
+  appState.workspaces.delete(criado.id)
+})
+
+await test('primeira gravação de um workspace v2 deixa um backup ao lado', async () => {
+  const criado = await appState.createWorkspace('Herdado', '')
+  const file = paths.workspaceFile(criado.id)
+  const backup = join(paths.workspaceDir(criado.id), 'workspace.v2.backup.json')
+
+  // Rebaixa o arquivo para v2, como um workspace gravado antes desta versão
+  const doc = JSON.parse(readFileSync(file, 'utf8'))
+  doc.schemaVersion = 2
+  await writeFile(file, JSON.stringify(doc, null, 2))
+  const original = readFileSync(file, 'utf8')
+
+  appState.workspaces.delete(criado.id)
+  const reaberto = await appState.openWorkspace(criado.id)
+  assert.equal(reaberto.fileSchemaVersion, 2)
+  assert.equal(reaberto.isSafeMode, false, 'arquivo mais VELHO não é motivo de modo seguro')
+
+  reaberto.markDirty()
+  await appState.saveDirtyWorkspaces()
+
+  assert.ok(existsSync(backup), 'não gravou o backup da v2')
+  assert.equal(readFileSync(backup, 'utf8'), original, 'o backup não é o arquivo original')
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).schemaVersion, 3)
+
+  // Segunda gravação não reescreve o backup: o valor dele é ser o ANTES.
+  reaberto.markDirty()
+  await appState.saveDirtyWorkspaces()
+  assert.equal(readFileSync(backup, 'utf8'), original, 'o backup foi sobrescrito')
+
+  appState.workspaces.delete(criado.id)
 })
 
 // ─── Protocolo atelier ───────────────────────────────────────────────────────
@@ -674,6 +757,115 @@ await test('describe recusa nome ambíguo em vez de descrever o errado', async (
   assert.match(ok, /Updated 'backend'/)
   assert.equal(projectIndex.get(a.id).description, 'pelo caminho')
   assert.notEqual(projectIndex.get(c.id).description, 'pelo caminho', 'descreveu o projeto errado')
+})
+
+// ─── Operações de arquivo ─────────────────────────────────────────────────────
+// Onde as regras do editor valem alguma coisa: teto de tamanho, recusa de
+// binário e a promessa de nunca sobrescrever um destino que já existe.
+
+const fileLab = join(projectTree, 'lab')
+await mkdir(fileLab, { recursive: true })
+
+await test('readTextFile lê texto e recusa arquivo acima do teto', async () => {
+  const small = join(fileLab, 'nota.txt')
+  await writeFile(small, 'oi\nmundo\n')
+  const ok = await readTextFile(small)
+  assert.equal(ok.text, 'oi\nmundo\n')
+  assert.equal(ok.bytes, 9)
+
+  // Um byte acima do teto: leitura parcial seria pior que a recusa — salvar
+  // depois truncaria o arquivo do usuário.
+  const big = join(fileLab, 'grande.log')
+  await writeFile(big, Buffer.alloc(MAX_TEXT_BYTES + 1, 0x61))
+  assert.equal((await readTextFile(big)).error, 'too-large')
+})
+
+await test('readTextFile recusa binário pelo byte nulo do começo', async () => {
+  const bin = join(fileLab, 'programa.bin')
+  await writeFile(bin, Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x00, 0x01, 0x02]))
+  assert.equal((await readTextFile(bin)).error, 'binary')
+
+  // Arquivo inexistente e diretório não viram exceção: viram motivo.
+  assert.equal((await readTextFile(join(fileLab, 'nao-existe'))).error, 'missing')
+  assert.equal((await readTextFile(fileLab)).error, 'not-a-file')
+})
+
+await test('writeTextFile grava de forma atômica e não deixa .tmp para trás', async () => {
+  const file = join(fileLab, 'nota.txt')
+  assert.deepEqual(await writeTextFile(file, 'novo conteúdo'), { ok: true })
+  assert.equal((await readTextFile(file)).text, 'novo conteúdo')
+  const sujeira = (await readdir(fileLab)).filter((f) => f.includes('atelier-tmp'))
+  assert.deepEqual(sujeira, [], 'sobrou arquivo temporário')
+})
+
+await test('renameEntry recusa destino existente em vez de sobrescrever', async () => {
+  const a = join(fileLab, 'a.txt')
+  const b = join(fileLab, 'b.txt')
+  await writeFile(a, 'A')
+  await writeFile(b, 'B')
+
+  assert.equal((await renameEntry(a, b)).error, 'exists')
+  assert.equal((await readTextFile(b)).text, 'B', 'o destino foi sobrescrito')
+
+  const c = join(fileLab, 'c.txt')
+  assert.equal((await renameEntry(a, c)).path, c)
+  assert.equal((await readTextFile(c)).text, 'A')
+})
+
+await test('duplicateEntry acha o primeiro nome livre, com a extensão no fim', async () => {
+  const src = join(fileLab, 'app.ts')
+  await writeFile(src, 'export {}')
+
+  const first = await duplicateEntry(src)
+  assert.equal(first.path, join(fileLab, 'app copy.ts'))
+  assert.equal((await readTextFile(first.path)).text, 'export {}')
+
+  // Segunda cópia não colide com a primeira
+  const second = await duplicateEntry(src)
+  assert.equal(second.path, join(fileLab, 'app copy 2.ts'))
+
+  // Nome sem extensão de verdade continua inteiro
+  const dot = join(fileLab, '.gitignore')
+  await writeFile(dot, 'node_modules')
+  assert.equal((await duplicateEntry(dot)).path, join(fileLab, '.gitignore copy'))
+})
+
+await test('resolveAllowedTarget valida destino que ainda não existe pelo pai', async () => {
+  const permitido = { roots: [projectTree] }
+  const dentro = await resolveAllowedTarget(join(fileLab, 'ainda-nao.txt'), permitido)
+  assert.equal(dentro.ok, true)
+  assert.equal(dentro.root, await realpath(projectTree))
+
+  // O caminho relativo escapando pelo pai é resolvido ANTES de comparar
+  const fuga = await resolveAllowedTarget(join(fileLab, '..', '..', '..', 'passwd'), permitido)
+  assert.equal(fuga.ok, false)
+  // Pai inexistente é 'missing', não uma criação de diretório silenciosa
+  const orfao = await resolveAllowedTarget(join(fileLab, 'nao', 'existe.txt'), permitido)
+  assert.deepEqual(orfao, { ok: false, reason: 'missing' })
+})
+
+await test('resolveAllowedPath diz sob QUAL raiz o caminho caiu', async () => {
+  // É o que permite exigir origem e destino na mesma raiz ao mover.
+  const duasRaizes = { roots: [join(projectTree, 'b'), join(projectTree, 'c')] }
+  const a = await resolveAllowedPath(join(projectTree, 'b'), duasRaizes)
+  const b = await resolveAllowedPath(join(projectTree, 'c'), duasRaizes)
+  assert.equal(a.ok && b.ok, true)
+  assert.notEqual(a.root, b.root)
+})
+
+await test('quoteForShell só põe aspas quando o caminho precisa', () => {
+  // O caso comum sai limpo: aspas em todo caminho seriam ruído na linha.
+  assert.equal(quoteForShell('/home/u/src/app.ts', 'linux'), '/home/u/src/app.ts')
+
+  // Espaço sem aspas vira DOIS argumentos — é o erro que este teste existe para pegar.
+  assert.equal(quoteForShell('/home/u/My Docs/a.ts', 'linux'), "'/home/u/My Docs/a.ts'")
+  assert.equal(quoteForShell('/home/u/a$b.ts', 'darwin'), "'/home/u/a$b.ts'")
+
+  // Aspa simples no nome: fecha, escapa, reabre.
+  assert.equal(quoteForShell("/home/u/it's.ts", 'linux'), "'/home/u/it'\\''s.ts'")
+
+  // No Windows são aspas duplas: o cmd.exe não entende as simples.
+  assert.equal(quoteForShell('C:\\Users\\u\\My Docs\\a.ts', 'win32'), '"C:\\Users\\u\\My Docs\\a.ts"')
 })
 
 await test('isPathAllowed barra caminho fora das raízes permitidas', async () => {

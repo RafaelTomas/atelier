@@ -88,6 +88,18 @@ export interface FileTreeContent {
   viewMode: string
 }
 
+/**
+ * Arquivo aberto no editor de código do canvas.
+ *
+ * Guarda o caminho e MAIS NADA, pela mesma razão que o fileTree só guarda o
+ * rootPath: campo extra em conteúdo de nó é descartado na releitura (aqui e no
+ * app nativo), então guardar ali o que se deriva do disco é convite a
+ * inconsistência. Linguagem vem da extensão, conteúdo vem do arquivo.
+ */
+export interface CodeEditorContent {
+  filePath: string
+}
+
 export type FontFamily = 'sans' | 'serif' | 'mono' | 'rounded'
 export type FontWeight = 'light' | 'regular' | 'medium' | 'semibold' | 'bold'
 export type TextAlignment = 'left' | 'center' | 'right'
@@ -140,14 +152,19 @@ export interface FreehandContent {
 }
 
 /**
- * Equivale ao enum NodeContent do Swift. As 8 variantes serializam como
+ * Equivale ao enum NodeContent do Swift. As variantes serializam como
  * { "<tipo>": { "_0": … } } — ver models/node-content.ts.
+ *
+ * Eram oito, herdadas do app nativo; `codeEditor` é a nona e é o que fez o
+ * schemaVersion subir para 3. Um leitor mais velho não a conhece — o que a
+ * subida de versão faz a respeito disso está em persistence/migrations.ts.
  */
 export type NodeContent =
   | { type: 'terminal'; value: TerminalContent }
   | { type: 'stickyNote'; value: StickyNoteContent }
   | { type: 'portal'; value: PortalContent }
   | { type: 'fileTree'; value: FileTreeContent }
+  | { type: 'codeEditor'; value: CodeEditorContent }
   | { type: 'text'; value: TextContent }
   | { type: 'shape'; value: ShapeContent }
   | { type: 'stroke'; value: StrokeContent }
@@ -533,3 +550,21 @@ export interface GitCommitEntry {
 export interface GitLogResult {
   commits: GitCommitEntry[]
 }
+/**
+ * Por que uma operação de arquivo foi recusada.
+ *
+ * Código, nunca a mensagem do sistema: o texto do `fs` revela a existência e o
+ * nome de caminhos fora do escopo permitido. Quem traduz para o usuário é o
+ * renderer (ver FILE_OP_TEXT em renderer/file-tree.tsx).
+ *
+ * Mora aqui, e não em core/projects/file-ops.ts, porque o preload é tipado
+ * contra @shared e não pode importar nada do processo principal.
+ */
+export type FileOpError =
+  | 'missing'
+  | 'denied'
+  | 'too-large'
+  | 'binary'
+  | 'exists'
+  | 'not-a-file'
+  | 'error'

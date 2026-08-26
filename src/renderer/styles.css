@@ -113,7 +113,7 @@ button { font: inherit; color: inherit; }
 /* ─── Sidebar ──────────────────────────────────────────────────────────────── */
 
 /* A área onde o canvas e a sidebar se sobrepõem. Sem ela a sidebar não teria
-   a que se ancorar sem cobrir a toolbar. */
+   a que se ancorar. */
 .canvas-area { position: relative; flex: 1; display: flex; min-height: 0; min-width: 0; }
 
 .sidebar {
@@ -251,45 +251,64 @@ button { font: inherit; color: inherit; }
 
 /* ─── Toolbar ──────────────────────────────────────────────────────────────── */
 
-.toolbar {
-  height: 46px; flex-shrink: 0;
-  display: flex; align-items: center; gap: 12px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  -webkit-app-region: drag;
-}
+/* ─── Chrome do canvas ─────────────────────────────────────────────────────── */
+/* Tudo aqui FLUTUA sobre o canvas. A barra de topo que existia antes gastava
+   46px da janela inteira para mostrar um nome e três botões; agora cada peça
+   fica no canto onde é procurada e o meio da tela é todo do trabalho. */
 
-/* min-width:0 + shrink: sem isto um nome de workspace longo empurra as ações
-   (o Git entre elas) para fora da janela em vez de ser truncado. */
-.toolbar-title {
-  font-weight: 600;
-  min-width: 0; flex-shrink: 1;
+.canvas-chip-row {
+  position: absolute; top: 10px; left: 10px; z-index: 100;
+  display: flex; align-items: center; gap: 6px;
+  max-width: calc(100% - 320px);
+}
+/* Com a sidebar aberta o chip começa depois dela — a sidebar flutua por cima. */
+.canvas-chip-row.is-shifted { left: calc(var(--sidebar-width) + 10px); }
+
+.canvas-chip {
+  display: flex; align-items: center;
+  height: 28px; padding: 0 12px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; color: var(--dock-fg-strong);
+  background: var(--dock-bg); border: 1px solid var(--dock-border);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.toolbar-actions {
+button.canvas-chip { cursor: pointer; font-weight: 500; }
+button.canvas-chip:hover { background: var(--dock-hover); }
+.canvas-chip.is-icon { padding: 0 9px; font-size: 14px; }
+
+.view-controls {
+  position: absolute; top: 10px; right: 10px; z-index: 100;
   display: flex; align-items: center; gap: 6px;
-  margin-left: auto; flex-shrink: 0;
-  -webkit-app-region: no-drag;
 }
+ /* O grupo do Git não ganha cápsula: a pílula dele já tem borda própria, e
+    duas bordas concêntricas ficariam duplicadas. */
+.vc-group.is-git { background: transparent; border: 0; padding: 0; }
 
-.toolbar-actions button {
-  border: 1px solid var(--border); background: var(--surface-2);
-  padding: 4px 10px; border-radius: 6px; cursor: pointer;
+.vc-group {
+  position: relative;
+  display: flex; align-items: center; height: 28px; padding: 0 2px;
+  border-radius: 999px;
+  background: var(--dock-bg); border: 1px solid var(--dock-border);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
 }
-.toolbar-actions button:hover { background: var(--border); }
-
-.toolbar-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
-
-.connecting-hint.is-notice {
-  background: var(--rope-error); border: 0; cursor: pointer;
-  font-family: inherit;
+.vc-group button {
+  border: 0; background: transparent; color: var(--dock-fg);
+  height: 24px; min-width: 26px; padding: 0 9px; margin: 0 1px;
+  border-radius: 999px; cursor: pointer; font: inherit; font-size: 12px;
 }
+.vc-group button:hover { background: var(--dock-hover); color: var(--dock-fg-strong); }
+/* Largura fixa: sem ela o cluster inteiro dança a cada passo de zoom. */
+.vc-zoom { min-width: 46px; font-variant-numeric: tabular-nums; }
 
-.connecting-hint {
-  position: absolute; top: 52px; left: 50%; transform: translateX(-50%);
+/* Avisos passageiros: no topo ao centro, entre o chip e os controles. */
+.canvas-hint {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 101;
   background: var(--accent); color: #fff;
-  padding: 4px 12px; border-radius: 999px; font-size: 12px; z-index: 50;
+  padding: 4px 12px; border-radius: 999px; font-size: 12px;
+  max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.canvas-hint.is-notice {
+  background: var(--rope-error); border: 0; cursor: pointer; font-family: inherit;
 }
 
 /* ─── Canvas ───────────────────────────────────────────────────────────────── */
@@ -807,23 +826,21 @@ button { font: inherit; color: inherit; }
 
 .sidebar-header-actions { display: flex; align-items: center; gap: 2px; }
 
-/* Com a sidebar recolhida a toolbar encosta na borda esquerda da janela, onde
-   ficam os semáforos do macOS (trafficLightPosition x:14 — ocupam ~66px até o
-   fim do botão de maximizar). Sem reservar esse espaço o ☰ e o nome do
-   workspace ficam POR BAIXO dos botões de fechar/minimizar.
-   A variável concentra o número; os semáforos só existem no macOS. */
+/* ─── Faixa de arrasto do macOS ───────────────────────────────────────────── */
+/* No macOS a janela é `hiddenInset` (ver main/window.ts): os semáforos flutuam
+   sobre a página e não existe barra de título nativa para arrastar. Sem esta
+   faixa eles ficariam sobre o canvas e a janela deixaria de se mover.
+   Nos outros sistemas a moldura é nativa e a faixa tem altura ZERO — não é uma
+   barra de topo disfarçada. */
 :root { --window-controls-width: 0px; }
 :root[data-platform='darwin'] { --window-controls-width: 72px; }
 
-.toolbar.has-window-controls {
-  padding-left: calc(var(--window-controls-width) + 6px);
-  gap: 4px;
-}
-
-/* A toolbar toda é área de arrasto da janela: sem no-drag o clique não chega. */
-.toolbar-reveal {
-  -webkit-app-region: no-drag;
-  font-size: 14px; padding: 4px 6px;
+.mac-drag-strip { height: 0; flex-shrink: 0; }
+:root[data-platform='darwin'] .mac-drag-strip {
+  height: 30px;
+  -webkit-app-region: drag;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 
 /* ─── Seletor de tema ─────────────────────────────────────────────────────── */
@@ -1093,7 +1110,7 @@ button { font: inherit; color: inherit; }
 
 .swatch-row { display: flex; gap: 10px; }
 
-/* Escopado em .swatch-row: o .swatch solto é a paleta da caneta, na toolbar. */
+/* Escopado em .swatch-row: o .swatch solto é a paleta da caneta, na dock. */
 .swatch-row .swatch {
   width: 28px; height: 28px; border-radius: 50%;
   border: 2px solid transparent; cursor: pointer; padding: 0;
@@ -1197,8 +1214,22 @@ button { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 6px;
   padding: 8px 8px 4px; 
 }
-.sidebar-tabs .segmented { flex: 1; }
-.sidebar-tabs .segment { font-size: 11px; padding: 4px 6px; }
+/* O pill ocupa a largura do painel; sem `flex: 1` nos segmentos, os rótulos
+   ficam encolhidos à esquerda e sobra um vazio dentro do pill ao alargar a
+   sidebar. Com ele, os três dividem o espaço e continuam centrados. */
+.sidebar-tabs .segmented { flex: 1; min-width: 0; }
+/* Ícones, não rótulos (ver sidebar.tsx): os quatro nomes não cabiam na largura
+   padrão e truncavam. `flex: 1` divide o pill em quatro alvos iguais — com
+   ícone isso é o certo, ao contrário do texto, onde frações iguais cortariam
+   o rótulo mais longo primeiro. */
+.sidebar-tabs .segment {
+  flex: 1; min-width: 0; padding: 5px 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-dim);
+}
+.sidebar-tabs .segment:hover { color: var(--text); }
+/* O ícone herda currentColor, então o estado ativo já o pinta de branco. */
+.sidebar-tabs .segment.is-active { color: #fff; }
 
 .sidebar-count {
   font-style: normal; opacity: .55; margin-left: 4px; font-weight: 500;
@@ -1297,8 +1328,13 @@ button { font: inherit; color: inherit; }
 
 /* ─── Nó de projeto / árvore de arquivos ───────────────────────────────────── */
 
+/* `flex: 1` e não só `height: 100%`: o pai (.node-body, .files-body) é um flex
+   ROW, onde a largura padrão de um filho é a do conteúdo dele. Sem isto a
+   árvore fica com a largura do nome mais comprido e sobra vazio no resto do nó
+   — com a barra de rolagem parada no meio, em vez de na borda. */
 .file-tree {
   display: flex; flex-direction: column; height: 100%;
+  flex: 1; min-width: 0;
   background: var(--surface); font-size: 11px; overflow: hidden;
 }
 
@@ -1321,7 +1357,11 @@ button { font: inherit; color: inherit; }
    que aparece atrás dela. No canvas ela continua sendo um card opaco. */
 .files-body .file-tree { background: transparent; }
 .files-body .file-tree-bar { border-bottom-color: var(--dock-border); }
-.file-tree.is-empty { padding: 12px; color: var(--text-dim); }
+.file-tree.is-empty {
+  padding: 12px; color: var(--text-dim);
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+}
+.file-tree.is-empty p { margin: 0; }
 
 .file-tree-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
@@ -1334,7 +1374,19 @@ button { font: inherit; color: inherit; }
 .file-tree-actions { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
 .file-tree-actions .ghost-btn { font-size: 12px; padding: 1px 5px; }
 
-.file-tree-body { flex: 1; overflow: auto; padding: 4px 0; }
+/* Barra fina e discreta: a de sistema tem ~15px e, num nó estreito, come a
+   largura que os nomes de arquivo precisam. Some quando não há o que rolar. */
+.file-tree-body { flex: 1; overflow: auto; overflow-x: hidden; padding: 4px 0; scrollbar-width: thin; }
+.file-tree-body::-webkit-scrollbar { width: 8px; }
+.file-tree-body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-dim) 35%, transparent);
+  border-radius: 999px; border: 2px solid transparent; background-clip: content-box;
+}
+.file-tree-body::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-dim) 60%, transparent);
+  background-clip: content-box;
+}
+.file-tree-body::-webkit-scrollbar-track { background: transparent; }
 
 .file-tree-row {
   width: 100%; border: 0; background: transparent; cursor: pointer;
@@ -1375,10 +1427,6 @@ button { font: inherit; color: inherit; }
 }
 
 /* ─── Aba Git ─────────────────────────────────────────────────────────────── */
-
-/* Quatro abas na sidebar: com o padding anterior os rótulos quebravam na
-   largura mínima de 180px. */
-.sidebar-tabs .segment { padding: 4px 4px; }
 
 .git-branchline {
   position: relative;
@@ -1560,7 +1608,7 @@ button { font: inherit; color: inherit; }
 .git-commit-meta { font-size: 10px; color: var(--text-dim); }
 .git-commit-meta code { font-family: ui-monospace, monospace; color: var(--accent); }
 
-/* ─── Git na toolbar ──────────────────────────────────────────────────────── */
+/* ─── Git no chrome do canvas ─────────────────────────────────────────────── */
 
 .git-menu { position: relative; display: flex; align-items: center; gap: 6px; }
 
@@ -1572,9 +1620,9 @@ button { font: inherit; color: inherit; }
 }
 
 /* Pílula, não botão retangular: é status com ação junto, e a borda arredondada
-   é o que a separa dos botões de janela ao lado. A especificidade de dois
-   seletores vence `.toolbar-actions button` sem precisar de !important. */
-.toolbar-actions .git-menu-btn {
+   é o que a separa dos controles de vista ao lado. A especificidade de dois
+   seletores vence o botão genérico do cluster sem precisar de !important. */
+.view-controls .git-menu-btn {
   display: flex; align-items: center; gap: 6px;
   max-width: 220px;
   border: 1px solid var(--border); border-radius: 999px;
@@ -1582,8 +1630,8 @@ button { font: inherit; color: inherit; }
   padding: 3px 10px;
   cursor: pointer; font: inherit; font-size: 11px;
 }
-.toolbar-actions .git-menu-btn:hover { background: var(--border); }
-.toolbar-actions .git-menu-btn.is-open { border-color: var(--accent); }
+.view-controls .git-menu-btn:hover { background: var(--dock-hover); }
+.view-controls .git-menu-btn.is-open { border-color: var(--accent); }
 
 .git-menu-dot {
   flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%;
@@ -1613,7 +1661,7 @@ button { font: inherit; color: inherit; }
 /* Superfície própria, e NÃO .context-menu: aquela classe traz
    `.context-menu button { border: 0; background: transparent }`, que atinge
    todo botão descendente e transformava Pull/Push em texto solto.
-   Alinhado à direita porque a toolbar encosta na borda da janela. */
+   Alinhado à direita porque o cluster encosta na borda da janela. */
 .git-popover {
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 1100;
   width: 300px; max-height: min(70vh, 620px);
@@ -1622,8 +1670,8 @@ button { font: inherit; color: inherit; }
   border: 1px solid var(--border); background: var(--surface-2);
   box-shadow: 0 12px 32px rgb(0 0 0 / .34);
   cursor: default;
-  /* A toolbar é área de arrasto da janela; sem isto o clique aqui move a
-     janela em vez de chegar aos botões. */
+  /* No macOS a faixa do topo é área de arrasto da janela; sem isto o clique
+     aqui moveria a janela em vez de chegar aos botões. */
   -webkit-app-region: no-drag;
 }
 
@@ -1911,3 +1959,70 @@ button { font: inherit; color: inherit; }
   .zoom-dial:hover .zoom-dial-options,
   .zoom-dial:focus-within .zoom-dial-options { animation: none; }
 }
+/* ─── Árvore: renomear inline, alvo de arrasto e confirmação ───────────────── */
+
+.file-tree-row.is-drop-target {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  outline: 1px solid var(--accent); outline-offset: -1px;
+}
+.file-tree-row.is-renaming { cursor: default; }
+.file-tree-rename {
+  flex: 1; min-width: 0; font: inherit; font-size: 11px;
+  padding: 0 3px; border-radius: 3px;
+  border: 1px solid var(--accent); background: var(--surface); color: var(--text);
+}
+
+.context-menu button.is-danger { color: var(--rope-error); }
+
+/* Confirmação curta: sem lista, sem scroll — só a pergunta e as duas saídas. */
+.modal.is-compact { min-width: 320px; max-width: 420px; }
+.modal.is-compact .modal-title { margin-bottom: 10px; font-size: 16px; }
+.trash-name {
+  margin: 0 0 8px; font-family: ui-monospace, monospace; font-size: 12px;
+  color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.trash-warning { margin: 0 0 8px; font-size: 12px; color: var(--rope-error); }
+.trash-hint { margin: 0 0 14px; font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+
+/* ─── Modo seguro ──────────────────────────────────────────────────────────── */
+/* Permanente e no topo: o bug que ela evita é a perda silenciosa de nós que
+   este binário não entendeu. Enquanto está na tela, nada é gravado sozinho. */
+.safe-mode-banner {
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  padding: 7px 12px; font-size: 11px; line-height: 1.5;
+  background: #F5A62333; border-bottom: 1px solid #F5A623;
+  color: var(--text);
+}
+.safe-mode-banner span { flex: 1; min-width: 0; }
+
+/* ─── Nó Editor de Código ──────────────────────────────────────────────────── */
+
+.code-editor {
+  display: flex; flex-direction: column; height: 100%; width: 100%;
+  background: var(--term-bg); overflow: hidden;
+}
+.code-editor.is-empty { padding: 12px; font-size: 11px; color: var(--text-dim); }
+
+.code-editor-bar {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+  padding: 3px 6px; border-bottom: 1px solid var(--border);
+  font-size: 11px; background: var(--surface-2);
+}
+.code-editor-name { font-weight: 600; color: var(--text); flex-shrink: 0; }
+.code-editor-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+  flex-shrink: 0;
+}
+.code-editor-path {
+  font-family: ui-monospace, monospace; font-size: 10px; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
+}
+.code-editor-actions { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
+.code-editor-actions .ghost-btn { font-size: 12px; padding: 1px 5px; }
+
+.code-editor-host { flex: 1; min-height: 0; overflow: hidden; }
+.code-editor-host .cm-editor { height: 100%; }
+.code-editor-loading, .code-editor-error {
+  padding: 10px 12px; font-size: 11px; color: var(--text-dim); font-style: italic;
+}
+.code-editor-error { color: var(--rope-error); font-style: normal; }

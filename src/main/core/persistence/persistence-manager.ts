@@ -9,7 +9,7 @@
  * MoveFileEx com MOVEFILE_REPLACE_EXISTING — substitui sem erro.
  */
 import { constants } from 'node:fs'
-import { access, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type {
   AgentRole,
@@ -20,6 +20,8 @@ import type {
   WorkspaceManifest,
   WorkspacePayload
 } from '@shared/types'
+import { asRecord, num } from '../coding'
+import { Constants } from '../constants'
 import { log } from '../logger'
 import {
   decodeAppStateData,
@@ -40,6 +42,14 @@ import { migrateWorkspaceDocument } from './migrations'
 import { paths } from './paths'
 
 const isDev = process.env.NODE_ENV === 'development'
+
+/** O workspace lido e o que o decoder observou no caminho. */
+export interface LoadedWorkspace {
+  payload: WorkspacePayload
+  /** A versão gravada no arquivo, antes da migração. */
+  fileSchemaVersion: number
+  droppedNodes: number
+}
 
 class PersistenceManager {
   // ─── Infra ──────────────────────────────────────────────────────────────────
@@ -141,20 +151,61 @@ class PersistenceManager {
 
   // ─── workspace.json ─────────────────────────────────────────────────────────
 
-  async loadWorkspace(id: UUID): Promise<WorkspacePayload | null> {
+  /**
+   * Lê o workspace com o que o decoder tem a dizer sobre ele: a versão que
+   * estava no arquivo e quantos nós não sobreviveram à leitura.
+   *
+   * Quem abre precisa dos dois: a versão decide se cabe um backup no primeiro
+   * save, e a contagem decide se o workspace entra em modo seguro em vez de
+   * regravar o arquivo sem os nós que não foram entendidos.
+   */
+  async loadWorkspaceDocument(id: UUID): Promise<LoadedWorkspace | null> {
     const raw = await this.readJSON(paths.workspaceFile(id))
     if (!raw) return null
+    const fileSchemaVersion = num(asRecord(raw).schemaVersion, 1)
     const migrated = migrateWorkspaceDocument(raw)
-    const { payload } = decodeWorkspaceDocument(migrated)
-    return payload
+    const { payload, droppedNodes } = decodeWorkspaceDocument(migrated)
+    if (droppedNodes > 0) {
+      log.warn(
+        'persistence',
+        `workspace ${id}: ${droppedNodes} nó(s) não reconhecido(s) — gravação bloqueada`
+      )
+    }
+    return { payload, fileSchemaVersion, droppedNodes }
   }
 
-  async saveWorkspace(payload: WorkspacePayload): Promise<void> {
+  async loadWorkspace(id: UUID): Promise<WorkspacePayload | null> {
+    return (await this.loadWorkspaceDocument(id))?.payload ?? null
+  }
+
+  /**
+   * `backupFrom` é a versão que está no arquivo em disco. Quando ela é menor
+   * que a do app, o original é copiado para `workspace.v{n}.backup.json` ANTES
+   * da primeira gravação na versão nova.
+   *
+   * Custa uma escrita, uma vez na vida do arquivo, e é a única rede para quem
+   * precisar voltar ao app nativo ou a um build anterior: uma vez regravado em
+   * v3, o arquivo não volta sozinho para v2.
+   */
+  async saveWorkspace(payload: WorkspacePayload, backupFrom?: number): Promise<void> {
     await this.ensureWorkspaceDirectories(payload.id)
-    await this.atomicWrite(
-      paths.workspaceFile(payload.id),
-      this.stringify(encodeWorkspaceDocument(payload))
-    )
+    const file = paths.workspaceFile(payload.id)
+
+    if (typeof backupFrom === 'number' && backupFrom < Constants.schemaVersion) {
+      const backup = join(paths.workspaceDir(payload.id), `workspace.v${backupFrom}.backup.json`)
+      // Nunca sobrescreve um backup existente: o valor dele é ser o arquivo
+      // como estava ANTES da subida, não a última cópia.
+      if ((await this.exists(file)) && !(await this.exists(backup))) {
+        try {
+          await copyFile(file, backup)
+          log.info('persistence', `backup v${backupFrom} gravado em ${backup}`)
+        } catch (err) {
+          log.error('persistence', 'falha gravando backup da versão anterior', err)
+        }
+      }
+    }
+
+    await this.atomicWrite(file, this.stringify(encodeWorkspaceDocument(payload)))
   }
 
   async deleteWorkspace(id: UUID): Promise<void> {

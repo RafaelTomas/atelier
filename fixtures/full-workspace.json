@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "type": "workspace",
   "payload": {
     "id": "00000000-0000-0000-0000-000000000001",
@@ -91,6 +91,17 @@
         "lastModifiedAt": "2026-05-16T00:00:00Z",
         "content": {
           "fileTree": { "_0": { "name": "Files", "rootPath": "/tmp/test", "viewMode": "list" } }
+        }
+      },
+      {
+        "id": "AAAAAAAA-0000-0000-0000-000000000009",
+        "frame": [[10700, 9600], [620, 440]],
+        "zIndex": 9,
+        "isLocked": false,
+        "createdAt": "2026-05-16T00:00:00Z",
+        "lastModifiedAt": "2026-05-16T00:00:00Z",
+        "content": {
+          "codeEditor": { "_0": { "filePath": "/tmp/test/src/main.ts" } }
         }
       },
       {

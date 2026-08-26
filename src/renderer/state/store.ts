@@ -23,7 +23,10 @@ import type {
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
+import { viewport } from '../canvas/viewport'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
+import { quoteForShell } from '../paths'
+import { PDF_NODE_SIZE, isPdf } from '../pdf-viewer'
 import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
 
 /**
@@ -138,6 +141,19 @@ export interface AppSnapshot {
   prefs: Preferences | null
   /** Aviso passageiro na barra — some sozinho. */
   notice: string | null
+  /**
+   * Integridade do arquivo do workspace aberto. `safeMode` significa que o
+   * decoder descartou nós que não entendeu: o autosave está desligado e salvar
+   * apagaria esses nós. null = ainda não consultado.
+   */
+  integrity: { safeMode: boolean; droppedNodes: number; fileSchemaVersion: number } | null
+  /** Nó de editor com alteração pendente, esperando resposta antes de fechar. */
+  closingEditor: UUID | null
+  /**
+   * Plataforma, vinda do bootInfo. O renderer não tem `process`, e quem cola um
+   * caminho no terminal precisa saber com que aspas o shell de lá se entende.
+   */
+  platform: string
   loading: boolean
   bootError: string | null
 }
@@ -170,6 +186,9 @@ const initial: AppSnapshot = {
   autoDescribe: DESCRIBE_PROJECTS_ENABLED,
   prefs: null,
   notice: null,
+  integrity: null,
+  closingEditor: null,
+  platform: 'linux',
   loading: true,
   bootError: null
 }
@@ -204,12 +223,14 @@ class Store {
       ])
       const id = activeId ?? entries[0]?.id ?? null
       const workspace = id ? await window.atelier.workspace.open(id) : null
+      const integrity = id ? await window.atelier.workspace.integrity(id) : null
       const theme = isThemeMode(prefs.theme) ? prefs.theme : 'system'
       applyTheme(theme)
       this.set({
         entries,
         activeId: id,
         workspace,
+        integrity,
         roles,
         prefs,
         sidebarCollapsed: prefs.sidebarCollapsed,
@@ -223,7 +244,19 @@ class Store {
 
   async openWorkspace(id: UUID): Promise<void> {
     const workspace = await window.atelier.workspace.open(id)
-    this.set({ workspace, activeId: id, selection: [] })
+    const integrity = await window.atelier.workspace.integrity(id)
+    this.set({ workspace, integrity, activeId: id, selection: [] })
+  }
+
+  /**
+   * O botão Salvar da barra. É a ÚNICA porta que grava um workspace em modo
+   * seguro — por isso ele reconsulta a integridade depois: uma vez gravado, o
+   * arquivo já não tem o que não era entendido, e a faixa some.
+   */
+  async saveNow(): Promise<void> {
+    await window.atelier.workspace.saveNow()
+    const id = this.state.activeId
+    if (id) this.set({ integrity: await window.atelier.workspace.integrity(id) })
   }
 
   async createWorkspace(name: string): Promise<void> {
@@ -235,7 +268,7 @@ class Store {
     const trimmed = name.trim()
     if (!trimmed) return
     const entries = await window.atelier.workspace.rename(id, trimmed)
-    // O payload aberto também guarda o nome — é ele que alimenta a toolbar.
+    // O payload aberto também guarda o nome — é ele que alimenta o chip do canvas.
     const ws = this.state.workspace
     this.set({
       entries,
@@ -263,7 +296,7 @@ class Store {
   }
 
   async addNode(
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor',
     position: { x: number; y: number },
     opts: Record<string, unknown> = {},
     size?: { width: number; height: number }
@@ -289,15 +322,204 @@ class Store {
     return node
   }
 
-  async removeNode(nodeId: UUID): Promise<void> {
+  async removeNode(nodeId: UUID, opts?: { force?: boolean }): Promise<void> {
     const id = this.workspaceId
     if (!id) return
+    // Editor com alteração pendente não fecha calado: pergunta primeiro.
+    if (!opts?.force && this.dirtyEditors.has(nodeId)) {
+      this.set({ closingEditor: nodeId })
+      return
+    }
     await window.atelier.node.remove(id, nodeId)
     this.mutateWorkspace((ws) => {
       ws.nodes = ws.nodes.filter((n) => n.id !== nodeId)
       ws.connections = ws.connections.filter((c) => c.nodeIdA !== nodeId && c.nodeIdB !== nodeId)
     })
     this.set({ selection: this.state.selection.filter((s) => s !== nodeId) })
+  }
+
+  // ─── Editor de código ───────────────────────────────────────────────────────
+
+  /** Nós de editor com alteração pendente. Fora do snapshot: muda a cada tecla. */
+  private dirtyEditors = new Set<UUID>()
+  /** path → quem quer saber que o arquivo mudou em disco. */
+  private fileListeners = new Map<string, Set<(text: string) => void>>()
+
+  setPlatform(platform: string): void {
+    this.set({ platform })
+  }
+
+  /**
+   * Arquivo arrastado para dentro de um terminal: cola o caminho na linha, sem
+   * Enter.
+   *
+   * Não abre editor nem cria cabo. O terminal quase sempre já está no
+   * repositório do arquivo, e o que falta ali é justamente o caminho para
+   * completar o comando que a pessoa estava digitando — é o mesmo gesto do
+   * Terminal do sistema, inclusive no espaço no fim.
+   *
+   * O caminho vai ABSOLUTO, não relativo ao diretório do nó: o `workingDirectory`
+   * gravado é onde o PTY nasceu, e um `cd` depois disso tornaria o relativo uma
+   * mentira silenciosa. O absoluto está certo em qualquer diretório.
+   */
+  async pasteIntoTerminal(nodeId: UUID, path: string): Promise<void> {
+    const delivered = await window.atelier.terminal.write(
+      nodeId,
+      `${quoteForShell(path, this.state.platform)} `
+    )
+    if (!delivered) {
+      this.showNotice('este terminal não está rodando — nada foi colado')
+      return
+    }
+    this.set({ selection: [nodeId] })
+  }
+
+  setEditorDirty(nodeId: UUID, dirty: boolean): void {
+    if (dirty) this.dirtyEditors.add(nodeId)
+    else this.dirtyEditors.delete(nodeId)
+  }
+
+  hasUnsavedEditor(nodeId: UUID): boolean {
+    return this.dirtyEditors.has(nodeId)
+  }
+
+  /** Fechar com alteração pendente pergunta; o diálogo mora no App. */
+  cancelCloseEditor(): void {
+    this.set({ closingEditor: null })
+  }
+
+  async confirmCloseEditor(): Promise<void> {
+    const id = this.state.closingEditor
+    if (!id) return
+    this.set({ closingEditor: null })
+    this.dirtyEditors.delete(id)
+    await this.removeNode(id, { force: true })
+  }
+
+  /**
+   * Abre o arquivo no canvas, no nó que sabe mostrá-lo.
+   *
+   * Nem todo arquivo é texto: um PDF no editor de código dava "arquivo grande
+   * demais" — tecnicamente verdade, e inútil. Quem renderiza PDF aqui é o
+   * visor do Chromium dentro de um nó Portal com a barra de endereço
+   * escondida, exatamente como o item "Documento PDF" da dock. Não é tipo de nó
+   * novo: é o mesmo Portal.
+   */
+  async openFileInWorkspace(path: string, position?: { x: number; y: number }): Promise<void> {
+    if (!this.workspaceId) {
+      this.showNotice('nenhum workspace aberto para receber o arquivo')
+      return
+    }
+    if (isPdf(path)) {
+      await this.openPdfInWorkspace(path, position)
+      return
+    }
+    // Já aberto: seleciona em vez de criar um segundo editor do mesmo arquivo,
+    // que seriam dois buffers disputando o mesmo disco.
+    const existing = this.state.workspace?.nodes.find(
+      (n) => n.content.type === 'codeEditor' && n.content.value.filePath === path
+    )
+    if (existing) {
+      this.set({ selection: [existing.id] })
+      return
+    }
+    const at = position ?? centerOfViewport(620, 440)
+    await this.addNode('codeEditor', at, { filePath: path })
+  }
+
+  /**
+   * O nó nasce estreito de propósito: acima de ~500px o visor do Chromium abre
+   * sozinho a barra de miniaturas e come metade da largura. Ver pdf-viewer.ts,
+   * onde o número está medido e explicado.
+   */
+  private async openPdfInWorkspace(
+    path: string,
+    position?: { x: number; y: number }
+  ): Promise<void> {
+    const [width, height] = PDF_NODE_SIZE
+    const size = { width, height }
+    // A URL vem do main: `pathToFileURL` resolve espaço, acento e unidade do
+    // Windows, e a allowlist é conferida no caminho.
+    const result = await window.atelier.fs.fileUrl(path)
+    if ('error' in result) {
+      this.showNotice('não foi possível abrir este PDF')
+      return
+    }
+
+    const existing = this.state.workspace?.nodes.find(
+      (n) => n.content.type === 'portal' && n.content.value.currentURL === result.url
+    )
+    if (existing) {
+      this.set({ selection: [existing.id] })
+      return
+    }
+
+    const at = position ?? centerOfViewport(size.width, size.height)
+    const name = path.split(/[\\/]/).pop() || 'Documento'
+    const node = await this.addNode('portal', at, { url: result.url, name }, size)
+    // `chromeHidden` tira a barra de endereço: num documento local ela não
+    // serve para nada, e o visor de PDF já traz os controles dele.
+    if (node) await this.patchContent(node.id, { chromeHidden: true })
+  }
+
+  /** Pasta solta no canvas: o análogo natural é o nó de árvore. */
+  async addFolderTreeToWorkspace(
+    path: string,
+    name: string,
+    position?: { x: number; y: number }
+  ): Promise<void> {
+    if (!this.workspaceId) {
+      this.showNotice('nenhum workspace aberto para receber a pasta')
+      return
+    }
+    await this.addNode('fileTree', position ?? centerOfViewport(300, 420), { name, rootPath: path })
+  }
+
+  /**
+   * O arquivo mudou de lugar (renomeado ou arrastado para outra pasta): o
+   * editor aberto nele segue o caminho novo em vez de virar um nó quebrado.
+   */
+  fileMoved(from: string, to: string): void {
+    const nodes = this.state.workspace?.nodes ?? []
+    for (const node of nodes) {
+      if (node.content.type === 'codeEditor' && node.content.value.filePath === from) {
+        void this.patchContent(node.id, { filePath: to })
+      }
+    }
+  }
+
+  /**
+   * Assina as mudanças em disco de UM arquivo. Devolve a função de cancelar.
+   *
+   * O main vigia caminho por caminho (nunca uma árvore) e avisa só que mudou;
+   * quem relê é aqui, pelo mesmo canal com allowlist que abriu o arquivo.
+   */
+  onExternalFileChange(path: string, cb: (text: string) => void): () => void {
+    if (!path) return () => {}
+    const set = this.fileListeners.get(path)
+    if (set) {
+      set.add(cb)
+    } else {
+      this.fileListeners.set(path, new Set([cb]))
+      void window.atelier.fs.watch(path)
+    }
+    return () => {
+      const current = this.fileListeners.get(path)
+      if (!current) return
+      current.delete(cb)
+      if (current.size > 0) return
+      this.fileListeners.delete(path)
+      void window.atelier.fs.unwatch(path)
+    }
+  }
+
+  /** Chamado pelo evento do main: relê e distribui para quem assinou. */
+  async notifyFileChanged(path: string): Promise<void> {
+    const listeners = this.fileListeners.get(path)
+    if (!listeners || listeners.size === 0) return
+    const result = await window.atelier.fs.readFile(path)
+    if ('error' in result) return
+    for (const cb of listeners) cb(result.text)
   }
 
   /** Commit do frame ao SOLTAR o nó — durante o arrasto escrevemos direto no DOM. */
@@ -727,6 +949,12 @@ class Store {
     const workspace = await window.atelier.workspace.open(id)
     this.set({ workspace })
   }
+}
+
+/** Retângulo centrado no que está à vista — onde o usuário está olhando. */
+function centerOfViewport(width: number, height: number): { x: number; y: number } {
+  const c = viewport.toCanvas({ x: viewport.width / 2, y: viewport.height / 2 })
+  return { x: c.x - width / 2, y: c.y - height / 2 }
 }
 
 export const store = new Store()

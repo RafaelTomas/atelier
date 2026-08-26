@@ -338,11 +338,32 @@ têm interface.
 | Múltiplos workspaces | ✅ |
 | Nós Portal (navegador embutido) | ✅ |
 | Desenho à mão livre (caneta, marca-texto, borracha) | ✅ |
-| Nós File Tree, Shape, Stroke, Freehand | ⚠️ placeholder |
+| Nós File Tree: navegar, menu de contexto, renomear, duplicar, lixeira, arrastar | ✅ |
+| Nós Editor de Código (CodeMirror 6) | ✅ |
+| Nós Shape, Stroke, Freehand | ⚠️ placeholder |
 | Floors (git worktree), Routines, Git, SSH, Settings | ❌ |
 
-**Nós em placeholder não são perdidos.** O codec lê e regrava todos os oito tipos
+**Nós em placeholder não são perdidos.** O codec lê e regrava todos os nove tipos
 sem perda, então um workspace pode passar por aqui e voltar intacto.
+
+**Sobre voltar para uma versão anterior.** O nó de editor é o nono tipo, e é o
+que fez o `schemaVersion` subir para **3**. Um arquivo v3 aberto por um leitor
+mais velho é o caminho que exige cuidado, porque os dois leitores erram de
+formas diferentes: o app nativo Swift **lança** no `JSONDecoder` e simplesmente
+não abre o workspace (ruim, mas barulhento, e o arquivo fica intacto); um
+Atelier anterior **descarta** o nó em silêncio e o primeiro autosave regravaria
+o arquivo sem ele.
+
+Duas coisas endereçam isso:
+
+- Na primeira gravação de um workspace que estava em v2, o original é copiado
+  para `workspace.v2.backup.json` ao lado. Uma escrita, uma vez na vida do
+  arquivo — e é a rede para quem precisar voltar.
+- O decoder passou a **contar** os nós que descartou. Se contar algum, ou se o
+  arquivo declarar um schema maior que o do app, o workspace abre em **modo
+  seguro**: autosave desligado, faixa de aviso no topo e gravação só por ação
+  explícita do usuário. É a correção de uma classe de bug que já existia para
+  todo tipo futuro, não uma firula do editor.
 
 ### Como o Portal resolve o problema de composição
 
@@ -379,15 +400,54 @@ endereço escondida — quem desenha as páginas é o visor de PDF do Chromium, 
 os controles dele (zoom, busca, impressão) dentro do próprio nó.
 
 Reaproveitar o Portal não é economia de código, é restrição de formato: o disco
-tem oito tipos de nó, fixados pelo `Codable` do app nativo, e um nono tipo
-quebraria o round-trip que o teste de codec garante. Como Portal, o nó vai e
-volta intacto — o app nativo abre o mesmo arquivo.
+tinha oito tipos de nó, fixados pelo `Codable` do app nativo, e um nono tipo
+custa uma subida de `schemaVersion` com tudo que ela implica de compatibilidade
+(ver *Estado do projeto*). Para o PDF esse custo não se pagava — como Portal, o
+nó vai e volta intacto e o app nativo abre o mesmo arquivo. O editor de código
+pagou: ele precisa de um `filePath` que nenhum tipo existente comporta.
 
 A URL do arquivo é montada com `pathToFileURL` no processo principal, e não
 concatenada no renderer: é o que faz espaço, acento e letra de unidade do
 Windows virarem URL válida. O caminho fica salvo no workspace, então o nó reabre
 no mesmo documento; se o arquivo tiver sumido, aparece o mesmo aviso de falha
 dos outros portais.
+
+### Editor de código e as ações da árvore
+
+A árvore de arquivos é o **mesmo componente** no nó de canvas e na aba Arquivos
+(`renderer/file-tree.tsx`), então tudo abaixo funciona igual nos dois lugares:
+botão direito com menu por tipo, renomear inline (é uma palavra, não merece
+diálogo), duplicar no primeiro nome livre (`app copy.ts`, `app copy 2.ts`),
+mover para a **lixeira do sistema** com confirmação — nunca `unlink` —, e
+arrastar: para outra pasta move, para o canvas abre. Depois de cada mutação só o
+**diretório afetado** é relido: o estado de expansão é do usuário.
+
+Duplo clique num arquivo (ou soltá-lo no canvas) abre um nó de **Editor de
+Código**, CodeMirror 6 com destaque por extensão. Soltar o arquivo **dentro de
+um terminal** faz outra coisa: cola o caminho na linha de comando, sem Enter —
+o agente já está no repositório do arquivo, e o que falta ali é o caminho para
+completar o comando. Vai absoluto de propósito: o `workingDirectory` gravado é
+onde o PTY nasceu, e um `cd` depois disso tornaria um caminho relativo uma
+mentira silenciosa. As gramáticas são carregadas
+sob demanda — treze linguagens importadas de forma estática entrariam no bundle
+mesmo num canvas que só abriu um `.md`. `⌘/Ctrl+S` salva; fechar com alteração
+pendente pergunta; o nó guarda apenas o `filePath`.
+
+Ler arquivo é a capacidade que este app deliberadamente **não** tinha, e por um
+motivo: a janela roda com `webviewTag: true`. O que repõe a barreira é a
+allowlist, agora sem exceção — todo canal novo (`fs:read-file`, `fs:write-file`,
+`fs:rename`, `fs:duplicate`, `fs:trash`, `fs:watch`) resolve o caminho por
+`resolveAllowedPath`, que faz `realpath` dos dois lados, então symlink não
+escapa. Somam-se a isso um teto de 2 MB, recusa de arquivo com byte nulo nos
+primeiros 8 KB, e mover que não atravessa raiz nem sobrescreve destino
+existente. Arquivo acima do teto é **erro**, não leitura parcial: o editor grava
+o buffer inteiro no save, e um texto truncado editável destruiria o arquivo.
+
+O arquivo aberto é vigiado individualmente (`chokidar`, um caminho por
+assinatura, nunca uma árvore — watch recursivo no Linux estoura o limite de
+inotify). Sem alteração local, o editor recarrega sozinho quando o agente do
+canvas mexe no arquivo ao lado; com alteração pendente, avisa e deixa a decisão
+com o usuário.
 
 ### Desenho no canvas
 

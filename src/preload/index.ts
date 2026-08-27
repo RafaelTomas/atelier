@@ -178,7 +178,11 @@ const api = {
       ipcRenderer.invoke('portal:register', nodeId, webContentsId),
     unregister: (nodeId: UUID): Promise<void> => ipcRenderer.invoke('portal:unregister', nodeId),
     /** O main pede que um portal adormecido (zoom/virtualização) seja montado. */
-    onWake: (cb: (p: { nodeId: UUID }) => void): Unsubscribe => on('portal:wake', cb)
+    onWake: (cb: (p: { nodeId: UUID }) => void): Unsubscribe => on('portal:wake', cb),
+    /** Ctrl+roda dentro da página: o gesto é do canvas (core/portal/portal-zoom.ts). */
+    onZoomGesture: (
+      cb: (p: { nodeId: UUID; direction: 'in' | 'out' }) => void
+    ): Unsubscribe => on('portal:zoom-gesture', cb)
   },
 
   note: {

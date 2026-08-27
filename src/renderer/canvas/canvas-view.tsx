@@ -626,20 +626,46 @@ export function CanvasView(): JSX.Element {
 
   // ─── Roda: pan por padrão, zoom com ⌘/Ctrl (convenção de trackpad) ──────────
 
-  const onWheel = (e: React.WheelEvent): void => {
-    // Zoom é gesto do CANVAS e vale em qualquer lugar: o modificador já diz
-    // que a intenção não é rolar o conteúdo sob o cursor.
-    if (e.ctrlKey || e.metaKey) {
-      viewport.zoomByWheel(screenPoint(e), e.deltaY, e.deltaMode)
-      return
+  /**
+   * Listener NATIVO em CAPTURA, e não a prop `onWheel` do React.
+   *
+   * O zoom é gesto do CANVAS e tem de valer com o cursor em cima de qualquer
+   * coisa — mas na borbulha ele não chegava aqui: quem está por baixo às vezes
+   * mata o evento antes. O xterm é o caso que se nota, porque chama
+   * `preventDefault` + `stopPropagation` na roda sempre que o programa do
+   * terminal reporta mouse (é o que as TUIs de agente fazem) ou quando o buffer
+   * não tem scrollback. Na captura o host vê o evento ANTES de todo descendente,
+   * então widget nenhum consegue engolir o gesto.
+   *
+   * `passive: false` porque o handler chama `preventDefault` — sem isso o
+   * Chromium registra o listener como passivo e ignora o pedido.
+   */
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+
+    const onWheel = (e: WheelEvent): void => {
+      // O modificador já diz que a intenção não é rolar o conteúdo sob o cursor.
+      if (e.ctrlKey || e.metaKey) {
+        // preventDefault contra o zoom de página do Chromium (mesmo gesto);
+        // stopPropagation para o widget de baixo não rolar junto com o zoom.
+        e.preventDefault()
+        e.stopPropagation()
+        viewport.zoomByWheel(screenPoint(e), e.deltaY, e.deltaMode)
+        return
+      }
+      // Rolar dentro do conteúdo de um nó é DO nó — a mesma regra que o clique
+      // já segue, com o mesmo marcador. Sem ela o canvas panorâmica junto com a
+      // lista, e quando a lista chega ao fim sobra só o canvas andando, que é o
+      // efeito que se nota. Aqui só devolvemos o evento ao dono: sem
+      // stopPropagation, ele segue para o widget normalmente.
+      if ((e.target as HTMLElement).closest('[data-node-interactive]')) return
+      viewport.panBy(-e.deltaX, -e.deltaY)
     }
-    // Rolar dentro do conteúdo de um nó é DO nó — a mesma regra que o clique
-    // já seguia logo acima, com o mesmo marcador. Sem ela o canvas panorâmica
-    // junto com a lista, e quando a lista chega ao fim sobra só o canvas
-    // andando, que é o efeito que se nota.
-    if ((e.target as HTMLElement).closest('[data-node-interactive]')) return
-    viewport.panBy(-e.deltaX, -e.deltaY)
-  }
+
+    host.addEventListener('wheel', onWheel, { capture: true, passive: false })
+    return () => host.removeEventListener('wheel', onWheel, { capture: true })
+  }, [])
 
   // ─── Teclado ────────────────────────────────────────────────────────────────
 
@@ -773,7 +799,6 @@ export function CanvasView(): JSX.Element {
         .join(' ')}
       data-tool={tool}
       onMouseDown={onMouseDown}
-      onWheel={onWheel}
       onContextMenu={onContextMenu}
       onDragOver={onDragOver}
       onDrop={onDrop}

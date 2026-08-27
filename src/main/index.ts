@@ -23,6 +23,7 @@ import { scanOnLaunch } from './core/projects/scan-controller'
 import { terminals } from './core/terminal/terminal-manager'
 import { fileWatcher } from './core/projects/file-watcher'
 import { armPopupHandling } from './core/portal/portal-popup'
+import { armPortalZoom } from './core/portal/portal-zoom'
 import { registerIPC } from './ipc/bridge'
 import { createMainWindow } from './window'
 
@@ -100,6 +101,8 @@ async function boot(): Promise<void> {
   // Popup de dentro de um portal vira nó no canvas. Antes da janela: o handler
   // é armado quando o guest se registra, e isso pode acontecer no primeiro paint.
   armPopupHandling()
+  // Ctrl+roda dentro da página do portal dá zoom no canvas, não na página.
+  armPortalZoom()
   createMainWindow()
 
   log.info('boot', `pronto em ${Date.now() - started}ms`)

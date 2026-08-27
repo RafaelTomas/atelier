@@ -1,6 +1,8 @@
 /** Nó Note — editor de Markdown com gravação debounced no arquivo .md. */
 import { useEffect, useRef, useState } from 'react'
 import type { CanvasNode, StickyNoteContent, UUID } from '@shared/types'
+import { store } from '../state/store'
+import { MarkdownView } from './markdown-view'
 import { noteEditorStyle } from './typography'
 
 interface Props {
@@ -13,6 +15,7 @@ export function NoteNode({ node, content, workspaceId }: Props): JSX.Element {
   const [text, setText] = useState('')
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fileName = content.fileName
+  const previewing = content.isPreviewing
 
   useEffect(() => {
     if (!fileName) return
@@ -43,15 +46,36 @@ export function NoteNode({ node, content, workspaceId }: Props): JSX.Element {
     }, 400)
   }
 
+  const toggle = (): void => void store.patchContent(node.id, { isPreviewing: !previewing })
+
+  const { backgroundColor, color } = noteEditorStyle(content)
+
   return (
-    <textarea
-      className="note-editor"
-      data-node-interactive
-      spellCheck={false}
-      value={text}
-      style={noteEditorStyle(content)}
-      placeholder="Markdown…"
-      onChange={(e) => onChange(e.target.value)}
-    />
+    <div className="note-node" style={{ backgroundColor, color }}>
+      <button
+        type="button"
+        className="icon-btn note-mode-toggle"
+        data-node-interactive
+        title={previewing ? 'Editar o Markdown' : 'Prever o Markdown'}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={toggle}
+      >
+        {previewing ? '✎' : '👁'}
+      </button>
+
+      {previewing ? (
+        <MarkdownView source={text} variant="note" />
+      ) : (
+        <textarea
+          className="note-editor"
+          data-node-interactive
+          spellCheck={false}
+          value={text}
+          style={noteEditorStyle(content)}
+          placeholder="Markdown…"
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </div>
   )
 }

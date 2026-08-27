@@ -31,6 +31,7 @@ const ESPERADA = [
   ['nodes/portal-node',      'depois da casca'],
   ['nodes/placeholder-node', 'depois da casca'],
   ['nodes/code-editor-node', 'depois da casca'],
+  ['nodes/markdown-view',    'depois da casca; sem dependência de ordem com os outros nós'],
   ['nodes/node-action-bar',  'depois da casca'],
   ['nodes/format-bar',       'depois da casca'],
   ['git',     'sem dependência de ordem com as outras'],

@@ -228,12 +228,116 @@ export interface WidgetContent {
  * canvas em que o próprio nó estava. Ele vive no chip do topo, que é global à
  * janela e não pertence a canvas nenhum.
  */
-export type WidgetKind = 'projects' | 'git'
+export type WidgetKind = 'projects' | 'git' | 'button'
 
-export const WIDGET_KINDS: WidgetKind[] = ['projects', 'git']
+export const WIDGET_KINDS: WidgetKind[] = ['projects', 'git', 'button']
 
 export function isKnownWidgetKind(kind: string): kind is WidgetKind {
   return (WIDGET_KINDS as string[]).includes(kind)
+}
+
+/**
+ * Botão do canvas — um clique que dispara uma ação.
+ *
+ * NÃO é um caso novo de `NodeContent`: é `widget` com `kind: 'button'`, e a
+ * configuração inteira mora em `WidgetContent.view`. As duas decisões são a
+ * mesma: o enum de conteúdo é compartilhado com o app nativo Swift, onde um
+ * caso desconhecido faz o decoder LANÇAR, e um campo novo no payload seria
+ * ignorado pelo decoder de lá e DESCARTADO no primeiro save — perda silenciosa
+ * da configuração do usuário. `view` é `[String: String]` dos dois lados e faz
+ * round-trip intacto.
+ *
+ * O preço é que tudo é string. Estas duas funções são o único lugar do código
+ * que sabe disso; do lado de dentro o resto trabalha com `ButtonConfig`.
+ *
+ * O que NÃO entra aqui: estado de execução. "Rodando" e "falhou" mudam a cada
+ * clique e vivem no renderer (ver `buttonRuns` na store) — `view` é snapshot
+ * persistido, e um botão que gravasse o workspace a cada clique sujaria o
+ * autosave com dado descartável.
+ */
+export type ButtonAction = 'command' | 'prompt' | 'url'
+
+export const BUTTON_ACTIONS: ButtonAction[] = ['command', 'prompt', 'url']
+
+export interface ButtonConfig {
+  /** Rótulo exibido e título do nó. */
+  label: string
+  /** Nome do catálogo de ícones do renderer — não validado aqui (ver abaixo). */
+  icon: string
+  color: string
+  action: ButtonAction
+  command: string
+  prompt: string
+  url: string
+  /** Vazio = o diretório do projeto do widget, ou o do workspace. */
+  cwd: string
+  /** Terminal onde a ação roda. null = cria um novo. */
+  target: UUID | null
+  confirm: boolean
+  /** Proposto por um agente e ainda não aceito — inerte até o usuário aceitar. */
+  pending: boolean
+  proposedBy: string | null
+}
+
+export const DEFAULT_BUTTON_COLOR = '#34C759'
+
+/**
+ * `action` é validado como fontFamily/alignment: um valor estranho cairia num
+ * `switch` sem caso e o botão não faria nada.
+ *
+ * `icon` NÃO é validado: o catálogo é do renderer, e trazer `node-icons.tsx`
+ * para `shared/` só para conferir um nome custaria mais do que o defeito — um
+ * nome desconhecido já renderiza o ícone padrão.
+ */
+export function readButtonConfig(view: Record<string, string>): ButtonConfig {
+  const action = view.action ?? ''
+  return {
+    label: view.label ?? '',
+    icon: view.icon || 'bolt',
+    color: view.color || DEFAULT_BUTTON_COLOR,
+    action: (BUTTON_ACTIONS as string[]).includes(action) ? (action as ButtonAction) : 'command',
+    command: view.command ?? '',
+    prompt: view.prompt ?? '',
+    url: view.url ?? '',
+    cwd: view.cwd ?? '',
+    target: view.target ? (view.target as UUID) : null,
+    confirm: view.confirm === '1',
+    pending: view.pending === '1',
+    proposedBy: view.proposedBy || null
+  }
+}
+
+/** Chave vazia ou falsa é OMITIDA: um `view` enxuto é o que o app nativo e o
+ *  diff do arquivo de workspace mostram. */
+export function writeButtonConfig(config: ButtonConfig): Record<string, string> {
+  const view: Record<string, string> = {
+    label: config.label,
+    icon: config.icon,
+    color: config.color,
+    action: config.action
+  }
+  if (config.command) view.command = config.command
+  if (config.prompt) view.prompt = config.prompt
+  if (config.url) view.url = config.url
+  if (config.cwd) view.cwd = config.cwd
+  if (config.target) view.target = config.target
+  if (config.confirm) view.confirm = '1'
+  if (config.pending) view.pending = '1'
+  if (config.proposedBy) view.proposedBy = config.proposedBy
+  return view
+}
+
+/** O que o botão dispara, em uma linha — o que o nó pendente mostra ao usuário
+ *  antes do aceite, e o que o `title` explica depois dele. */
+export function buttonActionSummary(config: ButtonConfig): string {
+  switch (config.action) {
+    case 'prompt':
+      return config.prompt
+    case 'url':
+      return config.url
+    default:
+      return config.command
+  }
 }
 
 export type FontFamily = 'sans' | 'serif' | 'mono' | 'rounded'

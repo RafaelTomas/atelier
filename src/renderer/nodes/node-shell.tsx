@@ -82,9 +82,17 @@ function title(node: CanvasNode, projectName: string | null): string {
  */
 const RESIZE_EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
 
-/** Text é o único sem chrome — igual ao app nativo. */
+/**
+ * Sem barra de título: o texto (igual ao app nativo) e o BOTÃO.
+ *
+ * O botão entrou aqui porque um cabeçalho de 28 px em cima de um nó de 88 é um
+ * terço de moldura para nada — e porque o nó inteiro é o alvo de clique, o que
+ * um header roubaria pela metade. Editar e excluir ele ganha na barra de ações
+ * da seleção, como o terminal.
+ */
 function isChromeless(node: CanvasNode): boolean {
-  return node.content.type === 'text'
+  if (node.content.type === 'text') return true
+  return node.content.type === 'widget' && node.content.value.kind === 'button'
 }
 
 export function NodeShell({

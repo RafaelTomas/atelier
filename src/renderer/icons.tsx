@@ -443,3 +443,12 @@ export function IconPush(p: IconProps): JSX.Element {
     </Svg>
   )
 }
+
+/** Play da dock — a entrada do botão configurável. */
+export function IconPlay(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M8 5.2 18.4 12 8 18.8z" />
+    </Svg>
+  )
+}

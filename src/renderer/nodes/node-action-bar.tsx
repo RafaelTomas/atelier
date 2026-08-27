@@ -1,5 +1,5 @@
 /**
- * Barra de ações do terminal selecionado.
+ * Barra de ações do nó selecionado — terminal ou botão.
  *
  * Mesma mecânica da FormatBar: vive FORA do contêiner transformado do canvas,
  * em coordenadas de tela, e é reposicionada no callback do viewport — assim não
@@ -22,6 +22,11 @@ interface Props {
 
 export function NodeActionBar({ node }: Props): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
+  // Ligar e recarregar são gestos de TERMINAL: um botão não é conectável (o
+  // formato não tem array para o par botão↔terminal) e não tem processo para
+  // reiniciar. Mostrá-los desabilitados só ensinaria o usuário a ignorá-los.
+  const isTerminal = node.content.type === 'terminal'
+  const label = isTerminal ? 'terminal' : 'botão'
 
   useEffect(() => {
     const place = (): void => {
@@ -44,36 +49,40 @@ export function NodeActionBar({ node }: Props): JSX.Element {
       // botão também iniciaria seleção ou arrasto no nó de baixo.
       onMouseDown={(e) => e.stopPropagation()}
     >
+      {isTerminal && (
+        <button
+          type="button"
+          className="icon-btn action-btn"
+          title="Ligar a outro nó"
+          onClick={() => store.startConnecting(node.id)}
+        >
+          <IconConnect size={16} />
+        </button>
+      )}
       <button
         type="button"
         className="icon-btn action-btn"
-        title="Ligar a outro nó"
-        onClick={() => store.startConnecting(node.id)}
-      >
-        <IconConnect size={16} />
-      </button>
-      <button
-        type="button"
-        className="icon-btn action-btn"
-        title="Editar terminal"
-        onClick={() => store.openEditTerminal(node.id)}
+        title={`Editar ${label}`}
+        onClick={() => store.openNodeEditor(node.id)}
       >
         <IconPencil size={16} />
       </button>
-      <button
-        type="button"
-        className="icon-btn action-btn"
-        title="Recarregar — mata o processo e sobe outro"
-        onClick={() => void store.restartTerminal(node.id)}
-      >
-        <IconReload size={16} />
-      </button>
+      {isTerminal && (
+        <button
+          type="button"
+          className="icon-btn action-btn"
+          title="Recarregar — mata o processo e sobe outro"
+          onClick={() => void store.restartTerminal(node.id)}
+        >
+          <IconReload size={16} />
+        </button>
+      )}
       <ClaudeAccountButton node={node} />
       <span className="action-sep" />
       <button
         type="button"
         className="icon-btn action-btn is-danger"
-        title="Excluir terminal"
+        title={`Excluir ${label}`}
         onClick={() => void store.removeNode(node.id)}
       >
         <IconTrash size={16} />

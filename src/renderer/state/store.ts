@@ -11,6 +11,7 @@ import { useSyncExternalStore } from 'react'
 import type {
   AgentRole,
   AgentStatus,
+  ButtonConfig,
   CanvasNode,
   ClaudeAccountInfo,
   Connection,
@@ -25,7 +26,8 @@ import type {
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
-import { DEFAULT_CLAUDE_ACCOUNT_ID } from '@shared/types'
+import { DEFAULT_CLAUDE_ACCOUNT_ID, readButtonConfig, writeButtonConfig } from '@shared/types'
+import { normalizeURL } from '@shared/portal-url'
 import { viewport } from '../canvas/viewport'
 import { boundsForNodes, groupOf } from '../canvas/group-geometry'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
@@ -138,6 +140,22 @@ export interface AppSnapshot {
   /** Terminal aberto no diálogo em modo edição. null = ninguém editando. */
   editTerminalId: UUID | null
   /**
+   * Diálogo de botão aberto. `nodeId` null = criando um novo, e aí `frame` é a
+   * área desenhada no canvas. Mesmo compasso do diálogo de terminal: nada é
+   * criado enquanto o usuário não confirma.
+   */
+  buttonDialog: { nodeId: UUID | null; frame: Rect | null } | null
+  /**
+   * Como cada botão foi na última vez que o usuário clicou nele.
+   *
+   * FORA do `view` do widget, de propósito: `view` é snapshot persistido, e
+   * gravar isto ali sujaria o autosave a cada clique com dado descartável.
+   * Descreve a ENTREGA da ação (o comando chegou ao terminal), não o resultado
+   * dele — quem mostra saída, erro e código de saída é o PTY, que é a única
+   * superfície honesta para isso.
+   */
+  buttonRuns: Record<UUID, 'running' | 'failed'>
+  /**
    * Geração de cada terminal. Recarregar incrementa: o TerminalNode tem isso
    * nas deps do efeito, então o xterm é derrubado e o PTY sobe de novo.
    */
@@ -214,6 +232,8 @@ const initial: AppSnapshot = {
   newTerminalOpen: false,
   newTerminalFrame: null,
   editTerminalId: null,
+  buttonDialog: null,
+  buttonRuns: {},
   terminalEpoch: {},
   terminalStatus: {},
   newTerminalCwd: null,
@@ -780,6 +800,199 @@ class Store {
 
   closeNewTerminal(): void {
     this.set({ newTerminalOpen: false, newTerminalFrame: null, newTerminalCwd: null })
+  }
+
+  // ─── Botões ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Quanto tempo o pulso de "rodando" fica na tela.
+   *
+   * É o tempo de uma CONFIRMAÇÃO de entrega, não a duração do comando: o
+   * Atelier não acompanha o processo — quem mostra andamento, erro e código de
+   * saída é o terminal. Um pulso que ficasse até o fim do `npm run dev` nunca
+   * apagaria.
+   */
+  private static readonly RUN_PULSE_MS = 1400
+
+  private runTimers = new Map<UUID, ReturnType<typeof setTimeout>>()
+
+  private markRun(nodeId: UUID, state: 'running' | 'failed'): void {
+    const timer = this.runTimers.get(nodeId)
+    if (timer) clearTimeout(timer)
+    this.set({ buttonRuns: { ...this.state.buttonRuns, [nodeId]: state } })
+    this.runTimers.set(
+      nodeId,
+      setTimeout(() => {
+        const runs = { ...this.state.buttonRuns }
+        delete runs[nodeId]
+        this.runTimers.delete(nodeId)
+        this.set({ buttonRuns: runs })
+      }, state === 'failed' ? 4000 : Store.RUN_PULSE_MS)
+    )
+  }
+
+  /** O diálogo mora no App (ver openNewTerminal para o porquê). */
+  openButtonDialog(nodeId: UUID | null, frame: Rect | null = null): void {
+    this.set({ buttonDialog: { nodeId, frame } })
+  }
+
+  closeButtonDialog(): void {
+    this.set({ buttonDialog: null })
+  }
+
+  /**
+   * Botão é `widget` com `kind: 'button'` — não há caso novo no enum de
+   * conteúdo, e a configuração inteira vai em `view` (ver ButtonConfig).
+   */
+  async addButton(frame: Rect, config: ButtonConfig): Promise<CanvasNode | null> {
+    return this.addNode(
+      'widget',
+      { x: frame.x, y: frame.y },
+      { kind: 'button', view: writeButtonConfig(config) },
+      { width: frame.width, height: frame.height }
+    )
+  }
+
+  async saveButton(nodeId: UUID, config: ButtonConfig): Promise<void> {
+    // `view` é substituído inteiro: `writeButtonConfig` OMITE o que está vazio,
+    // e um merge deixaria para trás a `url` de quando a ação ainda era `url`.
+    await this.patchContent(nodeId, { view: writeButtonConfig(config) })
+    this.set({ buttonDialog: null })
+  }
+
+  /** Aceite do usuário a um botão proposto por agente: só isto o arma. */
+  async acceptButton(nodeId: UUID): Promise<void> {
+    const config = this.buttonConfig(nodeId)
+    if (!config) return
+    await this.saveButton(nodeId, { ...config, pending: false, proposedBy: null })
+  }
+
+  private buttonConfig(nodeId: UUID): ButtonConfig | null {
+    const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+    if (!node || node.content.type !== 'widget' || node.content.value.kind !== 'button') return null
+    return readButtonConfig(node.content.value.view)
+  }
+
+  /**
+   * Diretório em que a ação roda: o do botão, o do projeto em que ele está
+   * FIXADO, ou o do workspace — nessa ordem, a mesma do widget de git.
+   */
+  private buttonCwd(nodeId: UUID, config: ButtonConfig): string {
+    if (config.cwd) return config.cwd
+    const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+    const pinned =
+      node?.content.type === 'widget' ? node.content.value.projectId : null
+    const projectId = pinned ?? this.state.selectedProjectId
+    const project = this.state.projects.find((p) => p.id === projectId)
+    return project?.path ?? this.state.workspace?.workingDirectory ?? ''
+  }
+
+  /**
+   * O clique. Aqui é onde a decisão de execução vira código: nenhum comando
+   * roda fora de um PTY visível — o terminal É o log. Um caminho de `execFile`
+   * no main não teria onde mostrar saída, e a primeira vez que o comando
+   * falhasse o usuário ficaria com um botão que "não faz nada".
+   *
+   * Um botão PENDENTE é recusado em silêncio: o componente já não deixa clicar,
+   * e isto é a defesa em profundidade — o aceite é o que separa "o agente
+   * propôs uma linha de comando" de "o agente executa no shell do usuário".
+   */
+  async runButton(nodeId: UUID): Promise<void> {
+    const config = this.buttonConfig(nodeId)
+    if (!config || config.pending) return
+
+    if (config.action === 'url') {
+      const url = normalizeURL(config.url)
+      if (!url) {
+        this.showNotice('este botão não tem endereço configurado')
+        this.markRun(nodeId, 'failed')
+        return
+      }
+      const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+      const at = node
+        ? { x: node.frame.x + node.frame.width + 40, y: node.frame.y }
+        : centerOfViewport(640, 440)
+      await this.addNode('portal', at, { url, name: config.label || 'Portal' }, {
+        width: 640,
+        height: 440
+      })
+      this.markRun(nodeId, 'running')
+      return
+    }
+
+    const text = config.action === 'prompt' ? config.prompt : config.command
+    if (!text.trim()) {
+      this.showNotice('este botão não tem o que enviar')
+      this.markRun(nodeId, 'failed')
+      return
+    }
+
+    // Alvo vivo? Escreve nele. O PTY já existe, o histórico está lá, e é onde o
+    // usuário está olhando.
+    const target = config.target
+      ? this.state.workspace?.nodes.find(
+          (n) => n.id === config.target && n.content.type === 'terminal'
+        ) ?? null
+      : null
+    if (target && (await window.atelier.terminal.write(target.id, `${text}\r`))) {
+      this.set({ selection: [target.id] })
+      this.markRun(nodeId, 'running')
+      return
+    }
+
+    // Prompt exige alvo: criar um agente do zero para receber uma frase não é o
+    // que quem clicou pediu — ele subiria sem contexto nenhum.
+    if (config.action === 'prompt') {
+      this.showNotice(
+        target
+          ? 'o agente deste botão não está rodando — nada foi enviado'
+          : 'este botão não tem um agente alvo — edite-o e escolha um'
+      )
+      this.markRun(nodeId, 'failed')
+      return
+    }
+
+    // Sem alvo (ou com o alvo morto): terminal novo à direita do botão, já com
+    // o comando — o TerminalManager o injeta 300 ms depois do spawn.
+    const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+    const at = node
+      ? { x: node.frame.x + node.frame.width + 40, y: node.frame.y }
+      : centerOfViewport(560, 360)
+    const created = await this.createTerminal(
+      {
+        name: config.label || 'Comando',
+        command: text,
+        agentType: 'generic_shell',
+        workingDirectory: this.buttonCwd(nodeId, config),
+        icon: config.icon,
+        color: config.color,
+        monitorWithOmbro: true,
+        isManager: false,
+        themeId: null,
+        fontFamily: null,
+        fontSize: null,
+        assignedRoleId: null,
+        claudeAccountId: null
+      },
+      at,
+      { width: 560, height: 360 }
+    )
+    this.markRun(nodeId, created ? 'running' : 'failed')
+  }
+
+  /**
+   * Lápis da barra de ações: cada tipo de nó abre o editor dele.
+   *
+   * Existia só `openEditTerminal`, chamado direto pela barra — o que só
+   * funcionava enquanto o terminal era o único nó com barra.
+   */
+  openNodeEditor(nodeId: UUID): void {
+    const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+    if (!node) return
+    if (node.content.type === 'terminal') this.openEditTerminal(nodeId)
+    else if (node.content.type === 'widget' && node.content.value.kind === 'button') {
+      this.openButtonDialog(nodeId)
+    }
   }
 
   // ─── Projetos ───────────────────────────────────────────────────────────────

@@ -49,6 +49,11 @@ export const Constants = {
   vaultDefaultHeight: 280,
   /** Revelar valor na UI: teto de revelações por minuto, por cofre. */
   vaultRevealPerMinute: 10,
+  /** Botão (widget de kind `button`): um alvo de clique, não um painel. */
+  buttonMinWidth: 56,
+  buttonMinHeight: 56,
+  buttonDefaultWidth: 88,
+  buttonDefaultHeight: 88,
   /** Colagens de imagem no terminal com mais que isto (ms) são apagadas no boot. */
   imageTmpMaxAgeMs: 24 * 60 * 60 * 1000,
   agentIdleTimeoutMs: 2000,

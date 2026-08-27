@@ -35,7 +35,24 @@ export const ICON_NAMES = [
   'cube',
   'shield',
   'eye',
-  'wand'
+  'wand',
+  // Vocabulário de AÇÃO — entrou com o botão do canvas. Fica no mesmo catálogo
+  // de propósito: o diálogo de terminal passa a oferecê-los também, e um
+  // terminal que roda a suíte de testes merece o frasco tanto quanto o botão.
+  'play',
+  'stop',
+  'pause',
+  'reload',
+  'rocket',
+  'flask',
+  'package',
+  'broom',
+  'database',
+  'upload',
+  'download',
+  'link',
+  'check',
+  'plus-circle'
 ] as const
 
 export type IconName = (typeof ICON_NAMES)[number]
@@ -156,6 +173,76 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M4.2 19.8 13.4 10.6" />
       <path d="M15 4.2 16 6.8l2.6 1-2.6 1-1 2.6-1-2.6-2.6-1 2.6-1z" />
       <path d="M19.4 13.6l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z" />
+    </>
+  ),
+  play: <path d="M8 5.2 18.4 12 8 18.8z" />,
+  stop: <rect x="6.5" y="6.5" width="11" height="11" rx="1.6" />,
+  pause: <path d="M9.5 5.5v13M14.5 5.5v13" />,
+  reload: (
+    <>
+      <path d="M20 12a8 8 0 1 1-2.6-5.9" />
+      <path d="M20 4v4.5h-4.5" />
+    </>
+  ),
+  rocket: (
+    <>
+      <path d="M12 2.8c3.2 2.2 5 5.6 5 9.4l-2.2 4.4H9.2L7 12.2c0-3.8 1.8-7.2 5-9.4z" />
+      <circle cx="12" cy="10" r="1.8" />
+      <path d="M9.2 16.6 6.6 19l1.2-4M14.8 16.6 17.4 19l-1.2-4" />
+    </>
+  ),
+  flask: (
+    <>
+      <path d="M10 3.2h4M11 3.2v6L5.8 18a2 2 0 0 0 1.7 3h9a2 2 0 0 0 1.7-3L13 9.2v-6" />
+      <path d="M8.4 14.6h7.2" />
+    </>
+  ),
+  package: (
+    <>
+      <path d="M12 2.8 20 7v10l-8 4.2L4 17V7z" />
+      <path d="M4 7l8 4.2L20 7M12 11.2v10" />
+      <path d="M8 4.9 16 9.1" />
+    </>
+  ),
+  broom: (
+    <>
+      <path d="M19.4 4.6 12 12" />
+      <path d="M11.4 10.2 4.8 16.8a2 2 0 0 0-.5 2l.6 2.4 2.4.6a2 2 0 0 0 2-.5l6.6-6.6z" />
+      <path d="M8.6 13 11 15.4" />
+    </>
+  ),
+  database: (
+    <>
+      <ellipse cx="12" cy="6" rx="7.2" ry="3.2" />
+      <path d="M4.8 6v12c0 1.8 3.2 3.2 7.2 3.2s7.2-1.4 7.2-3.2V6" />
+      <path d="M4.8 12c0 1.8 3.2 3.2 7.2 3.2s7.2-1.4 7.2-3.2" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M12 16V4.4" />
+      <path d="M7.6 8.8 12 4.4l4.4 4.4" />
+      <path d="M4.5 19.6h15" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 4.4V16" />
+      <path d="M7.6 11.6 12 16l4.4-4.4" />
+      <path d="M4.5 19.6h15" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10.4 13.6a3.6 3.6 0 0 0 5.1 0l3-3a3.6 3.6 0 1 0-5.1-5.1l-1.6 1.6" />
+      <path d="M13.6 10.4a3.6 3.6 0 0 0-5.1 0l-3 3a3.6 3.6 0 1 0 5.1 5.1l1.6-1.6" />
+    </>
+  ),
+  check: <path d="M5 12.6 10 17.6 19.2 6.8" />,
+  'plus-circle': (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 8.2v7.6M8.2 12h7.6" />
     </>
   )
 }

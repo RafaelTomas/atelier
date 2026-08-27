@@ -552,8 +552,15 @@ export function makeImageContent(
  * O widget nasce seguindo a seleção global (`projectId: null`). Fixar num
  * projeto é ato posterior e explícito do usuário — o cadeado no cabeçalho.
  */
-export function makeWidgetContent(kind: string, projectId: UUID | null = null): WidgetContent {
-  return { kind, projectId, view: {} }
+export function makeWidgetContent(
+  kind: string,
+  projectId: UUID | null = null,
+  // O botão nasce configurado num único `addNode`, em vez de um `patchContent`
+  // logo atrás — que gravaria o workspace duas vezes e deixaria, entre as duas,
+  // um botão sem ação no canvas.
+  view: Record<string, string> = {}
+): WidgetContent {
+  return { kind, projectId, view }
 }
 
 /**
@@ -592,7 +599,7 @@ export function nodeDisplayName(content: NodeContent): string {
     case 'image':
       return content.value.title || 'Imagem'
     case 'widget':
-      return widgetTitle(content.value.kind)
+      return widgetTitle(content.value.kind, content.value.view)
     case 'secretVault':
       return content.value.name || 'Cofre'
     case 'text':
@@ -603,13 +610,18 @@ export function nodeDisplayName(content: NodeContent): string {
 }
 
 /** Rótulo do painel hospedado. Um kind desconhecido responde o próprio kind —
- *  é mais informativo que "Widget" e não finge que o nó é outra coisa. */
-export function widgetTitle(kind: string): string {
+ *  é mais informativo que "Widget" e não finge que o nó é outra coisa.
+ *
+ *  O botão é o único que precisa do `view`: o nome dele é o rótulo que o
+ *  usuário escreveu, e é por esse nome que o CLI o encontra. */
+export function widgetTitle(kind: string, view: Record<string, string> = {}): string {
   switch (kind) {
     case 'projects':
       return 'Projetos'
     case 'git':
       return 'Git'
+    case 'button':
+      return view.label || 'Botão'
     default:
       return kind
   }

@@ -27,7 +27,7 @@ const OWNER_MARKER = '<!-- installed-by: atelier -->'
 
 const SKILL_MD = `---
 name: atelier
-description: Send messages to connected AI agents on the Atelier canvas and get their responses, or recruit a new agent as a terminal node already cabled to you. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), read the file the user has open in a connected code editor node (including unsaved changes and the lines they selected), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, read secrets from a connected vault (including logging into a page without ever seeing the password), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'open/recruit another agent', 'create/update a note', 'open/read a page in a portal', 'what file am I looking at', 'explain/refactor this selection', 'show this query result on the canvas', 'put this image on the canvas', or 'describe the projects'.
+description: Send messages to connected AI agents on the Atelier canvas and get their responses, or recruit a new agent as a terminal node already cabled to you. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), read the file the user has open in a connected code editor node (including unsaved changes and the lines they selected), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, create a button on the canvas that runs a command the user repeats, read secrets from a connected vault (including logging into a page without ever seeing the password), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'open/recruit another agent', 'create/update a note', 'open/read a page in a portal', 'what file am I looking at', 'explain/refactor this selection', 'show this query result on the canvas', 'put this image on the canvas', 'make a button for this command', or 'describe the projects'.
 ---
 
 ${OWNER_MARKER}
@@ -283,6 +283,30 @@ PNG, JPEG, GIF, WebP, AVIF, SVG and BMP are accepted, up to 25 MB.
 atelier image create "Title" /abs/path/to/image.png [--alt "description"]
 atelier image list
 \`\`\`
+
+## Buttons
+
+A button is a small node on the canvas that runs something with one click — a
+command in a terminal, a prompt to an agent, or a URL in a portal.
+
+\`\`\`
+atelier button propose "Label" --command "npm run dev" [--icon play] [--color "#34C759"] [--cwd <path>] [--target "Terminal"] [--confirm]
+atelier button propose "Label" --prompt "review the diff" --target "Claude"
+atelier button propose "Label" --url http://localhost:5173
+atelier button list
+atelier button remove "Label"
+\`\`\`
+
+**Propose a button when the user repeats the same command** — the second or
+third time the same line goes into a terminal, offer one.
+**Never propose a destructive button** (\`rm\`, \`drop\`, \`reset --hard\`,
+deploy): one click is not enough deliberation for something that cannot be
+undone.
+
+Every button you propose arrives PENDING and does nothing until the user presses
+Accept on the node — that is where they read the exact command. Say so when you
+report back, or they will click a button that is not armed yet and think it is
+broken. \`remove\` only works on a pending button you proposed yourself.
 
 ## Projects
 

@@ -1,0 +1,89 @@
+/* Botão do canvas — widget de kind `button`.
+
+   O nó é chromeless (ver isChromeless em node-shell): o alvo de clique é o nó
+   INTEIRO, sem cabeçalho por cima. Daí as regras cobrirem 100% da casca em vez
+   de um corpo dentro dela.
+
+   A cor escolhida pelo usuário entra por --btn-color, escrita inline pelo
+   componente: são oito cores fixas mais o seletor livre, e uma classe por cor
+   viraria uma tabela que envelhece a cada cor nova. */
+
+/* Chromeless devolve o card ao transparente, o que está certo para o texto — mas
+   um botão sem moldura não parece clicável. Aqui ele volta a ter card, com a
+   quina mais arredondada do que a de um painel: a forma é o que diz "aperte". */
+.node.node-widget.is-chromeless {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 8%);
+}
+
+.button-widget {
+  /* Padrão, sobrescrito inline pelo componente com a cor escolhida. Está aqui e
+     não só no JSX porque um botão sem cor gravada (nó de uma versão futura, ou
+     um `view` incompleto) precisa continuar visível — e porque um var() sem
+     definição em CSS nenhum é o que test-tokens recusa. */
+  --btn-color: var(--accent);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; width: 100%; height: 100%; padding: 6px;
+  border: 0; background: transparent; color: var(--text);
+  font: inherit; cursor: pointer; text-align: center;
+}
+.button-widget:hover { background: color-mix(in srgb, var(--btn-color) 12%, transparent); }
+.button-widget:active { transform: scale(.97); }
+
+.button-widget-icon { color: var(--btn-color); display: flex; }
+
+.button-widget-label {
+  max-width: 100%; font-size: var(--fs-sm); line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Nó pequeno demais para rótulo: só o ícone, centralizado. */
+.button-widget.is-compact { gap: 0; padding: 2px; }
+
+/* Sem legenda de execução na tela, o pulso é o que diz que o clique foi
+   entregue. Ele descreve a ENTREGA, não o fim do comando — quem mostra
+   andamento e código de saída é o terminal (ver runButton na store). */
+.button-widget.is-running .button-widget-icon { animation: button-pulse .7s ease-in-out infinite; }
+@keyframes button-pulse { 50% { opacity: .3; } }
+
+.button-widget.is-failed { box-shadow: inset 0 0 0 1.5px var(--rope-error); }
+
+/* ─── Proposto por um agente ──────────────────────────────────────────────────
+   Inerte até o aceite, e com o comando à VISTA: é neste momento que o usuário
+   lê o que vai rodar no shell dele. Sem esta tela, um agente teria execução
+   arbitrária disfarçada de UI. */
+
+.button-widget.is-pending {
+  display: flex; flex-direction: column; align-items: stretch; justify-content: center;
+  gap: 4px; padding: 8px; cursor: default;
+  background: var(--surface); border: 1px dashed var(--btn-color); border-radius: inherit;
+}
+.button-pending-head {
+  display: flex; align-items: center; gap: 6px; color: var(--btn-color);
+  font-size: var(--fs-sm);
+}
+.button-pending-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.button-pending-cmd {
+  font-family: ui-monospace, monospace; font-size: var(--fs-xs); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.button-pending-by { font-size: var(--fs-2xs); color: var(--text-dim); }
+.button-pending-actions,
+.button-confirm-actions { display: flex; gap: 4px; margin-top: 2px; }
+.button-pending-actions .btn,
+.button-confirm-actions .btn { flex: 1; font-size: var(--fs-xs); padding: 3px 4px; }
+
+/* ─── Confirmação inline ──────────────────────────────────────────────────────
+   Dentro do nó, não num modal: o nó tem 88 px, e uma folha no meio da tela para
+   perguntar "rodar npm test?" é desproporcional ao que se pede. */
+
+.button-widget.is-confirming {
+  display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  padding: 8px; cursor: default; background: var(--surface);
+}
+.button-confirm-text {
+  font-family: ui-monospace, monospace; font-size: var(--fs-xs); color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

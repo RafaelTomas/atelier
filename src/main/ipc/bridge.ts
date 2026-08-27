@@ -75,18 +75,17 @@ import { forgetTerminal } from '../core/connection/skill-injector'
 import { registerGuest, unregisterGuest } from '../core/portal/portal-registry'
 import { closeSession, openSession } from '../core/portal/portal-cdp'
 import { notifyRenderer } from './notify'
+import { defaultSize, minSize, type NewNodeKind } from '../core/node-sizes'
 
-type NewNodeKind =
-  | 'terminal'
-  | 'note'
-  | 'text'
-  | 'portal'
-  | 'fileTree'
-  | 'codeEditor'
-  | 'dataTable'
-  | 'image'
-  | 'widget'
-  | 'secretVault'
+/** Só as entradas de texto de um mapa vindo do renderer (ver decodeWidget). */
+function stringMap(value: unknown): Record<string, string> {
+  if (typeof value !== 'object' || value === null) return {}
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    )
+  )
+}
 
 function contentFor(
   kind: NewNodeKind,
@@ -147,7 +146,11 @@ function contentFor(
           String(opts.kind ?? 'projects'),
           // Sem `projectId` o widget segue a seleção global; com ele, nasce
           // fixado — é o que o "fixar no canvas" da cascata manda.
-          typeof opts.projectId === 'string' ? (opts.projectId as UUID) : null
+          typeof opts.projectId === 'string' ? (opts.projectId as UUID) : null,
+          // Mesma filtragem de `decodeWidget`: `view` é [String: String] no
+          // Swift, e um número aqui faria o decoder de lá lançar no arquivo que
+          // nós mesmos gravamos. É por aqui que o botão nasce configurado.
+          stringMap(opts.view)
         )
       }
   }
@@ -251,60 +254,6 @@ async function addImageNode(
   ws.addNode(node)
   if (content.fileName) await persistence.writeImage(ws.id, content.fileName, bytes)
   return node
-}
-
-/**
- * Piso por tipo. A área é desenhada pelo usuário, e um retângulo de 20px
- * criaria um terminal onde nem o cabeçalho cabe.
- */
-function minSize(kind: NewNodeKind): { width: number; height: number } {
-  switch (kind) {
-    case 'terminal':
-      return { width: Constants.terminalMinWidth, height: Constants.terminalMinHeight }
-    case 'note':
-      return { width: Constants.noteMinWidth, height: Constants.noteMinHeight }
-    case 'portal':
-      return { width: 240, height: 180 }
-    case 'fileTree':
-      return { width: 180, height: 140 }
-    case 'codeEditor':
-      return { width: 240, height: 160 }
-    case 'dataTable':
-      return { width: Constants.tableMinWidth, height: Constants.tableMinHeight }
-    case 'image':
-      return { width: Constants.imageMinWidth, height: Constants.imageMinHeight }
-    case 'widget':
-      return { width: Constants.widgetMinWidth, height: Constants.widgetMinHeight }
-    case 'secretVault':
-      return { width: Constants.vaultMinWidth, height: Constants.vaultMinHeight }
-    case 'text':
-      return { width: 80, height: 32 }
-  }
-}
-
-function defaultSize(kind: NewNodeKind): { width: number; height: number } {
-  switch (kind) {
-    case 'terminal':
-      return { width: 560, height: 360 }
-    case 'note':
-      return { width: Constants.noteDefaultWidth, height: Constants.noteDefaultHeight }
-    case 'text':
-      return { width: 240, height: 48 }
-    case 'portal':
-      return { width: 640, height: 440 }
-    case 'fileTree':
-      return { width: 300, height: 420 }
-    case 'codeEditor':
-      return { width: 620, height: 440 }
-    case 'dataTable':
-      return { width: Constants.tableDefaultWidth, height: Constants.tableDefaultHeight }
-    case 'image':
-      return { width: Constants.imageDefaultWidth, height: Constants.imageDefaultHeight }
-    case 'widget':
-      return { width: Constants.widgetDefaultWidth, height: Constants.widgetDefaultHeight }
-    case 'secretVault':
-      return { width: Constants.vaultDefaultWidth, height: Constants.vaultDefaultHeight }
-  }
 }
 
 /**
@@ -441,13 +390,13 @@ export function registerIPC(): void {
         )
       }
 
-      const floor = minSize(kind)
+      const floor = minSize(kind, opts)
       const size = requested
         ? {
             width: Math.max(requested.width, floor.width),
             height: Math.max(requested.height, floor.height)
           }
-        : defaultSize(kind)
+        : defaultSize(kind, opts)
       const content = contentFor(kind, opts, kind === 'note' ? await takenNoteFiles(ws) : [])
       const node = makeCanvasNode({ x: position.x, y: position.y, ...size }, content)
       ws.addNode(node)

@@ -23,6 +23,7 @@ import {
   IconHand,
   IconLock,
   IconNote,
+  IconPlay,
   IconTerminal,
   IconText
 } from './icons'
@@ -44,7 +45,9 @@ const MIN_SIZE: Record<string, [number, number]> = {
   portal: [240, 180],
   fileTree: [180, 140],
   secretVault: [220, 140],
-  text: [80, 32]
+  text: [80, 32],
+  // Espelha Constants.buttonMin* — o main aplica o mesmo piso ao criar.
+  button: [56, 56]
 }
 
 interface MenuItem {
@@ -374,6 +377,24 @@ export function Dock(): JSX.Element {
         onClick={() => add('secretVault', [320, 280], { name: 'Cofre' }, undefined, 'cofre')}
       >
         <IconLock />
+      </DockButton>
+
+      <DockButton
+        label="Botão"
+        hint="desenhe a área; o diálogo abre em seguida"
+        onClick={() => {
+          setOpenMenu(null)
+          // Como o Terminal: o diálogo abre DEPOIS da área, e o botão nasce
+          // configurado — nunca vazio. Cancelar não cria nó nenhum.
+          store.startPlacing({
+            label: 'botão',
+            defaultSize: [88, 88],
+            minSize: MIN_SIZE.button,
+            finish: (frame) => store.openButtonDialog(null, frame)
+          })
+        }}
+      >
+        <IconPlay />
       </DockButton>
 
       <DockMenuButton

@@ -696,6 +696,48 @@ test('nodeIds chega em minúsculo e sai maiúsculo, como todo UUID do formato', 
   assert.deepEqual(doc.payload.groups[0].nodeIds, [NODE_A])
 })
 
+// O botão é o primeiro teste da promessa do widget: "todo widget futuro cabe
+// sem tocar no formato". Se algum destes falhar, o formato mudou e o app nativo
+// (ou uma versão mais velha deste binário) perde a configuração do usuário.
+
+test('botão faz round-trip como widget/button, com a config inteira em view', () => {
+  const view = {
+    label: 'Subir a app',
+    icon: 'play',
+    color: '#34C759',
+    action: 'command',
+    command: 'npm run dev',
+    cwd: '/home/dev/app',
+    confirm: '1'
+  }
+  const doc = decodeWorkspaceDocument(widgetDoc({ kind: 'button', projectId: null, view }))
+  const value = doc.payload.nodes[0].content.value
+  assert.equal(value.kind, 'button')
+  assert.deepEqual(value.view, view)
+
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.equal(back.widget._0.kind, 'button')
+  assert.deepEqual(back.widget._0.view, view)
+})
+
+test('chave desconhecida no view de um botão sobrevive ao round-trip', () => {
+  // Uma versão mais nova pode gravar `shortcut` aqui. Perder essa chave no save
+  // seria a mesma perda silenciosa que o formato do botão veio evitar.
+  const view = { label: 'X', action: 'command', command: 'ls', shortcut: 'cmd+1' }
+  const doc = decodeWorkspaceDocument(widgetDoc({ kind: 'button', projectId: null, view }))
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.equal(back.widget._0.view.shortcut, 'cmd+1')
+})
+
+test('valor não-string no view de um botão é filtrado', () => {
+  const doc = decodeWorkspaceDocument(
+    widgetDoc({ kind: 'button', projectId: null, view: { label: 'X', confirm: true } })
+  )
+  const view = doc.payload.nodes[0].content.value.view
+  assert.equal(view.label, 'X')
+  assert.equal('confirm' in view, false, 'um booleano foi gravado num mapa de strings')
+})
+
 test('schemaVersion e type ficam corretos na raiz', () => {
   assert.equal(reencoded.schemaVersion, 7)
   assert.equal(reencoded.type, 'workspace')

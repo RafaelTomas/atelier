@@ -1180,12 +1180,22 @@ export function CanvasView(): JSX.Element {
       : null
 
   /**
-   * Terminal com seleção única — ganha a barra de ligar/editar/recarregar/
-   * excluir. Com vários selecionados a barra não teria um alvo só.
+   * Terminal ou botão com seleção única — ganha a barra de editar/excluir (e,
+   * no terminal, ligar e recarregar). Com vários selecionados a barra não teria
+   * um alvo só.
+   *
+   * O botão entrou aqui porque ele é chromeless: sem cabeçalho, editar e
+   * excluir não teriam onde morar, e o duplo clique sozinho é um gesto que não
+   * se anuncia.
    */
   const actionTarget =
     selection.length === 1
-      ? nodes.find((n) => n.id === selection[0] && n.content.type === 'terminal') ?? null
+      ? nodes.find(
+          (n) =>
+            n.id === selection[0] &&
+            (n.content.type === 'terminal' ||
+              (n.content.type === 'widget' && n.content.value.kind === 'button'))
+        ) ?? null
       : null
 
   return (

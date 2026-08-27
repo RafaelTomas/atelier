@@ -4,6 +4,7 @@ import { Constants } from '../../constants'
 import { makeStickyNoteContent, nodeDisplayName } from '../../models/node-content'
 import { makeCanvasNode } from '../../models/workspace'
 import { persistence } from '../../persistence/persistence-manager'
+import { takenNoteFiles } from '../../state/note-files'
 import { notifyRenderer } from '../../../ipc/notify'
 import { findConnectedNode, requireTerminalId, workspaceForTerminal } from './context'
 
@@ -89,8 +90,8 @@ async function createNote(args: string[], tid: UUID): Promise<string> {
   const caller = ws.node(tid)
   if (!caller) return 'error: calling terminal is not on this canvas'
 
-  const name = `Note ${ws.nodes.filter((n) => n.content.type === 'stickyNote').length + 1}`
-  const content = makeStickyNoteContent(name)
+  const content = makeStickyNoteContent('Note', await takenNoteFiles(ws))
+  const name = content.fileName?.replace(/\.md$/, '') ?? 'Note'
   const node = makeCanvasNode(
     {
       x: caller.frame.x + caller.frame.width + 60,

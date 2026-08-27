@@ -206,6 +206,61 @@ await test('workspace relê do disco preservando nós e conexões', async () => 
   assert.equal(reloaded.connections[0].kind, 'note')
 })
 
+// ─── Reparo de notas que dividiam o mesmo .md ─────────────────────────────────
+
+await test('abrir separa notas gravadas com o mesmo arquivo', async () => {
+  const criado = await appState.createWorkspace('Notas Coladas', '')
+  const file = paths.workspaceFile(criado.id)
+
+  // Duas notas apontando para Note.md — o que a UI gravava antes da correção
+  const nota = (id) => ({
+    id,
+    frame: [[0, 0], [200, 160]],
+    zIndex: 1,
+    isLocked: false,
+    createdAt: '2026-05-16T00:00:00Z',
+    lastModifiedAt: '2026-05-16T00:00:00Z',
+    content: {
+      stickyNote: {
+        _0: {
+          color: '#FFF3B0',
+          fileName: 'Note.md',
+          fontSize: 14,
+          hasCustomName: false,
+          isPreviewing: false,
+          storageMode: { managed: {} },
+          fontFamily: 'mono',
+          alignment: 'left'
+        }
+      }
+    }
+  })
+  const doc = JSON.parse(readFileSync(file, 'utf8'))
+  doc.payload.nodes = [
+    nota('AAAAAAAA-0000-0000-0000-00000000000A'),
+    nota('AAAAAAAA-0000-0000-0000-00000000000B')
+  ]
+  await writeFile(file, JSON.stringify(doc, null, 2))
+  await persistence.writeNote(criado.id, 'Note.md', 'o texto que sobrou')
+
+  appState.workspaces.delete(criado.id)
+  const reaberto = await appState.openWorkspace(criado.id)
+  const arquivos = reaberto.nodes.map((n) => n.content.value.fileName)
+  assert.equal(new Set(arquivos).size, 2, 'as duas notas continuam no mesmo arquivo')
+  assert.equal(
+    await persistence.readNote(criado.id, arquivos[1]),
+    'o texto que sobrou',
+    'a nota separada nasceu vazia em vez de herdar o texto'
+  )
+
+  // O reparo suja o workspace de propósito: grava aqui para o nome novo chegar
+  // ao disco (e para não sobrar workspace sujo para o teste seguinte).
+  await appState.saveDirtyWorkspaces()
+  const gravado = JSON.parse(readFileSync(file, 'utf8'))
+  const nomes = gravado.payload.nodes.map((n) => n.content.stickyNote._0.fileName)
+  assert.equal(new Set(nomes).size, 2, 'o arquivo voltou a ter as duas notas coladas')
+})
+
 // ─── Formato: modo seguro e backup da subida de versão ────────────────────────
 // O teste que a perda silenciosa nunca teve. Um workspace com um caso de enum
 // que este binário não conhece tem de abrir SEM gravar por cima: o autosave
@@ -317,7 +372,17 @@ await test('atelier note create cria nota já conectada', async () => {
   const out = await cli(['note', 'create', 'nota nova'], terminalId)
   assert.match(out, /Created note/)
   const list = await cli(['list'], terminalId)
-  assert.match(list, /Note \d/)
+  assert.match(list, /Note/)
+})
+
+await test('duas notas nunca dividem o mesmo .md', async () => {
+  const a = await cli(['note', 'create', 'texto A'], terminalId)
+  const b = await cli(['note', 'create', 'texto B'], terminalId)
+  const nameA = a.match(/Created note '([^']+)'/)[1]
+  const nameB = b.match(/Created note '([^']+)'/)[1]
+  assert.notStrictEqual(nameA, nameB)
+  assert.strictEqual((await cli(['note', 'read', nameA], terminalId)).trim(), 'texto A')
+  assert.strictEqual((await cli(['note', 'read', nameB], terminalId)).trim(), 'texto B')
 })
 
 await test('comando desconhecido não derruba o servidor', async () => {

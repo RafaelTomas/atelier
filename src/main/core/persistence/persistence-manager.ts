@@ -292,6 +292,15 @@ class PersistenceManager {
 
   // ─── Notas (.md) ────────────────────────────────────────────────────────────
 
+  /** Nomes dos `.md` já em disco — usados para não reaproveitar arquivo órfão. */
+  async listNotes(workspaceId: UUID): Promise<string[]> {
+    try {
+      return (await readdir(paths.notesDir(workspaceId))).filter((f) => f.endsWith('.md'))
+    } catch {
+      return []
+    }
+  }
+
   async readNote(workspaceId: UUID, fileName: string): Promise<string> {
     try {
       return await readFile(join(paths.notesDir(workspaceId), fileName), 'utf8')

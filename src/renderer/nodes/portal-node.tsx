@@ -25,6 +25,9 @@ import { store } from '../state/store'
 
 const FREEZE_ZOOM = 0.1
 
+/** Uma batida de roda no Chromium — o que fecha um degrau de zoom. */
+const WHEEL_STEP_PIXELS = 100
+
 /**
  * `allowpopups` PRECISA chegar ao DOM como string.
  *
@@ -108,6 +111,36 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
   const [nav, setNav] = useState({ back: false, forward: false })
 
   useEffect(() => viewport.subscribe((v) => setFrozen(v.zoom < FREEZE_ZOOM)), [])
+
+  /**
+   * Ctrl/⌘+roda com o cursor DENTRO da página: zoom do canvas.
+   *
+   * O evento não existe deste lado — o guest é outro processo e nada do que
+   * acontece nele sobe para o DOM do host, nem na fase de captura. Quem enxerga
+   * é o main, pelo `zoom-changed` do webContents (core/portal/portal-zoom.ts), e
+   * o que chega aqui é só a direção.
+   *
+   * O degrau vai como PIXELS DE RODA para reaproveitar `zoomByWheel`: assim o
+   * gesto dentro do portal cai na mesma grade de 5 pontos do resto do canvas,
+   * em vez de ter uma escada própria.
+   */
+  useEffect(() => {
+    return window.atelier.portal.onZoomGesture(({ nodeId, direction }) => {
+      if (nodeId !== node.id) return
+      const el = viewRef.current
+      const host = el?.closest('.canvas-host')
+      if (!el || !host) return
+      const r = el.getBoundingClientRect()
+      const h = host.getBoundingClientRect()
+      // Ancorado no centro do portal: o cursor está em cima dele, e o evento do
+      // guest não carrega posição nenhuma.
+      const anchor = {
+        x: r.left + r.width / 2 - h.left,
+        y: r.top + r.height / 2 - h.top
+      }
+      viewport.zoomByWheel(anchor, direction === 'in' ? -WHEEL_STEP_PIXELS : WHEEL_STEP_PIXELS, 0)
+    })
+  }, [node.id])
 
   /** Congelado pelo zoom, mas não se o agente pediu para ler agora. */
   const asleep = frozen && !awake

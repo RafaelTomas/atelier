@@ -51,7 +51,7 @@
 .btn.is-danger { color: var(--rope-error); }
 
 /* ─── Superfície flutuante ───────────────────────────────────────────────────
-   O vidro que fica sobre o canvas: dock, sidebar, minimapa, chips do topo,
+   O vidro que fica sobre o canvas: dock, rail, minimapa, chips do topo,
    cápsulas de controle e o aviso de projetos. Todos repetiam o mesmo par
    fundo/blur — e o `backdrop-filter` duas vezes, porque o prefixo -webkit-
    ainda é o que o Chromium honra em alguns caminhos de composição.
@@ -61,8 +61,8 @@
    properties — quem monta ajusta o grau sem reescrever a regra. O padrão é o
    das peças pequenas, que são a maioria.
 
-   A BORDA fica de fora de propósito: a sidebar tem borda só à direita, o grupo
-   do Git não tem nenhuma, e os outros têm as quatro. Um valor padrão aqui só
+   A BORDA fica de fora de propósito: a coluna da rail tem borda só à direita,
+   o grupo do Git não tem nenhuma, e os outros têm as quatro. Um valor padrão aqui só
    criaria um `border: 0` para desfazer em dois lugares. */
 .floating {
   --floating-bg: var(--dock-bg);
@@ -74,7 +74,7 @@
 }
 
 /* ─── Abas em cápsula ────────────────────────────────────────────────────────
-   Nasce nos diálogos e reaparece na sidebar (onde os segmentos viram ícones e
+   Nasce nos diálogos e reaparece nos painéis (onde os segmentos viram ícones e
    dividem a largura) — dois donos independentes, e por isso vive aqui. */
 
 .segmented {

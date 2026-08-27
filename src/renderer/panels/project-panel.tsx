@@ -12,7 +12,7 @@ import { viewport } from '../canvas/viewport'
 import { ContextMenu } from '../context-menu'
 import { PROJECT_DRAG_TYPE } from '../drag'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
-import { IconMore, IconPlus, IconSearch } from '../icons'
+import { IconMore, IconPin, IconPlus, IconSearch } from '../icons'
 import { truncateStart } from '../paths'
 import { store, useStore } from '../state/store'
 import { QUICK_STARTS } from '../terminal-presets'
@@ -35,7 +35,31 @@ interface Progress {
 /** Acima disto a lista deixa de ser legível e só custa render a cada tecla. */
 const MAX_VISIBLE = 200
 
-export function ProjectPanel(): JSX.Element {
+interface Props {
+  /**
+   * 'picker' é a MESMA lista, sem as ações que não pertencem a "escolher um
+   * projeto": varredura, favoritar, levar para o canvas. Ela é a coluna 1 da
+   * cascata quando Arquivos ou Git ainda não têm projeto — e é literalmente a
+   * lista de sempre, porque duas listas de projeto seriam duas listas para
+   * manter em pé.
+   */
+  mode?: 'full' | 'picker'
+  /** Chamado depois de escolher um projeto — a cascata avança com isso. */
+  onPick?: (id: UUID) => void
+  /** Presente = o painel oferece "fixar no canvas", e avisa quando foi pedido. */
+  onPin?: () => void
+  /**
+   * O que mostrar SOBRE o projeto escolhido, logo abaixo dele.
+   *
+   * Com detalhe, a lista se recolhe ao item selecionado: só se escolhe um
+   * projeto por vez, e manter os outros 22 embaixo do escolhido é oferecer uma
+   * escolha que já foi feita. Clicar nele de novo desmarca e a lista volta —
+   * é o mesmo clique nos dois sentidos, e por isso não precisa de um "voltar".
+   */
+  detail?: React.ReactNode
+}
+
+export function ProjectPanel({ mode = 'full', onPick, onPin, detail }: Props = {}): JSX.Element {
   const { projects, projectQuery, scanning, workspace, prefs, selectedProjectId } = useStore()
   const [progress, setProgress] = useState<Progress | null>(null)
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -159,13 +183,33 @@ export function ProjectPanel(): JSX.Element {
   startScannerRef.current = () => startScanner()
 
   const selected = menu ? projects.find((p) => p.id === menu.id) ?? null : null
+  // Buscado no índice inteiro, e não em `visible`: o escolhido pode estar além
+  // do corte de MAX_VISIBLE, e aí a coluna recolhida ficaria vazia.
+  const chosen = projects.find((p) => p.id === selectedProjectId) ?? null
   const pendingCount = projects.filter((p) => !p.isArchived && !p.enrichedAt).length
+  const picker = mode === 'picker'
+  /**
+   * Uma busca ativa desfaz o recolhimento: filtrar uma lista escondida não teria
+   * como mostrar o resultado, e o campo de busca aberto sobre um item só seria
+   * uma promessa que a coluna não cumpre.
+   */
+  const collapsed = Boolean(detail) && chosen !== null && !projectQuery.trim()
 
   return (
     <>
-      <div className="sidebar-header">
-        <span>Projetos {projects.length > 0 && <em className="sidebar-count">{projects.length}</em>}</span>
-        <div className="sidebar-header-actions">
+      <div className="panel-header">
+        <span>Projetos {projects.length > 0 && <em className="panel-count">{projects.length}</em>}</span>
+        <div className="panel-header-actions">
+          {onPin && (
+            <button
+              type="button"
+              className="icon-btn ghost-btn rail-pin"
+              onClick={onPin}
+              title="Fixar este painel no canvas"
+            >
+              <IconPin size={15} />
+            </button>
+          )}
           <button type="button" className="icon-btn ghost-btn" onClick={() => void addFolder()} title="Adicionar projeto…">
             <IconPlus size={15} />
           </button>
@@ -178,22 +222,28 @@ export function ProjectPanel(): JSX.Element {
           >
             <IconSearch size={15} />
           </button>
-          <button
-            type="button"
-            className={moreMenu ? 'icon-btn ghost-btn is-active' : 'icon-btn ghost-btn'}
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect()
-              setMoreMenu(moreMenu ? null : { x: r.right, y: r.bottom + 4 })
-            }}
-            title="Mais opções"
-          >
-            <IconMore size={15} />
-          </button>
+          {/* O seletor não escaneia nem configura varredura: ali a lista
+              existe para UMA coisa, escolher um projeto. Renderização
+              condicional e não `hidden`: o atributo põe display:none no nível
+              do agente de usuário, e o `display: flex` de .icon-btn vence. */}
+          {!picker && (
+            <button
+              type="button"
+              className={moreMenu ? 'icon-btn ghost-btn is-active' : 'icon-btn ghost-btn'}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect()
+                setMoreMenu(moreMenu ? null : { x: r.right, y: r.bottom + 4 })
+              }}
+              title="Mais opções"
+            >
+              <IconMore size={15} />
+            </button>
+          )}
         </div>
       </div>
 
       {projects.length > 0 && searchOpen && (
-        <div className="sidebar-search">
+        <div className="panel-search">
           <input
             ref={searchInput}
             className="project-search"
@@ -236,8 +286,8 @@ export function ProjectPanel(): JSX.Element {
 
       {scannerError && <p className="scan-error">{scannerError}</p>}
 
-      <ul className="project-list">
-        {visible.map((project) => (
+      <ul className={collapsed ? 'project-list is-collapsed' : 'project-list'}>
+        {(collapsed && chosen ? [chosen] : visible).map((project) => (
           <li key={project.id}>
             <button
               type="button"
@@ -258,8 +308,17 @@ export function ProjectPanel(): JSX.Element {
                 .filter(Boolean)
                 .join(' ')}
               title={project.path}
-              // Um clique escolhe de quem é a árvore da aba Arquivos.
-              onClick={() => store.selectProject(project.id)}
+              // Um clique escolhe de quem é a árvore da coluna Arquivos; o
+              // clique no que JÁ está escolhido desmarca. Só há uma seleção,
+              // então o mesmo alvo tem de servir para desfazê-la.
+              onClick={() => {
+                if (project.id === selectedProjectId) {
+                  store.selectProject(null)
+                  return
+                }
+                store.selectProject(project.id)
+                onPick?.(project.id)
+              }}
               onDoubleClick={() => addToCanvas(project)}
               onContextMenu={(e) => {
                 e.preventDefault()
@@ -274,11 +333,23 @@ export function ProjectPanel(): JSX.Element {
                 <span className="project-kind">{project.kind}</span>
               </span>
               <span className="project-path">{truncateStart(project.path, 30)}</span>
-              {project.description && <span className="project-desc">{project.description}</span>}
+              {/* `title` porque a linha trunca: com o detalhe não repetindo
+                  mais a descrição, o hover é o único lugar onde ela cabe
+                  inteira. */}
+              {project.description && (
+                <span className="project-desc" title={project.description}>
+                  {project.description}
+                </span>
+              )}
             </button>
           </li>
         ))}
       </ul>
+
+      {/* Abaixo do item, e não numa coluna ao lado: o detalhe é DAQUELE projeto,
+          e uma segunda coluna o desgruda do que ele descreve. A rolagem é dele,
+          não da lista — que aqui tem uma linha só. */}
+      {collapsed && <div className="project-detail">{detail}</div>}
 
       {moreMenu && (
         <ContextMenu x={moreMenu.x} y={moreMenu.y} align="right">

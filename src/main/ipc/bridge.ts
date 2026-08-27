@@ -31,7 +31,8 @@ import {
   makePortalContent,
   makeStickyNoteContent,
   makeTerminalContent,
-  makeTextContent
+  makeTextContent,
+  makeWidgetContent
 } from '../core/models/node-content'
 import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import type { WorkspaceManager } from '../core/state/workspace-manager'
@@ -66,6 +67,7 @@ type NewNodeKind =
   | 'codeEditor'
   | 'dataTable'
   | 'image'
+  | 'widget'
 
 function contentFor(
   kind: NewNodeKind,
@@ -127,6 +129,16 @@ function contentFor(
           naturalHeight: typeof opts.naturalHeight === 'number' ? opts.naturalHeight : 0,
           alt: typeof opts.alt === 'string' ? opts.alt : ''
         })
+      }
+    case 'widget':
+      return {
+        type: 'widget',
+        value: makeWidgetContent(
+          String(opts.kind ?? 'projects'),
+          // Sem `projectId` o widget segue a seleção global; com ele, nasce
+          // fixado — é o que o "fixar no canvas" da cascata manda.
+          typeof opts.projectId === 'string' ? (opts.projectId as UUID) : null
+        )
       }
   }
 }
@@ -251,6 +263,8 @@ function minSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: Constants.tableMinWidth, height: Constants.tableMinHeight }
     case 'image':
       return { width: Constants.imageMinWidth, height: Constants.imageMinHeight }
+    case 'widget':
+      return { width: Constants.widgetMinWidth, height: Constants.widgetMinHeight }
     case 'text':
       return { width: 80, height: 32 }
   }
@@ -274,6 +288,8 @@ function defaultSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: Constants.tableDefaultWidth, height: Constants.tableDefaultHeight }
     case 'image':
       return { width: Constants.imageDefaultWidth, height: Constants.imageDefaultHeight }
+    case 'widget':
+      return { width: Constants.widgetDefaultWidth, height: Constants.widgetDefaultHeight }
   }
 }
 
@@ -322,6 +338,15 @@ export function registerIPC(): void {
   })
 
   ipcMain.handle('workspace:delete', async (_e, id: UUID) => {
+    // Os PTYs vão junto. `node:remove` mata o terminal de um nó apagado; aqui
+    // todos os nós somem de uma vez, e sem isto os processos ficariam rodando
+    // órfãos até o app fechar — presos a um diretório de trabalho que o `rm`
+    // acabou de levar, e sem nó nenhum na tela para reatá-los.
+    for (const node of appState.workspaces.get(id)?.nodes ?? []) {
+      if (node.content.type !== 'terminal') continue
+      terminals.kill(node.id)
+      forgetTerminal(node.id)
+    }
     await appState.deleteWorkspace(id)
     return appState.manifest.workspaces
   })

@@ -17,6 +17,11 @@
  * lista `dataConnections` do cabo terminal↔imagem. Nenhum dado transformado —
  * todo documento v4 já é um v5 válido.
  *
+ * A v6 acrescenta `widget`: um painel do app (projetos, git)
+ * hospedado num nó. Um caso só para todos eles — qual painel é fica num campo
+ * DENTRO do payload —, justamente para que painel novo não peça versão nova.
+ * Nenhum dado transformado: todo documento v5 já é um v6 válido.
+ *
  * O que migração nenhuma resolve é o sentido CONTRÁRIO — um v3 aberto por um
  * leitor mais velho:
  *
@@ -45,9 +50,9 @@ export function migrateWorkspaceDocument(raw: unknown): unknown {
 
   let current = doc
   if (version < 2) current = migrateV1toV2(current)
-  // Não há passo 2 → 3, 3 → 4 nem 4 → 5: cada uma só acrescenta um caso ao enum
-  // de conteúdo, e todo documento da versão anterior já é válido na seguinte. Só
-  // o número muda.
+  // Não há passo 2 → 3, 3 → 4, 4 → 5 nem 5 → 6: cada uma só acrescenta um caso
+  // ao enum de conteúdo, e todo documento da versão anterior já é válido na
+  // seguinte. Só o número muda.
   return { ...current, schemaVersion: Constants.schemaVersion }
 }
 

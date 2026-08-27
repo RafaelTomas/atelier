@@ -45,11 +45,30 @@ import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
 export type Tool = 'select' | 'pan' | 'draw' | 'pen' | 'highlighter' | 'eraser'
 
 /**
- * Aba aberta no painel lateral. Mora na store, e não no componente, porque
- * outras partes precisam mandar a aba mudar — o menu de contexto de um projeto
- * abre a árvore dele, e o vazio da aba Arquivos manda de volta para Projetos.
+ * Item aberto na rail esquerda. Workspaces não está aqui: ele subiu para o
+ * chip do canto superior esquerdo (ver workspace-chip.tsx).
  */
-export type SidebarTab = 'workspaces' | 'projetos' | 'arquivos' | 'git'
+export type RailTab = 'projetos' | 'arquivos' | 'git'
+
+/**
+ * Pedido de "abra a cascata em tal item".
+ *
+ * A rail é dona da própria navegação — qual item está aberto é `useState` dela,
+ * não estado global. Mas OUTRAS partes precisam mandá-la abrir: o menu de
+ * contexto de um projeto tem "Ver arquivos", e o vazio do painel de arquivos
+ * manda de volta para Projetos. Isso é uma INTENÇÃO, não um estado: chega,
+ * é consumida e some. Daí o campo efêmero, que a rail zera ao atender.
+ *
+ * `nonce` existe porque pedir duas vezes o MESMO item é um pedido legítimo (a
+ * cascata pode ter sido fechada no meio) e um objeto igual não dispararia o
+ * efeito de novo.
+ */
+export interface RailRequest {
+  tab: RailTab
+  /** Projeto a selecionar junto. null = mantém o que já estava. */
+  projectId: UUID | null
+  nonce: number
+}
 
 /** Ferramentas que o menu de desenho oferece — subconjunto acionável de Tool. */
 export type DrawTool = Extract<Tool, 'pen' | 'highlighter' | 'eraser'>
@@ -85,9 +104,8 @@ export interface AppSnapshot {
   connectingFrom: UUID | null
   /** Componente esperando o usuário desenhar a área onde vai nascer. */
   placing: Placement | null
-  /** Sidebar recolhida — espelha preferences.sidebarCollapsed. */
-  sidebarCollapsed: boolean
-  sidebarTab: SidebarTab
+  /** Pedido pendente de abrir a cascata da rail. A rail consome e zera. */
+  railRequest: RailRequest | null
   /** Tema escolhido — espelha preferences.theme. */
   theme: ThemeMode
   /** Ferramenta ativa (caneta, marca-texto, borracha ou seleção). */
@@ -118,9 +136,11 @@ export interface AppSnapshot {
   projects: Project[]
   projectQuery: string
   /**
-   * Projeto escolhido no painel — é dele que a aba Arquivos mostra a árvore.
+   * Projeto escolhido no painel — é dele que a coluna Arquivos mostra a árvore.
+   * FONTE ÚNICA de "em que projeto estou": a cascata da rail, o menu do Git e
+   * os widgets não fixados leem daqui, e nenhum deles mantém cópia própria.
    * Guarda o id, não o objeto: assim um re-scan que atualize o projeto não
-   * deixa a aba olhando para uma cópia velha.
+   * deixa a coluna olhando para uma cópia velha.
    */
   selectedProjectId: UUID | null
   /**
@@ -165,8 +185,7 @@ const initial: AppSnapshot = {
   selection: [],
   connectingFrom: null,
   placing: null,
-  sidebarCollapsed: false,
-  sidebarTab: 'workspaces',
+  railRequest: null,
   theme: 'system',
   tool: 'select',
   pen: { color: '#e0245e', lineWidth: 3 },
@@ -216,10 +235,17 @@ class Store {
 
   async load(): Promise<void> {
     try {
-      const [{ entries, activeId }, prefs, roles] = await Promise.all([
+      const [{ entries, activeId }, prefs, roles, projects] = await Promise.all([
         window.atelier.workspace.list(),
         window.atelier.prefs.get(),
-        window.atelier.role.list()
+        window.atelier.role.list(),
+        // O índice entra no BOOT, e não só quando o painel de projetos monta.
+        // Um widget de git fixado num projeto precisa resolver esse id para
+        // saber de que repositório ele é — e ele pode estar na tela sem que a
+        // cascata da rail tenha sido aberta uma única vez. Enquanto o índice
+        // dependia da montagem do painel, o widget reabria dizendo "nenhum
+        // projeto selecionado" para um projeto que estava lá.
+        window.atelier.project.list()
       ])
       const id = activeId ?? entries[0]?.id ?? null
       const workspace = id ? await window.atelier.workspace.open(id) : null
@@ -233,7 +259,7 @@ class Store {
         integrity,
         roles,
         prefs,
-        sidebarCollapsed: prefs.sidebarCollapsed,
+        projects,
         theme,
         loading: false
       })
@@ -276,6 +302,25 @@ class Store {
     })
   }
 
+  /**
+   * Apaga o workspace E O DIRETÓRIO DELE em disco — notas `.md` e anexos
+   * junto. Sem lixeira, sem desfazer: quem chama já confirmou com o usuário.
+   *
+   * Excluir o ATIVO deixa o app sem workspace aberto, e não abre outro no
+   * lugar. O main escolhe um de reserva para o próximo boot, mas herdar essa
+   * escolha aqui abriria, sem pedir, um workspace que o usuário não pediu — e
+   * a diferença entre "fechou" e "trocou sozinho" só apareceria depois de uma
+   * edição no canvas errado.
+   */
+  async deleteWorkspace(id: UUID): Promise<void> {
+    const entries = await window.atelier.workspace.remove(id)
+    if (id === this.state.activeId) {
+      this.set({ entries, workspace: null, activeId: null, selection: [], integrity: null })
+      return
+    }
+    this.set({ entries })
+  }
+
   // ─── Nós ────────────────────────────────────────────────────────────────────
 
   get workspaceId(): UUID | null {
@@ -296,7 +341,16 @@ class Store {
   }
 
   async addNode(
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor' | 'dataTable' | 'image',
+    kind:
+      | 'terminal'
+      | 'note'
+      | 'text'
+      | 'portal'
+      | 'fileTree'
+      | 'codeEditor'
+      | 'dataTable'
+      | 'image'
+      | 'widget',
     position: { x: number; y: number },
     opts: Record<string, unknown> = {},
     size?: { width: number; height: number }
@@ -673,18 +727,30 @@ class Store {
     this.set({ selectedProjectId })
   }
 
-  setSidebarTab(sidebarTab: SidebarTab): void {
-    this.set({ sidebarTab })
+  /**
+   * Manda a rail abrir num item. Ver RailRequest: é intenção, não estado — a
+   * rail atende e chama `consumeRailRequest`.
+   */
+  requestRail(tab: RailTab, projectId: UUID | null = null): void {
+    const nonce = (this.state.railRequest?.nonce ?? 0) + 1
+    this.set({
+      railRequest: { tab, projectId, nonce },
+      selectedProjectId: projectId ?? this.state.selectedProjectId
+    })
+  }
+
+  consumeRailRequest(): void {
+    if (this.state.railRequest) this.set({ railRequest: null })
   }
 
   /** Seleciona e abre a árvore dele — o par que o menu de contexto usa. */
   showProjectFiles(id: UUID): void {
-    this.set({ selectedProjectId: id, sidebarTab: 'arquivos' })
+    this.requestRail('arquivos', id)
   }
 
   /** Abre o Git já apontado para este projeto — o menu de contexto usa isto. */
   showProjectGit(id: UUID): void {
-    this.set({ selectedProjectId: id, sidebarTab: 'git' })
+    this.requestRail('git', id)
   }
 
   /**
@@ -944,21 +1010,17 @@ class Store {
     this.set({ selection: sel.includes(id) ? sel.filter((s) => s !== id) : [...sel, id] })
   }
 
-  /** Otimista: a UI reage na hora, o preferences.json é gravado em seguida. */
   /**
-   * Largura do painel. Chamada UMA vez, no fim do arrasto — durante o gesto
-   * quem manda na largura é o CSS var, escrito direto no documento.
+   * Largura da coluna da rail. Chamada UMA vez, no fim do arrasto — durante o
+   * gesto quem manda na largura é o CSS var, escrito direto no documento.
+   *
+   * Grava em `prefs.sidebarWidth`: o campo do disco é reaproveitado porque
+   * mede exatamente a mesma coisa que media antes, e trocar o nome custaria
+   * uma migração de preferências para nada.
    */
-  async setSidebarWidth(sidebarWidth: number): Promise<void> {
+  async setRailWidth(sidebarWidth: number): Promise<void> {
     const prefs = await window.atelier.prefs.set({ sidebarWidth })
     this.set({ prefs })
-  }
-
-  toggleSidebar(): void {
-    const collapsed = !this.state.sidebarCollapsed
-    this.set({ sidebarCollapsed: collapsed })
-    this.mirrorPrefs({ sidebarCollapsed: collapsed })
-    void window.atelier.prefs.set({ sidebarCollapsed: collapsed })
   }
 
   setTheme(theme: ThemeMode): void {

@@ -32,7 +32,7 @@
   border-radius: var(--r-sm); padding: 1px 4px;
 }
 
-/* Ancorado no botão, não fixed: a sidebar rola, e um menu fixed ficaria
+/* Ancorado no botão, não fixed: a coluna rola, e um menu fixed ficaria
    parado enquanto o branch ao qual pertence sobe. */
 .git-branch-menu {
   position: absolute; top: calc(100% - 2px); left: 10px; z-index: 900;

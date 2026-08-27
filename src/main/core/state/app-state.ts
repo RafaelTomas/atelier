@@ -26,6 +26,20 @@ class AppState {
   needsRecovery = false
   legacyImport: ImportResult = { imported: false }
 
+  /**
+   * Workspaces excluídos nesta sessão. Existe por causa de UMA corrida, e ela
+   * perde dado de forma invisível: `saveDirtyWorkspaces` tira o retrato de
+   * todos os sujos de uma vez e SÓ DEPOIS grava um a um, com await entre eles.
+   * Uma exclusão no meio dessa fila encontraria o `rm` já feito e a gravação
+   * seguinte RECRIARIA o diretório inteiro — com o arquivo do workspace que o
+   * usuário acabou de mandar apagar.
+   *
+   * Tirar do Map não basta: o retrato já tinha sido tirado. Por isso o
+   * conjunto é consultado imediatamente antes de cada gravação, e não na
+   * filtragem lá de cima. Nunca é esvaziado: um id de workspace não volta.
+   */
+  private deleted = new Set<UUID>()
+
   private autosaveTimer: NodeJS.Timeout | null = null
 
   /**
@@ -163,7 +177,15 @@ class AppState {
     return true
   }
 
+  /**
+   * Destrutiva de verdade: apaga o diretório inteiro do workspace, notas `.md`
+   * e anexos junto. Não há lixeira nem desfazer — quem chama tem de ter
+   * confirmado com o usuário antes.
+   */
   async deleteWorkspace(id: UUID): Promise<void> {
+    // Antes do rm, e antes de qualquer await: é o que impede um autosave já em
+    // voo de recriar o diretório logo depois de ele sumir.
+    this.deleted.add(id)
     this.workspaces.delete(id)
     this.manifest.workspaces = this.manifest.workspaces.filter((w) => w.id !== id)
     await persistence.saveManifest(this.manifest)
@@ -203,7 +225,11 @@ class AppState {
     if (dirty.length === 0) return 0
 
     const snapshots = dirty.map((w) => ({ manager: w, payload: w.snapshot() }))
+    let saved = 0
     for (const { manager, payload } of snapshots) {
+      // Excluído entre o retrato e a vez dele na fila: gravar agora recriaria
+      // o diretório que o `rm` acabou de levar.
+      if (this.deleted.has(payload.id)) continue
       try {
         await persistence.saveWorkspace(payload, manager.fileSchemaVersion)
         manager.isDirty = false
@@ -211,18 +237,20 @@ class AppState {
         // Depois de um save forçado o arquivo já não tem o que não era
         // entendido: o aviso perdeu o objeto e sai da tela.
         manager.droppedNodes = 0
+        saved++
       } catch (err) {
         log.error('appstate', `falha salvando workspace ${payload.id}`, err)
       }
     }
-    log.debug('appstate', `autosave gravou ${snapshots.length} workspace(s)`)
-    return snapshots.length
+    log.debug('appstate', `autosave gravou ${saved} workspace(s)`)
+    return saved
   }
 
   /** Shutdown gracioso: grava tudo e marca cleanShutdown. */
   async shutdown(): Promise<void> {
     this.stopAutosave()
     for (const manager of this.workspaces.values()) {
+      if (this.deleted.has(manager.id)) continue
       // Fechar o app não é permissão para gravar por cima do que não foi
       // entendido: em modo seguro o arquivo fica como está.
       if (manager.isSafeMode) {

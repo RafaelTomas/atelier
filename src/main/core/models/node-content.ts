@@ -25,6 +25,8 @@ import type {
   TerminalContent,
   TextAlignment,
   TextContent,
+  UUID,
+  WidgetContent,
   FontFamily,
   FontWeight
 } from '@shared/types'
@@ -57,7 +59,8 @@ const VARIANTS = [
   'stroke',
   'freehand',
   'dataTable',
-  'image'
+  'image',
+  'widget'
 ] as const
 
 // ─── StorageMode ──────────────────────────────────────────────────────────────
@@ -187,6 +190,27 @@ function decodeImage(raw: Record<string, unknown>): ImageContent {
   }
 }
 
+/**
+ * O `kind` NÃO é validado contra a lista conhecida, ao contrário de fontFamily
+ * e alignment. A diferença é o que cada valor estranho faz: uma fonte
+ * desconhecida cairia no CSS e quebraria o layout, enquanto um widget
+ * desconhecido só precisa ser renderizado inerte e gravado de volta como veio.
+ * Estreitar aqui trocaria o widget de uma versão mais nova por outro no
+ * primeiro save — perda silenciosa, que é exatamente o que este arquivo evita.
+ */
+function decodeWidget(raw: Record<string, unknown>): WidgetContent {
+  const view = asRecord(raw.view)
+  return {
+    kind: str(raw.kind, 'projects'),
+    projectId: raw.projectId ? normalizeUUID(raw.projectId) : null,
+    // Só as entradas de texto sobrevivem: `view` é [String: String] no Swift, e
+    // um número aqui faria o decoder de lá lançar no arquivo que gravamos.
+    view: Object.fromEntries(
+      Object.entries(view).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    )
+  }
+}
+
 // ─── Enums de tipografia ──────────────────────────────────────────────────────
 // Validamos em vez de fazer cast: um valor estranho vindo do disco (ou de uma
 // versão futura do app nativo) cairia direto no CSS e quebraria o layout.
@@ -299,6 +323,8 @@ export function decodeNodeContent(value: unknown): NodeContent | null {
       return { type: 'dataTable', value: decodeDataTable(payload) }
     case 'image':
       return { type: 'image', value: decodeImage(payload) }
+    case 'widget':
+      return { type: 'widget', value: decodeWidget(payload) }
   }
 }
 
@@ -466,6 +492,14 @@ export function makeImageContent(
   }
 }
 
+/**
+ * O widget nasce seguindo a seleção global (`projectId: null`). Fixar num
+ * projeto é ato posterior e explícito do usuário — o cadeado no cabeçalho.
+ */
+export function makeWidgetContent(kind: string, projectId: UUID | null = null): WidgetContent {
+  return { kind, projectId, view: {} }
+}
+
 /** Nome exibido no header do nó, por tipo. */
 export function nodeDisplayName(content: NodeContent): string {
   switch (content.type) {
@@ -492,10 +526,25 @@ export function nodeDisplayName(content: NodeContent): string {
       return content.value.title
     case 'image':
       return content.value.title || 'Imagem'
+    case 'widget':
+      return widgetTitle(content.value.kind)
     case 'text':
       return content.value.text.slice(0, 24) || 'Text'
     default:
       return content.type
+  }
+}
+
+/** Rótulo do painel hospedado. Um kind desconhecido responde o próprio kind —
+ *  é mais informativo que "Widget" e não finge que o nó é outra coisa. */
+export function widgetTitle(kind: string): string {
+  switch (kind) {
+    case 'projects':
+      return 'Projetos'
+    case 'git':
+      return 'Git'
+    default:
+      return kind
   }
 }
 

@@ -36,6 +36,7 @@ type NewNodeKind =
   | 'codeEditor'
   | 'dataTable'
   | 'image'
+  | 'widget'
 
 /** `ok` diz se a ação passou; `message` é o que o git respondeu, resumido. */
 interface GitActionResult {

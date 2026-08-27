@@ -6,7 +6,7 @@
  * canvas. A aba lateral continua existindo para quem quer a coluna larga, com
  * diff e caminhos longos legíveis.
  *
- * O projeto é o mesmo que a sidebar usa (`selectedProjectId`): dois seletores
+ * O projeto é o mesmo que a cascata da rail usa (`selectedProjectId`): dois seletores
  * de "em que repositório estou" seriam duas fontes de verdade para a mesma
  * pergunta, e o commit sairia no lugar errado.
  *

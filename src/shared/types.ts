@@ -165,6 +165,54 @@ export interface ImageContent {
   addedAt: string
 }
 
+/**
+ * Painel do app hospedado num nó do canvas — o "widget".
+ *
+ * UM caso de enum para TODOS os painéis, e não um por painel. O enum de
+ * conteúdo é compartilhado com o app nativo Swift, onde um caso desconhecido
+ * faz o `JSONDecoder` LANÇAR: três widgets como três casos seriam três eventos
+ * de incompatibilidade. Com o discriminador aqui dentro, é um só — e todo
+ * widget futuro cabe sem tocar no formato.
+ */
+export interface WidgetContent {
+  /**
+   * Qual painel este nó hospeda. Tipado como `string`, e não como a união, de
+   * propósito: um `kind` gravado por uma versão mais nova precisa ATRAVESSAR
+   * este binário intacto. Estreitar aqui faria o decoder reescrever o valor e
+   * o save seguinte trocaria silenciosamente o widget do usuário por outro.
+   * Ver `isKnownWidgetKind` para o teste antes de renderizar.
+   */
+  kind: string
+  /**
+   * Projeto que o widget observa. null = segue o `selectedProjectId` global —
+   * a fonte única continua sendo ela; um id aqui é a exceção EXPLÍCITA, e é o
+   * que permite dois widgets de git de repositórios diferentes lado a lado.
+   */
+  projectId: UUID | null
+  /**
+   * Estado de vista do painel (aba changes/history, filtro, expansões). Mapa de
+   * strings porque é o que o `[String: String]` do Swift lê sem caso especial —
+   * e porque nada de alta frequência tem permissão de entrar aqui.
+   */
+  view: Record<string, string>
+}
+
+/**
+ * Os painéis que este binário sabe renderizar.
+ *
+ * Workspaces NÃO está aqui, e a ausência é deliberada: um seletor de workspaces
+ * dentro do canvas de um workspace é circular — trocar de workspace troca o
+ * canvas em que o próprio nó estava. Ele vive no chip do topo, que é global à
+ * janela e não pertence a canvas nenhum.
+ */
+export type WidgetKind = 'projects' | 'git'
+
+export const WIDGET_KINDS: WidgetKind[] = ['projects', 'git']
+
+export function isKnownWidgetKind(kind: string): kind is WidgetKind {
+  return (WIDGET_KINDS as string[]).includes(kind)
+}
+
 export type FontFamily = 'sans' | 'serif' | 'mono' | 'rounded'
 export type FontWeight = 'light' | 'regular' | 'medium' | 'semibold' | 'bold'
 export type TextAlignment = 'left' | 'center' | 'right'
@@ -221,10 +269,13 @@ export interface FreehandContent {
  * { "<tipo>": { "_0": … } } — ver models/node-content.ts.
  *
  * Eram oito, herdadas do app nativo; `codeEditor` é a nona e é o que fez o
- * schemaVersion subir para 3. `dataTable` (v4) e `image` (v5) seguem a mesma
- * lógica: um caso a mais no enum, nenhum dado transformado. Um leitor mais
- * velho não as conhece — o que a subida de versão faz a respeito disso está em
- * persistence/migrations.ts.
+ * schemaVersion subir para 3. `dataTable` (v4), `image` (v5) e `widget` (v6)
+ * seguem a mesma lógica: um caso a mais no enum, nenhum dado transformado. Um
+ * leitor mais velho não as conhece — o que a subida de versão faz a respeito
+ * disso está em persistence/migrations.ts.
+ *
+ * `widget` é o último caso que um PAINEL vai pedir: o discriminador dele mora
+ * no payload (ver WidgetContent), então painel novo não é caso novo.
  */
 export type NodeContent =
   | { type: 'terminal'; value: TerminalContent }
@@ -238,6 +289,7 @@ export type NodeContent =
   | { type: 'freehand'; value: FreehandContent }
   | { type: 'dataTable'; value: DataTableContent }
   | { type: 'image'; value: ImageContent }
+  | { type: 'widget'; value: WidgetContent }
 
 export type NodeContentType = NodeContent['type']
 
@@ -419,8 +471,19 @@ export interface Preferences {
   fontSize: number
   fontFamily: string
   theme: string
+  /**
+   * Campo MORTO desde que a sidebar virou o rail em cascata: nada no renderer
+   * lê nem escreve. Fica no tipo porque `preferences.json` é compartilhado com
+   * o app nativo Swift, onde a chave continua existindo — removê-la daqui faria
+   * o encoder daqui apagá-la de lá.
+   */
   sidebarCollapsed: boolean
-  /** Largura do painel lateral em px. Ver SIDEBAR_WIDTH em renderer/sidebar.tsx. */
+  /**
+   * Largura da coluna de conteúdo do rail, em px. O nome é o do disco e não
+   * mudou de propósito: reaproveitar o campo evita uma migração de preferências
+   * para uma medida que significa exatamente a mesma coisa. Ver RAIL_WIDTH em
+   * renderer/rail.tsx.
+   */
   sidebarWidth: number
   /** Varrer atrás de projetos novos a cada boot. O aviso sempre oferece desligar. */
   autoScanOnLaunch: boolean

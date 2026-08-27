@@ -1,24 +1,34 @@
 /**
- * Aba Git: o console de versionamento do projeto selecionado.
+ * Coluna Git: o console de versionamento do projeto selecionado.
  *
- * Segue a mesma regra da aba Arquivos — quem escolhe o projeto é a aba
+ * Segue a mesma regra da coluna Arquivos — quem escolhe o projeto é a lista de
  * Projetos, e este painel só mostra o dele. Um seletor próprio aqui seria uma
- * segunda fonte de verdade para "em que projeto estou".
+ * segunda fonte de verdade para "em que projeto estou". A única exceção é o
+ * `projectId` explícito de um widget FIXADO no canvas, e ela é visível: o nó
+ * mostra o cadeado fechado.
  *
  * O status NÃO mora na store. Ele muda a cada ação e a cada polling, e cada
  * set() da store notifica todos os assinantes, canvas incluído — a mesma razão
  * pela qual o progresso da varredura ficou local no painel de projetos.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { GitCommitEntry, GitFileChange } from '@shared/types'
-import { IconReload } from '../icons'
+import type { GitCommitEntry, GitFileChange, UUID } from '@shared/types'
+import { IconPin, IconReload } from '../icons'
 import { truncateStart } from '../paths'
 import { store, useStore } from '../state/store'
 import { useGit } from '../state/use-git'
 
-export function GitPanel(): JSX.Element {
+interface Props {
+  /** Ver FilesPanel: `undefined` = segue o `selectedProjectId` global. */
+  projectId?: UUID | null
+  /** Presente = o painel oferece "fixar no canvas", e avisa quando foi pedido. */
+  onPin?: () => void
+}
+
+export function GitPanel({ projectId, onPin }: Props = {}): JSX.Element {
   const { projects, selectedProjectId } = useStore()
-  const project = projects.find((p) => p.id === selectedProjectId) ?? null
+  const wanted = projectId === undefined ? selectedProjectId : projectId
+  const project = projects.find((p) => p.id === wanted) ?? null
   const path = project?.path ?? null
 
   const { status, error, busy, feedback, setFeedback, refresh, run } = useGit(path)
@@ -61,7 +71,7 @@ export function GitPanel(): JSX.Element {
       <div className="project-empty">
         <p>Nenhum projeto selecionado.</p>
         <p className="files-hint">Escolha um projeto para ver o Git dele.</p>
-        <button type="button" className="btn" onClick={() => store.setSidebarTab('projetos')}>
+        <button type="button" className="btn" onClick={() => store.requestRail('projetos')}>
           Ver projetos
         </button>
       </div>
@@ -138,7 +148,7 @@ export function GitPanel(): JSX.Element {
   if (error) {
     return (
       <>
-        <GitHeader project={project.name} />
+        <GitHeader project={project.name} onPin={onPin} />
         <div className="project-empty">
           {error === 'not-a-repo' ? (
             <>
@@ -169,6 +179,7 @@ export function GitPanel(): JSX.Element {
         project={project.name}
         busy={busy === 'status'}
         onRefresh={() => void refresh()}
+        onPin={onPin}
       />
 
       <div className="git-branchline">
@@ -384,26 +395,40 @@ export function GitPanel(): JSX.Element {
 function GitHeader({
   project,
   busy,
-  onRefresh
+  onRefresh,
+  onPin
 }: {
   project: string
   busy?: boolean
   onRefresh?: () => void
+  onPin?: () => void
 }): JSX.Element {
   return (
-    <div className="sidebar-header">
+    <div className="panel-header">
       <span className="files-title">{project}</span>
-      {onRefresh && (
-        <div className="sidebar-header-actions">
-          <button
-            type="button"
-            className={busy ? 'icon-btn ghost-btn is-active' : 'icon-btn ghost-btn'}
-            onClick={onRefresh}
-            title="Reler o status"
-            disabled={busy}
-          >
-            <IconReload size={15} />
-          </button>
+      {(onRefresh || onPin) && (
+        <div className="panel-header-actions">
+          {onPin && (
+            <button
+              type="button"
+              className="icon-btn ghost-btn rail-pin"
+              onClick={onPin}
+              title="Fixar este Git no canvas"
+            >
+              <IconPin size={15} />
+            </button>
+          )}
+          {onRefresh && (
+            <button
+              type="button"
+              className={busy ? 'icon-btn ghost-btn is-active' : 'icon-btn ghost-btn'}
+              onClick={onRefresh}
+              title="Reler o status"
+              disabled={busy}
+            >
+              <IconReload size={15} />
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -445,7 +470,7 @@ function FileSection({
     <section className="git-section">
       <div className="git-section-head">
         <span>
-          {title} {count > 0 && <em className="sidebar-count">{count}</em>}
+          {title} {count > 0 && <em className="panel-count">{count}</em>}
         </span>
         <button type="button" className="icon-btn ghost-btn git-section-action" disabled={action.disabled} onClick={action.run}>
           {action.label}

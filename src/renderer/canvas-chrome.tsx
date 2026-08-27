@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react'
 import { dialToZoom, nodesBounds, viewport, zoomToDial } from './canvas/viewport'
 import { GitMenu } from './git-menu'
 import { store, useStore } from './state/store'
+import { WorkspaceChip } from './workspace-chip'
 import type { CanvasNode } from '@shared/types'
 import type { ThemeMode } from './theme'
 
@@ -23,7 +24,7 @@ const THEMES: { id: ThemeMode; icon: string; label: string }[] = [
 ]
 
 export function CanvasChrome(): JSX.Element {
-  const { workspace, connectingFrom, placing, notice, sidebarCollapsed, theme } = useStore()
+  const { workspace, connectingFrom, placing, notice, theme } = useStore()
   const [themeMenu, setThemeMenu] = useState(false)
 
   useEffect(() => {
@@ -42,22 +43,11 @@ export function CanvasChrome(): JSX.Element {
 
   return (
     <>
-      {/* Com a sidebar aberta o chip desvia para a direita dela: a sidebar
-          flutua sobre o canvas, então sem o desvio o nome ficaria por baixo. */}
-      <div className={sidebarCollapsed ? 'canvas-chip-row' : 'canvas-chip-row is-shifted'}>
-        {sidebarCollapsed && (
-          <button
-            type="button"
-            className="floating canvas-chip is-icon"
-            onClick={() => store.toggleSidebar()}
-            title="Mostrar painel"
-          >
-            ☰
-          </button>
-        )}
-        <div className="floating canvas-chip" title={workspace?.workingDirectory || undefined}>
-          {workspace?.name ?? '—'}
-        </div>
+      {/* O ☰ que morava aqui não existe mais: a rail é permanente e o chip
+          virou o botão de workspaces. Sem sidebar, o chip também não desvia
+          mais para a direita de nada. */}
+      <div className="canvas-chip-row">
+        <WorkspaceChip />
       </div>
 
       <ViewControls

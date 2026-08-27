@@ -287,6 +287,37 @@ export function IconMore(p: IconProps): JSX.Element {
   )
 }
 
+/** Alfinete: "fixar no canvas". */
+export function IconPin(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M12 17v5" />
+      <path d="M5 17h14v-1.8a2 2 0 0 0-1.1-1.8l-1.8-.9a2 2 0 0 1-1.1-1.8V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.7a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2Z" />
+    </Svg>
+  )
+}
+
+/** Cadeado fechado: o widget está preso a UM projeto. */
+export function IconLock(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </Svg>
+  )
+}
+
+/** Cadeado aberto: o widget segue a seleção global. A haste solta à direita é
+ *  a única diferença — e é ela que o usuário lê de relance. */
+export function IconUnlock(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <rect x="4" y="11" width="16" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 7.9-.8" />
+    </Svg>
+  )
+}
+
 export function IconReload(p: IconProps): JSX.Element {
   return (
     <Svg {...p}>

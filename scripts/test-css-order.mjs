@@ -22,7 +22,8 @@ const dir = join(root, 'src/renderer/styles')
 
 // A ordem, e por que é esta.
 const ESPERADA = [
-  ['panels',  'sem dependência de ordem com as outras'],
+  ['panels',  'ANTES de rail: a rail ajusta a densidade dos painéis que hospeda, e ajuste vem depois do que ele ajusta.'],
+  ['rail',    'DEPOIS de panels (ver acima). Só a casca da rail — o conteúdo das colunas é panels.'],
   ['canvas',  'ANTES de nodes: .node.is-connect-target (canvas) e .node.is-chromeless (nodes) têm a mesma especificidade e caem no mesmo elemento — um nó sem moldura que é alvo de conexão. Hoje o is-chromeless vence, e é o esperado.'],
   ['nodes',   'DEPOIS de canvas (ver acima) e ANTES de todo nodes/*: a casca comum vem primeiro para um tipo de nó poder ajustá-la escrevendo só a diferença.'],
   ['nodes/terminal-node',    'depois da casca'],
@@ -74,6 +75,10 @@ const CONHECIDOS = new Map(([
    'elementos distintos: a árvore vazia não é o editor vazio'],
   ['.theme-preview.is-add|.role-card.is-add',
    'elementos distintos: prévia de tema não é cartão de responsabilidade'],
+  ['.canvas-chip.is-open|.rail-btn.is-open',
+   'elementos distintos: o chip do workspace não é um botão da rail'],
+  ['.dock-btn.is-open|.rail-btn.is-open',
+   'elementos distintos: um botão está na dock ou na rail, nunca nos dois — mas o par é INTENCIONAL, é o mesmo estado "menu aberto" com a mesma aparência nas duas pílulas'],
   ['.ghost-btn.is-active|.workspace-item.is-active',
    'elementos distintos: o botão fantasma não é o item da lista'],
   ['.ghost-btn.is-active|.git-tab.is-active',

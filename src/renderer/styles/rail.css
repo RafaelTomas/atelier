@@ -1,0 +1,137 @@
+/* A rail esquerda e a cascata que sai dela.
+
+   Aqui mora só a CASCA — a barra de ícones, as colunas, a alça de arrasto.
+   O conteúdo de cada coluna (lista de projetos, árvore, console git) é o mesmo
+   de sempre e continua na folha de painéis: a cascata trocou a casca deles,
+   não eles.
+
+   A geometria responde a uma restrição que as abas resolviam antes: três áreas
+   de rolagem numa coluna estreita são três áreas inutilizáveis. Em cascata cada
+   NÍVEL tem a sua, e nenhum nível empilha duas. */
+
+/* ─── Barra de ícones ─────────────────────────────────────────────────────── */
+
+/* Centralizada na vertical, irmã da dock: mesma linguagem (vidro, --dock-*),
+   girada 90°. Fica na borda esquerda porque é de onde a cascata cresce — uma
+   rail centrada na base abriria os painéis por cima da dock. */
+.rail {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  z-index: 200;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 6px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--dock-border);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .22);
+  --floating-blur: 14px;
+  --floating-saturate: 1.4;
+  user-select: none;
+}
+
+/* Mesma razão de .dock-btn não compor .icon-btn: a paleta aqui é a do vidro
+   (--dock-fg/--dock-hover), não a do tema. */
+.rail-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0;
+  border: 1px solid transparent; border-radius: var(--r-lg);
+  background: transparent; color: var(--dock-fg);
+  cursor: pointer;
+}
+.rail-btn:hover:not(:disabled) { background: var(--dock-hover); color: var(--dock-fg-strong); }
+/* Desabilitado = sem projeto escolhido. Apagado, não escondido: sumir com o
+   item mudaria a altura da pílula a cada seleção, e quem procura Arquivos
+   acharia que ele não existe. */
+.rail-btn:disabled { opacity: .35; cursor: default; }
+.rail-btn.is-open {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+/* Recolher a cascata inteira: fecha o item aberto e some com as colunas.
+   Menor que os outros porque não é um destino, é uma saída. */
+.rail-collapse { height: 24px; font-size: var(--fs-md); }
+
+.rail-sep { height: 1px; width: 20px; margin: 4px 0; background: var(--dock-border); }
+
+/* ─── Colunas ─────────────────────────────────────────────────────────────── */
+
+/* Absolutas à direita da rail, e não filhas dela: a rail é uma pílula estreita
+   e centrada, e uma coluna de 70vh dentro dela esticaria a pílula até virar
+   uma barra. `left` é a largura da rail (46px) mais a folga. */
+.rail-cascade {
+  position: absolute; left: 62px; top: 50%; transform: translateY(-50%);
+  z-index: 199;
+  display: flex; align-items: stretch; gap: 8px;
+  max-height: min(70vh, calc(100% - 40px));
+  /* Sem isto, a cascata de um projeto com caminho longo empurra a própria
+     largura e passa por cima da dock e dos controles de vista. */
+  max-width: calc(100% - 80px);
+}
+
+.rail-col {
+  position: relative;
+  display: flex; flex-direction: column; min-height: 0;
+  width: var(--rail-panel-width);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--dock-border);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .26);
+  /* A maior superfície de vidro do app, como era a sidebar: fundo próprio e o
+     maior blur, senão o painel inteiro vira uma parede opaca. */
+  --floating-bg: var(--panel-bg);
+  --floating-blur: 28px;
+  --floating-saturate: 1.6;
+  overflow: hidden;
+  padding-top: 6px;
+}
+
+/* A coluna de LISTA tem largura fixa: ela mostra sempre a mesma coisa (nomes
+   de projeto), e é a de conteúdo que ganha ou perde espaço no arrasto. */
+.rail-col.is-list { width: var(--rail-list-width); flex-shrink: 0; }
+
+/* Cada nível tem a PRÓPRIA rolagem — é o que substitui as abas. */
+.rail-col-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Alça de arrasto. Fica INTEIRA dentro da coluna: a coluna tem overflow
+   hidden (é o que impede um nome longo de gerar rolagem lateral) e qualquer
+   parte montada para fora era recortada junto — inclusive para o hit-test, que
+   a tornava inclicável. */
+.rail-resizer {
+  position: absolute; top: 0; bottom: 0; right: 0; width: 6px;
+  cursor: col-resize; z-index: 6; touch-action: none;
+}
+.rail-resizer:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* ─── Cabeçalho de volta ('‹ projeto') ────────────────────────────────────── */
+
+/* Só aparece quando a cascata pulou o seletor porque já havia projeto
+   selecionado. É o que impede a coluna 2 de ser um beco: sem ele, trocar de
+   projeto exigiria fechar e reabrir. */
+.rail-back {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 6px 10px; margin-bottom: 2px;
+  border: 0; background: transparent; color: var(--text-dim);
+  font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer;
+}
+.rail-back:hover { color: var(--text); background: var(--dock-hover); }
+.rail-back span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ─── Resumo do projeto (embaixo do item escolhido) ───────────────────────── */
+
+/* Sem `overflow` próprio: quem rola é o .project-detail que o hospeda, e duas
+   áreas de rolagem aninhadas deixam a de dentro impossível de alcançar. */
+.rail-summary { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.rail-summary-facts { margin: 0; }
+.rail-summary-line { display: flex; align-items: baseline; gap: 6px; font-size: var(--fs-sm); }
+.rail-summary-line dt { color: var(--text-dim); }
+.rail-summary-line dd { margin: 0; }
+.rail-summary-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+
+/* ─── Fixar no canvas ─────────────────────────────────────────────────────── */
+
+/* Um alfinete e não um rótulo: mora na fileira de ações do cabeçalho do painel,
+   ao lado dos ícones que já existem lá, e um verbo escrito por extenso ali
+   quebraria a linha na largura padrão.
+
+   SVG e não emoji, como todo ícone do app (ver icons.tsx): emoji não herda a
+   cor do tema e cada plataforma o desenha num peso diferente — ao lado dos
+   outros ícones do cabeçalho ele aparecia como um borrão colorido fora de
+   escala. Só a geometria mora aqui; o resto vem de .ghost-btn. */
+.rail-pin { display: flex; align-items: center; }

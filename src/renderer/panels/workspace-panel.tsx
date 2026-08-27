@@ -1,6 +1,13 @@
 /**
- * Lista de workspaces — o conteúdo que a Sidebar tinha antes de ganhar abas.
- * Extração literal: nenhum comportamento mudou.
+ * Lista de workspaces — o conteúdo que já morou na sidebar e hoje mora no
+ * popover do chip e no widget de canvas.
+ *
+ * Ele não vira nó de canvas, ao contrário de Projetos e Git: trocar de
+ * workspace troca o canvas inteiro, então um seletor DENTRO de um canvas se
+ * apagaria ao ser usado. O lugar dele é o chip do topo, que é global à janela.
+ *
+ * O painel não sabe onde está montado: quem o hospeda passa `onOpened` se tiver
+ * o que fazer depois da ação (fechar o popover, por exemplo).
  */
 import { useEffect, useState } from 'react'
 import type { UUID } from '@shared/types'
@@ -13,7 +20,12 @@ interface MenuState {
   y: number
 }
 
-export function WorkspacePanel(): JSX.Element {
+interface Props {
+  /** Chamado depois de abrir um workspace — o popover se fecha com isso. */
+  onOpened?: () => void
+}
+
+export function WorkspacePanel({ onOpened }: Props = {}): JSX.Element {
   const { entries, activeId } = useStore()
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
@@ -60,9 +72,9 @@ export function WorkspacePanel(): JSX.Element {
 
   return (
     <>
-      <div className="sidebar-header">
+      <div className="panel-header">
         <span>Workspaces</span>
-        <div className="sidebar-header-actions">
+        <div className="panel-header-actions">
           <button type="button" className="icon-btn ghost-btn" onClick={() => setCreating(true)} title="Novo workspace">
             +
           </button>
@@ -88,7 +100,10 @@ export function WorkspacePanel(): JSX.Element {
               <button
                 type="button"
                 className={entry.id === activeId ? 'workspace-item is-active' : 'workspace-item'}
-                onClick={() => void store.openWorkspace(entry.id)}
+                onClick={() => {
+                  void store.openWorkspace(entry.id)
+                  onOpened?.()
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   setMenu({ id: entry.id, x: e.clientX, y: e.clientY })
@@ -137,7 +152,7 @@ export function WorkspacePanel(): JSX.Element {
       )}
 
       {creating && (
-        <div className="sidebar-create">
+        <div className="panel-create">
           <input
             autoFocus
             value={name}
@@ -207,7 +222,7 @@ function DeleteWorkspaceDialog({
             reconhecida por esta versão e não aparece na tela. Ela some junto.
           </p>
         )}
-        <div className="sidebar-create">
+        <div className="panel-create">
           <input
             autoFocus
             value={typed}

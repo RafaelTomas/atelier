@@ -1,4 +1,5 @@
-/* Sidebar, painéis laterais e as faixas do topo/base da janela. */
+/* Painéis (o conteúdo das colunas da rail e do popover do chip) e as faixas do
+   topo/base da janela. A CASCA — rail, colunas, resizer — mora em rail.css. */
 
 /* ─── Shell ────────────────────────────────────────────────────────────────── */
 
@@ -11,39 +12,13 @@
 }
 .boot-screen.error { color: var(--rope-error); }
 
-/* ─── Sidebar ──────────────────────────────────────────────────────────────── */
+/* ─── Painéis ──────────────────────────────────────────────────────────────── */
 
-/* A área onde o canvas e a sidebar se sobrepõem. Sem ela a sidebar não teria
-   a que se ancorar. */
+/* A área onde o canvas, a rail e o chrome se sobrepõem. Sem ela nada que
+   flutua teria a que se ancorar. */
 .canvas-area { position: relative; flex: 1; display: flex; min-height: 0; min-width: 0; }
 
-.sidebar {
-  position: absolute; top: 0; left: 0; bottom: 0; z-index: 5;
-  width: var(--sidebar-width); overflow-x: hidden;
-  /* Ela FLUTUA, como o dock — a grade e os nós passam por trás, que é o que o
-     blur tem para borrar. Fundo próprio e não o do dock: a sidebar é muito
-     maior, e no mesmo grau de opacidade o painel inteiro vira uma parede. É
-     também a maior superfície de vidro do app, e por isso a de maior blur. */
-  --floating-bg: var(--sidebar-bg);
-  --floating-blur: 28px;
-  --floating-saturate: 1.6;
-  border-right: 1px solid var(--dock-border);
-  box-shadow: 2px 0 12px rgb(0 0 0 / .12);
-  display: flex; flex-direction: column;
-  padding-top: 8px;
-}
-
-/* Alça de redimensionar. Fica INTEIRA dentro do painel: a sidebar tem
-   overflow-x hidden (é o que impede um nome longo de gerar rolagem lateral), e
-   qualquer parte da alça montada para fora era recortada junto — inclusive
-   para o hit-test, que a tornava inclicável. */
-.sidebar-resizer {
-  position: absolute; top: 0; bottom: 0; right: 0; width: 6px;
-  cursor: col-resize; z-index: 6; touch-action: none;
-}
-.sidebar-resizer:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
-
-.sidebar-header {
+.panel-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px;
   font-size: var(--fs-sm); font-weight: 600; letter-spacing: .04em;
@@ -71,7 +46,7 @@
 /* A busca vive recolhida atrás do ícone e abre para baixo. A animação é de
    grid-template-rows e não de max-height: com max-height a altura final é um
    palpite, e um palpite alto faz a lista pular no fim da transição. */
-.sidebar-search {
+.panel-search {
   display: grid; grid-template-rows: 1fr; padding: 0 10px 6px;
   animation: search-open var(--dur-fast) ease-out;
 }
@@ -81,8 +56,8 @@
   to { grid-template-rows: 1fr; opacity: 1; padding-bottom: 6px; }
 }
 
-.sidebar-create { padding: 6px 10px; }
-.sidebar-create input, .sidebar-search input {
+.panel-create { padding: 6px 10px; }
+.panel-create input, .panel-search input {
   width: 100%; padding: 5px 8px; border-radius: var(--r-md);
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
 }
@@ -101,9 +76,9 @@
 }
 .status-bar .warn { color: #e67e22; }
 
-/* ─── Sidebar recolhida ───────────────────────────────────────────────────── */
+/* ─── Cabeçalho de painel ─────────────────────────────────────────────────── */
 
-.sidebar-header-actions { display: flex; align-items: center; gap: 2px; }
+.panel-header-actions { display: flex; align-items: center; gap: 2px; }
 
 /* ─── Faixa de arrasto do macOS ───────────────────────────────────────────── */
 /* No macOS a janela é `hiddenInset` (ver main/window.ts): os semáforos flutuam
@@ -121,28 +96,7 @@
 
 /* ─── Painel de projetos ───────────────────────────────────────────────────── */
 
-.sidebar-tabs {
-  display: flex; align-items: center; gap: 6px;
-  padding: 8px 8px 4px; 
-}
-/* O pill ocupa a largura do painel; sem `flex: 1` nos segmentos, os rótulos
-   ficam encolhidos à esquerda e sobra um vazio dentro do pill ao alargar a
-   sidebar. Com ele, os três dividem o espaço e continuam centrados. */
-.sidebar-tabs .segmented { flex: 1; min-width: 0; }
-/* Ícones, não rótulos (ver sidebar.tsx): os quatro nomes não cabiam na largura
-   padrão e truncavam. `flex: 1` divide o pill em quatro alvos iguais — com
-   ícone isso é o certo, ao contrário do texto, onde frações iguais cortariam
-   o rótulo mais longo primeiro. */
-.sidebar-tabs .segment {
-  flex: 1; min-width: 0; padding: 5px 0;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--text-dim);
-}
-.sidebar-tabs .segment:hover { color: var(--text); }
-/* O ícone herda currentColor, então o estado ativo já o pinta de branco. */
-.sidebar-tabs .segment.is-active { color: #fff; }
-
-.sidebar-count {
+.panel-count {
   font-style: normal; opacity: .55; margin-left: 4px; font-weight: 500;
 }
 
@@ -157,11 +111,22 @@
   overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0;
 }
 
+/* Recolhida ao projeto escolhido (ver `detail` em project-panel.tsx): a lista
+   passa a ter uma linha e deixa de ser a área de rolagem da coluna — quem rola
+   é o detalhe embaixo dela. Sem `flex: 0 0 auto` ela continuaria esticando até
+   o fim e empurraria o detalhe para fora da vista. */
+.project-list.is-collapsed { flex: 0 0 auto; overflow: visible; }
+
+.project-detail {
+  flex: 1; min-height: 0; overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
 .project-item {
   width: 100%; text-align: left; border: 0; background: transparent;
   padding: 6px 8px; border-radius: var(--r-md); cursor: pointer;
   display: flex; flex-direction: column; gap: 2px;
-  /* Sem isto o nome longo empurra a largura do item e a sidebar inteira
+  /* Sem isto o nome longo empurra a largura do item e a coluna inteira
      ganha rolagem horizontal. */
   overflow: hidden;
 }
@@ -170,7 +135,7 @@
 .project-item { cursor: grab; }
 .project-item:active { cursor: grabbing; }
 .project-item:hover { background: var(--border); }
-/* Selecionado = o dono da aba Arquivos. Marca de canto, não fundo cheio: fundo
+/* Selecionado = o dono da coluna Arquivos. Marca de canto, não fundo cheio: fundo
    cheio competiria com o hover e com a piscada do recém-adicionado. */
 .project-item.is-selected { background: var(--border); box-shadow: inset 2px 0 0 var(--accent); }
 .project-item.is-archived { opacity: .45; }
@@ -249,7 +214,7 @@
   background: var(--surface); font-size: var(--fs-sm); overflow: hidden;
 }
 
-/* ─── Aba Arquivos ─────────────────────────────────────────────────────────── */
+/* ─── Coluna Arquivos ──────────────────────────────────────────────────────── */
 
 .files-title {
   font-size: var(--fs-md); font-weight: 600; letter-spacing: 0; text-transform: none;
@@ -264,7 +229,7 @@
 .files-hint { font-size: var(--fs-sm); }
 
 .files-body { flex: 1; min-height: 0; display: flex; }
-/* Dentro do painel a árvore não tem superfície própria: o vidro da sidebar é
+/* Dentro do painel a árvore não tem superfície própria: o vidro da coluna é
    que aparece atrás dela. No canvas ela continua sendo um card opaco. */
 .files-body .file-tree { background: transparent; }
 .files-body .file-tree-bar { border-bottom-color: var(--dock-border); }

@@ -6,7 +6,7 @@ import { NewTerminalDialog } from './dialogs/new-terminal-dialog'
 import { ScanDialog } from './dialogs/scan-dialog'
 import { ProjectCandidates } from './project-candidates'
 import { CanvasChrome } from './canvas-chrome'
-import { Sidebar } from './sidebar'
+import { Rail } from './rail'
 import { listenForPortalWake } from './state/portal-wake'
 import { store, useStore } from './state/store'
 
@@ -15,7 +15,6 @@ export function App(): JSX.Element {
     loading,
     bootError,
     workspace,
-    sidebarCollapsed,
     newTerminalOpen,
     newTerminalFrame,
     newTerminalCwd,
@@ -125,12 +124,12 @@ export function App(): JSX.Element {
 
         {integrity?.safeMode && <SafeModeBanner integrity={integrity} />}
 
-        {/* A sidebar FLUTUA sobre o canvas, não divide a linha com ele: é o que
+        {/* A rail FLUTUA sobre o canvas, não divide a linha com ele: é o que
             dá o que borrar ao backdrop-filter — encostada, atrás dela só há a
             cor de fundo da janela e a translucidez não aparece. */}
         <div className="canvas-area">
           {workspace ? <CanvasView /> : <div className="boot-screen">nenhum workspace aberto</div>}
-          {!sidebarCollapsed && <Sidebar />}
+          <Rail />
           <CanvasChrome />
         </div>
         <footer className="status-bar">

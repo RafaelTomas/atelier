@@ -29,9 +29,10 @@
   --term-bg: #f7f7f9;
   --term-fg: #1a1a1a;
   --dock-bg: rgb(255 255 255 / .82);
-  /* A sidebar é maior que o dock e fica sobre a grade: mais aberta que ele,
-     e o blur maior é o que segura a legibilidade do texto por cima. */
-  --sidebar-bg: rgb(255 255 255 / .58);
+  /* As colunas da rail são maiores que o dock e ficam sobre a grade: mais
+     abertas que ele, e o blur maior é o que segura a legibilidade do texto por
+     cima. */
+  --panel-bg: rgb(255 255 255 / .58);
   --dock-border: #d3d3da;
   --dock-fg: #55555c;
   --dock-fg-strong: #1a1a1a;
@@ -53,7 +54,7 @@
     --term-bg: #101014;
     --term-fg: #e6e6e6;
     --dock-bg: rgb(30 30 35 / .86);
-    --sidebar-bg: rgb(27 27 32 / .52);
+    --panel-bg: rgb(27 27 32 / .52);
     --dock-border: #3d3d46;
     --dock-fg: #b6b6c0;
     --dock-fg-strong: #f2f2f6;
@@ -75,7 +76,7 @@
   --term-bg: #101014;
   --term-fg: #e6e6e6;
   --dock-bg: rgb(30 30 35 / .86);
-  --sidebar-bg: rgb(27 27 32 / .52);
+  --panel-bg: rgb(27 27 32 / .52);
   --dock-border: #3d3d46;
   --dock-fg: #b6b6c0;
   --dock-fg-strong: #f2f2f6;
@@ -128,9 +129,14 @@
   --dur-fast: 140ms;
   --dur-base: 220ms;
 
-  /* Largura do painel lateral. Escrita aqui pelo arrasto (ver sidebar.tsx) e
-     relida das preferências no boot. */
-  --sidebar-width: 220px;
+  /* Largura da coluna de CONTEÚDO da rail. Escrita aqui pelo arrasto (ver
+     rail.tsx) e relida das preferências no boot — o campo em disco ainda se
+     chama sidebarWidth, e mede a mesma coisa.
+     A coluna de LISTA não é arrastável: ela é sempre a mesma lista de
+     projetos, e duas alças de arrasto lado a lado só criariam a dúvida de qual
+     é qual. */
+  --rail-panel-width: 220px;
+  --rail-list-width: 220px;
 
   /* Geometria do canto do canvas, hoje só do minimapa. A altura vem daqui e
      não do <canvas> de dentro: assim mudar o tamanho do mapa não desalinha

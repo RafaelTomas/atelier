@@ -574,7 +574,7 @@ function EntryMenu({
 // ─── Confirmação de exclusão ──────────────────────────────────────────────────
 
 /**
- * Em portal, pelo mesmo motivo do menu: a sidebar tem `backdrop-filter` e
+ * Em portal, pelo mesmo motivo do menu: a coluna da rail tem `backdrop-filter` e
  * recortaria um `position: fixed` renderizado lá dentro.
  */
 function TrashConfirm({

@@ -1,9 +1,9 @@
 /**
  * Menu de contexto — em portal, ancorado no ponto do clique.
  *
- * O portal não é preciosismo: a sidebar tem `backdrop-filter`, e um elemento
+ * O portal não é preciosismo: a coluna da rail tem `backdrop-filter`, e um elemento
  * com filtro vira containing block dos descendentes `position: fixed`. Um menu
- * renderizado lá dentro passa a ser posicionado E RECORTADO pela sidebar, que
+ * renderizado lá dentro passa a ser posicionado E RECORTADO por ela, que
  * tem `overflow: hidden` — some metade dele. Fora da árvore dela, `fixed` volta
  * a significar "em relação à janela".
  *

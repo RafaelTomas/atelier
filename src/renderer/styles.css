@@ -28,6 +28,7 @@
 @import './styles/primitives.css' layer(primitives);
 
 @import './styles/panels.css';
+@import './styles/rail.css';
 @import './styles/canvas.css';
 
 /* A casca comum de um nó, e depois um arquivo por tipo — mesmo nome do .tsx que

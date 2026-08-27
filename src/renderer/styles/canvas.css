@@ -10,8 +10,6 @@
   display: flex; align-items: center; gap: 6px;
   max-width: calc(100% - 320px);
 }
-/* Com a sidebar aberta o chip começa depois dela — a sidebar flutua por cima. */
-.canvas-chip-row.is-shifted { left: calc(var(--sidebar-width) + 10px); }
 
 .canvas-chip {
   display: flex; align-items: center;
@@ -20,9 +18,29 @@
   border: 1px solid var(--dock-border);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-button.canvas-chip { cursor: pointer; font-weight: 500; }
+button.canvas-chip { cursor: pointer; font-weight: 500; gap: 5px; }
 button.canvas-chip:hover { background: var(--dock-hover); }
-.canvas-chip.is-icon { padding: 0 9px; font-size: 14px; }
+.canvas-chip.is-open { background: var(--dock-hover); color: var(--dock-fg-strong); }
+/* O nome trunca; o caret não. Sem isto um workspace de nome longo empurra a
+   seta para fora da pílula e o chip deixa de parecer um menu. */
+.canvas-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Ancorado no chip, não fixed: o chip é a origem visual do popover, e é o
+   contêiner posicionado mais próximo. */
+.workspace-chip-host { position: relative; display: flex; min-width: 0; }
+
+/* Abre PARA BAIXO — o chip está no topo. É o espelho do menu da dock, que abre
+   para cima pelo motivo simétrico. */
+.workspace-popover {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 300;
+  width: 240px; max-height: min(60vh, 420px);
+  display: flex; flex-direction: column; overflow: hidden;
+  padding: 6px 0;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--dock-border);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .26);
+}
 
 .view-controls {
   position: absolute; top: 10px; right: 10px; z-index: 100;
@@ -324,7 +342,7 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 }
 /* ─── Minimapa ────────────────────────────────────────────────────────────── */
 
-/* Canto inferior direito: a dock ocupa o centro da base e a sidebar a
+/* Canto inferior direito: a dock ocupa o centro da base e a rail a
    esquerda. O `bottom` alinha com a dock (18px) para os dois assentarem na
    mesma linha. */
 .minimap {

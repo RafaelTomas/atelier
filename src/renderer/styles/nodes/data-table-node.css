@@ -1,0 +1,60 @@
+/* Nó Tabela de Resultado — barra + query colapsável + grade com header sticky. */
+
+.data-table {
+  display: flex; flex-direction: column; height: 100%; width: 100%;
+  background: var(--term-bg); color: var(--term-fg); overflow: hidden;
+}
+
+.data-table-bar {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+  padding: 3px 6px; border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm); background: var(--surface-2);
+}
+.data-table-title { font-weight: 600; color: var(--text); flex-shrink: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+.data-table-dims { font-size: var(--fs-xs); color: var(--text-dim); flex-shrink: 0; }
+.data-table-badge {
+  font-size: var(--fs-xs); padding: 0 5px; border-radius: 3px;
+  background: color-mix(in srgb, currentColor 14%, transparent); color: var(--text-dim);
+}
+.data-table-badge.is-warn {
+  background: color-mix(in srgb, var(--rope-error) 16%, transparent); color: var(--rope-error);
+}
+.data-table-actions { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
+.data-table-actions .ghost-btn { font-size: var(--fs-xs); padding: 1px 5px; }
+
+.data-table-query {
+  flex-shrink: 0; border-bottom: 1px solid var(--border);
+  font-size: var(--fs-xs); background: var(--surface-2);
+}
+.data-table-query summary {
+  cursor: pointer; padding: 3px 6px; color: var(--text-dim); user-select: none;
+}
+.data-table-query pre {
+  margin: 0; padding: 6px 8px; overflow-x: auto; white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--term-fg);
+}
+
+.data-table-empty {
+  padding: 12px; font-size: var(--fs-sm); color: var(--text-dim); font-style: italic;
+}
+
+.data-table-scroll { flex: 1; min-height: 0; overflow: auto; }
+.data-table table {
+  border-collapse: collapse; width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--fs-xs);
+}
+.data-table thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--surface-2); color: var(--text);
+  text-align: left; font-weight: 600;
+  padding: 4px 8px; border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.data-table tbody td {
+  padding: 3px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.data-table tbody tr:hover td { background: rgb(127 127 127 / .08); }
+.data-table td.is-num { text-align: right; font-variant-numeric: tabular-nums; }
+.data-table td.is-null { color: var(--text-dim); }

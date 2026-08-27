@@ -9,6 +9,10 @@
  * lê os dois sem tocar em nada. O arquivo passa a ser gravado com
  * `schemaVersion: 3` no primeiro save.
  *
+ * A v4 segue a mesma lógica da v3: um caso a mais no enum (`dataTable`, o nó de
+ * resultado SQL) e uma nova lista de conexões (`dataConnections`). Nenhum dado
+ * é transformado — todo documento v3 já é um v4 válido.
+ *
  * O que migração nenhuma resolve é o sentido CONTRÁRIO — um v3 aberto por um
  * leitor mais velho:
  *
@@ -37,8 +41,9 @@ export function migrateWorkspaceDocument(raw: unknown): unknown {
 
   let current = doc
   if (version < 2) current = migrateV1toV2(current)
-  // Não há passo 2 → 3: a v3 só acrescenta um caso ao enum de conteúdo, e todo
-  // documento v2 já é v3 válido. Só o número muda.
+  // Não há passo 2 → 3 nem 3 → 4: cada uma só acrescenta um caso ao enum de
+  // conteúdo, e todo documento da versão anterior já é válido na seguinte. Só o
+  // número muda.
   return { ...current, schemaVersion: Constants.schemaVersion }
 }
 
@@ -48,6 +53,7 @@ function migrateV1toV2(doc: Record<string, unknown>): Record<string, unknown> {
     'connections',
     'noteConnections',
     'portalConnections',
+    'dataConnections',
     'portalToPortalConnections',
     'noteToNoteConnections',
     'crossFloorConnections',

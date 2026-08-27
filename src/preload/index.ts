@@ -25,8 +25,9 @@ import type {
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
+import type { DataTablePayload } from '@shared/data-table'
 
-type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor'
+type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor' | 'dataTable'
 
 /** `ok` diz se a ação passou; `message` é o que o git respondeu, resumido. */
 interface GitActionResult {
@@ -169,6 +170,16 @@ const api = {
       ipcRenderer.invoke('note:write', workspaceId, fileName, content),
     onChanged: (cb: (p: { workspaceId: UUID; nodeId: UUID }) => void): Unsubscribe =>
       on('note:changed', cb)
+  },
+
+  /** Tabelas de resultado (`atelier table`). Colunas e linhas num JSON gerenciado. */
+  table: {
+    read: (workspaceId: UUID, fileName: string): Promise<DataTablePayload | null> =>
+      ipcRenderer.invoke('table:read', workspaceId, fileName),
+    write: (workspaceId: UUID, fileName: string, value: DataTablePayload): Promise<void> =>
+      ipcRenderer.invoke('table:write', workspaceId, fileName, value),
+    onChanged: (cb: (p: { workspaceId: UUID; nodeId: UUID }) => void): Unsubscribe =>
+      on('table:changed', cb)
   },
 
   project: {

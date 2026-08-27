@@ -7,6 +7,7 @@
 export type RendererEvent =
   | 'workspace:changed'
   | 'note:changed'
+  | 'table:changed'
   | 'connection:status'
   | 'terminal:data'
   | 'terminal:exit'

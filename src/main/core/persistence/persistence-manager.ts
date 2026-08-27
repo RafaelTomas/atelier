@@ -109,6 +109,7 @@ class PersistenceManager {
     for (const dir of [
       paths.workspaceDir(id),
       paths.notesDir(id),
+      paths.tablesDir(id),
       paths.terminalsDir(id),
       paths.snapshotsDir(id)
     ]) {
@@ -268,6 +269,19 @@ class PersistenceManager {
   async writeNote(workspaceId: UUID, fileName: string, content: string): Promise<void> {
     await mkdir(paths.notesDir(workspaceId), { recursive: true })
     await this.atomicWrite(join(paths.notesDir(workspaceId), fileName), content)
+  }
+
+  // ─── Tabelas de resultado (.json) ───────────────────────────────────────────
+  // Espelham readNote/writeNote: colunas e linhas de um nó dataTable vivem num
+  // arquivo gerenciado, e só a identidade fica no workspace.json.
+
+  async readTable(workspaceId: UUID, fileName: string): Promise<unknown | null> {
+    return this.readJSON(join(paths.tablesDir(workspaceId), fileName))
+  }
+
+  async writeTable(workspaceId: UUID, fileName: string, value: unknown): Promise<void> {
+    await mkdir(paths.tablesDir(workspaceId), { recursive: true })
+    await this.atomicWrite(join(paths.tablesDir(workspaceId), fileName), this.stringify(value))
   }
 
   // ─── Scrollback ─────────────────────────────────────────────────────────────

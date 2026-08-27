@@ -44,5 +44,15 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
     }
   }
 
+  const tables = nodes.filter((n) => n.content.type === 'dataTable')
+  if (tables.length > 0) {
+    lines.push('', 'Connected tables:')
+    for (const node of tables) {
+      const t = node.content.type === 'dataTable' ? node.content.value : null
+      const dims = t ? `${t.rowCount} rows × ${t.columnCount} cols` : ''
+      lines.push(`  ${nodeDisplayName(node.content)}  ${dims}${t?.truncated ? ' (truncated)' : ''}`)
+    }
+  }
+
   return lines.join('\n')
 }

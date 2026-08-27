@@ -1,7 +1,26 @@
-/* Nó Nota — só o textarea; a moldura vem de nodes.css. */
+/* Nó Nota — textarea ou prévia de Markdown; a moldura vem de nodes.css. */
+
+.note-node {
+  position: relative;
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
 
 /* Note */
 .note-editor {
   flex: 1; border: 0; resize: none; outline: none;
   padding: 10px; user-select: text;
+  background: transparent; color: inherit;
 }
+
+/* Alterna editar ⇄ prever. Fica discreto no canto e aparece no hover do nó. */
+.note-mode-toggle {
+  position: absolute; top: 4px; right: 4px; z-index: 2;
+  width: 20px; height: 20px;
+  opacity: 0; transition: opacity var(--dur-fast);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.note-node:hover .note-mode-toggle,
+.note-mode-toggle:focus-visible { opacity: .8; }
+.note-mode-toggle:hover { opacity: 1; }

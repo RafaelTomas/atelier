@@ -309,8 +309,78 @@ test('nós não implementados na UI sobrevivem ao round-trip', () => {
   }
 })
 
+test('nó dataTable faz round-trip no formato Maestri { dataTable: { _0: … } }', () => {
+  const doc = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      nodes: [
+        {
+          id: 'BBBBBBBB-0000-0000-0000-0000000000AA',
+          frame: [[100, 200], [520, 360]],
+          zIndex: 5,
+          isLocked: false,
+          createdAt: '2026-08-26T00:00:00Z',
+          lastModifiedAt: '2026-08-26T00:00:00Z',
+          content: {
+            dataTable: {
+              _0: {
+                id: 'bbbbbbbb-0000-0000-0000-0000000000bb',
+                title: 'Usuários ativos',
+                fileName: 'BBBBBBBB-0000-0000-0000-0000000000BB.json',
+                query: 'SELECT * FROM users',
+                dialect: 'postgres',
+                rowCount: 143,
+                columnCount: 5,
+                truncated: true,
+                executedAt: '2026-08-26T12:00:00Z'
+              }
+            }
+          }
+        }
+      ]
+    }
+  })
+  assert.equal(doc.droppedNodes, 0)
+  const value = doc.payload.nodes[0].content.value
+  assert.equal(value.title, 'Usuários ativos')
+  assert.equal(value.query, 'SELECT * FROM users')
+  assert.equal(value.dialect, 'postgres')
+  assert.equal(value.rowCount, 143)
+  assert.equal(value.truncated, true)
+  assert.equal(value.id, value.id.toUpperCase(), 'id da tabela normalizado para maiúsculas')
+
+  const out = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.ok(out.dataTable && '_0' in out.dataTable, 'perdeu o embrulho da variante')
+  assert.equal(out.dataTable._0.title, 'Usuários ativos')
+  assert.match(out.dataTable._0.executedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+})
+
+test('conexão terminal↔dataTable vira kind "data" e volta para dataConnections', () => {
+  const doc = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      dataConnections: [
+        {
+          id: 'CCCCCCCC-0000-0000-0000-0000000000AA',
+          terminalId: 'DDDDDDDD-0000-0000-0000-0000000000AA',
+          dataNodeId: 'EEEEEEEE-0000-0000-0000-0000000000AA',
+          createdAt: '2026-08-26T00:00:00Z',
+          ropePoints: []
+        }
+      ]
+    }
+  })
+  const conn = doc.payload.connections.find((c) => c.kind === 'data')
+  assert.ok(conn, 'conexão data não foi decodificada')
+  const back = encodeWorkspaceDocument(doc.payload)
+  assert.equal(back.payload.dataConnections.length, 1)
+  assert.ok('dataNodeId' in back.payload.dataConnections[0])
+})
+
 test('schemaVersion e type ficam corretos na raiz', () => {
-  assert.equal(reencoded.schemaVersion, 3)
+  assert.equal(reencoded.schemaVersion, 4)
   assert.equal(reencoded.type, 'workspace')
 })
 

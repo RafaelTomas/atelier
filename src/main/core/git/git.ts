@@ -15,6 +15,7 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import type { GitFileChange, GitStatus } from '@shared/types'
 import { log } from '../logger'
+import { childEnv } from '../subprocess-env'
 
 /**
  * Teto de saída. `git log` num repositório grande, ou um push que resolve mal
@@ -46,14 +47,15 @@ export interface GitRun {
  * o comportamento que dá para explicar ao usuário.
  */
 function gitEnv(): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
+  // `childEnv` normaliza a chave do PATH: sem isso, no Windows o `execFile`
+  // procura o binário só em `env.PATH` e um `git` instalado dá `ENOENT`.
+  return childEnv({
     GIT_TERMINAL_PROMPT: '0',
     // O askpass gráfico (macOS Keychain, libsecret) continua valendo; o que se
     // corta é só o prompt de TTY. Quem tem credencial em agente segue passando.
     GIT_OPTIONAL_LOCKS: '0',
     LC_ALL: 'C'
-  }
+  })
 }
 
 /** Executa `git` no diretório dado. Nunca lança: falha vira `ok: false`. */

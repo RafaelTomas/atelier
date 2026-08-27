@@ -118,6 +118,30 @@ export interface CodeEditorContent {
   filePath: string
 }
 
+/**
+ * Resultado de uma query publicado como nó no canvas (fase 1: snapshot).
+ *
+ * Só identidade e metadados leves moram aqui — colunas e linhas vão para um
+ * arquivo gerenciado (`tables/<id>.json`), mesma regra da sticky note. O
+ * Atelier nunca toca no banco: quem executou foi o agente, com as ferramentas
+ * dele, e o que chega aqui já é o resultado.
+ */
+export interface DataTableContent {
+  id: UUID
+  title: string
+  fileName: string | null
+  /** A query que gerou o resultado, quando o agente a informou. */
+  query: string | null
+  /** `postgres`, `sqlite`, `mysql`… quando informado. */
+  dialect: string | null
+  rowCount: number
+  columnCount: number
+  /** Estourou o teto de linhas/células e foi cortado. */
+  truncated: boolean
+  /** ISO8601 de quando o nó foi criado/atualizado. */
+  executedAt: string
+}
+
 export type FontFamily = 'sans' | 'serif' | 'mono' | 'rounded'
 export type FontWeight = 'light' | 'regular' | 'medium' | 'semibold' | 'bold'
 export type TextAlignment = 'left' | 'center' | 'right'
@@ -187,11 +211,17 @@ export type NodeContent =
   | { type: 'shape'; value: ShapeContent }
   | { type: 'stroke'; value: StrokeContent }
   | { type: 'freehand'; value: FreehandContent }
+  | { type: 'dataTable'; value: DataTableContent }
 
 export type NodeContentType = NodeContent['type']
 
 /** Só estes tipos aceitam conexão (espelha NodeContent.isConnectable). */
-export const CONNECTABLE_TYPES: NodeContentType[] = ['terminal', 'stickyNote', 'portal']
+export const CONNECTABLE_TYPES: NodeContentType[] = [
+  'terminal',
+  'stickyNote',
+  'portal',
+  'dataTable'
+]
 
 export function isConnectable(content: NodeContent): boolean {
   return CONNECTABLE_TYPES.includes(content.type)
@@ -241,6 +271,7 @@ export type ConnectionKind =
   | 'portalToPortal'
   | 'noteToNote'
   | 'crossFloor'
+  | 'data'
 
 export type ConnectionStatus = 'idle' | 'communicating' | 'error'
 
@@ -257,6 +288,7 @@ export function connectionKindForTypes(
   if (a === 'terminal' && b === 'terminal') return 'terminal'
   if (pair.has('terminal') && pair.has('stickyNote')) return 'note'
   if (pair.has('terminal') && pair.has('portal')) return 'portal'
+  if (pair.has('terminal') && pair.has('dataTable')) return 'data'
   if (a === 'portal' && b === 'portal') return 'portalToPortal'
   if (a === 'stickyNote' && b === 'stickyNote') return 'noteToNote'
   return null

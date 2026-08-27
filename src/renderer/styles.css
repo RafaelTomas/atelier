@@ -40,6 +40,8 @@
 @import './styles/nodes/portal-node.css';
 @import './styles/nodes/placeholder-node.css';
 @import './styles/nodes/code-editor-node.css';
+@import './styles/nodes/data-table-node.css';
+@import './styles/nodes/markdown-view.css';
 @import './styles/nodes/node-action-bar.css';
 @import './styles/nodes/format-bar.css';
 

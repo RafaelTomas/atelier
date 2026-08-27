@@ -83,6 +83,11 @@ export function languageLoaderFor(path: string): Loader | null {
   return BY_EXTENSION[name.slice(dot + 1).toLowerCase()] ?? null
 }
 
+/** `.md` / `.markdown` — os que o nó abre em modo prévia por padrão. */
+export function isMarkdownPath(path: string): boolean {
+  return /\.(md|markdown|mdown|mkd)$/i.test(path)
+}
+
 /** Último componente do caminho. O renderer não tem `path`, e o Windows usa `\`. */
 export function fileNameOf(path: string): string {
   return path.split(/[\\/]/).pop() ?? path

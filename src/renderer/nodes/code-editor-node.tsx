@@ -32,7 +32,8 @@ import { FILE_OP_TEXT } from '../file-ops-text'
 import { truncateStart } from '../paths'
 import { store, useStore } from '../state/store'
 import { effectiveTheme } from '../theme'
-import { fileNameOf, languageLoaderFor } from './code-languages'
+import { fileNameOf, isMarkdownPath, languageLoaderFor } from './code-languages'
+import { MarkdownView } from './markdown-view'
 
 interface Props {
   node: CanvasNode
@@ -77,6 +78,11 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
   const [saving, setSaving] = useState(false)
   const { theme } = useStore()
   const path = content.filePath
+  const isMd = isMarkdownPath(path)
+  // Um `.md` arrastado para o canvas nasce em prévia; o botão alterna para o
+  // código. O texto vive no CodeMirror — este espelho existe só para a prévia.
+  const [preview, setPreview] = useState(isMd)
+  const [docText, setDocText] = useState('')
 
   // O tema base vem DEPOIS do oneDark: as cores dele são as do app, e a última
   // extensão é a que vence.
@@ -125,6 +131,7 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
       }
 
       savedText.current = result.text
+      setDocText(result.text)
       const view = new EditorView({
         parent: hostRef.current,
         state: EditorState.create({
@@ -159,6 +166,7 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
             themeRef.current.of(themeExtensions()),
             EditorView.updateListener.of((update) => {
               if (!update.docChanged) return
+              if (isMd) setDocText(update.state.doc.toString())
               const changed = update.state.doc.toString() !== savedText.current
               setDirty(changed)
               store.setEditorDirty(node.id, changed)
@@ -229,6 +237,16 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
           {truncateStart(path, 40)}
         </span>
         <div className="code-editor-actions">
+          {isMd && (
+            <button
+              type="button"
+              className={preview ? 'icon-btn ghost-btn is-active' : 'icon-btn ghost-btn'}
+              title={preview ? 'Ver o código' : 'Prever o Markdown'}
+              onClick={() => setPreview((p) => !p)}
+            >
+              {preview ? '✎' : '👁'}
+            </button>
+          )}
           <button
             type="button"
             className="icon-btn ghost-btn"
@@ -254,7 +272,8 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
       ) : (
         <>
           {loading && <div className="code-editor-loading">carregando…</div>}
-          <div ref={hostRef} className="code-editor-host" />
+          <div ref={hostRef} className="code-editor-host" hidden={isMd && preview} />
+          {isMd && preview && <MarkdownView source={docText} variant="standalone" />}
         </>
       )}
     </div>

@@ -47,6 +47,7 @@ import { addProjectFolder } from '../core/projects/add-folder'
 import { candidates, clearCandidates, scanController } from '../core/projects/scan-controller'
 import { startScannerAgent } from '../core/projects/scanner-agent'
 import { appState } from '../core/state/app-state'
+import { takenNoteFiles } from '../core/state/note-files'
 import { projectIndex } from '../core/state/project-store'
 import { roles } from '../core/state/role-store'
 import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manager'
@@ -66,7 +67,13 @@ type NewNodeKind =
   | 'dataTable'
   | 'image'
 
-function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeContent {
+function contentFor(
+  kind: NewNodeKind,
+  opts: Record<string, unknown>,
+  // Arquivos .md já ocupados no workspace — a nota nova não pode cair em cima
+  // de um deles.
+  takenNotes: Iterable<string> = []
+): NodeContent {
   switch (kind) {
     case 'terminal':
       return {
@@ -91,7 +98,10 @@ function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeConte
         })
       }
     case 'note':
-      return { type: 'stickyNote', value: makeStickyNoteContent(String(opts.name ?? 'Note')) }
+      return {
+        type: 'stickyNote',
+        value: makeStickyNoteContent(String(opts.name ?? 'Note'), takenNotes)
+      }
     case 'text':
       return { type: 'text', value: makeTextContent(String(opts.text ?? '')) }
     case 'portal':
@@ -369,7 +379,7 @@ export function registerIPC(): void {
             height: Math.max(requested.height, floor.height)
           }
         : defaultSize(kind)
-      const content = contentFor(kind, opts)
+      const content = contentFor(kind, opts, kind === 'note' ? await takenNoteFiles(ws) : [])
       const node = makeCanvasNode({ x: position.x, y: position.y, ...size }, content)
       ws.addNode(node)
 

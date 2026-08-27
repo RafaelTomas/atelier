@@ -364,10 +364,28 @@ export function makeTerminalContent(
   }
 }
 
-export function makeStickyNoteContent(name: string): StickyNoteContent {
+/**
+ * O `.md` é a identidade da nota em disco — duas notas com o mesmo arquivo
+ * escrevem uma por cima da outra e, na reabertura, aparecem com o mesmo texto.
+ * Numera até achar um nome livre entre os já usados (nós do canvas + arquivos
+ * que sobraram de notas apagadas, que também não devem ser reaproveitados).
+ */
+export function uniqueNoteFileName(base: string, taken: Iterable<string> = []): string {
+  const used = new Set(taken)
+  if (!used.has(`${base}.md`)) return `${base}.md`
+  for (let n = 2; ; n++) {
+    const candidate = `${base} ${n}.md`
+    if (!used.has(candidate)) return candidate
+  }
+}
+
+export function makeStickyNoteContent(
+  name: string,
+  taken: Iterable<string> = []
+): StickyNoteContent {
   return {
     color: Constants.noteDefaultColor,
-    fileName: `${name}.md`,
+    fileName: uniqueNoteFileName(name, taken),
     fontSize: 14,
     hasCustomName: false,
     isPreviewing: false,

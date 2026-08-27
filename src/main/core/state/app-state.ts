@@ -13,6 +13,7 @@ import { makeWorkspacePayload } from '../models/workspace'
 import { importLegacyDataIfNeeded, type ImportResult } from '../persistence/import-legacy'
 import { persistence } from '../persistence/persistence-manager'
 import { paths } from '../persistence/paths'
+import { repairSharedNoteFiles } from './note-files'
 import { projectIndex } from './project-store'
 import { roles } from './role-store'
 import { WorkspaceManager } from './workspace-manager'
@@ -121,6 +122,10 @@ class AppState {
         `workspace ${id} aberto em modo seguro: ${loaded.droppedNodes} nó(s) não reconhecido(s), arquivo v${loaded.fileSchemaVersion}`
       )
     }
+    // Notas de workspaces antigos podiam dividir o mesmo .md — separa antes de
+    // o renderer ler os arquivos. Modo seguro não regrava nada.
+    if (!manager.isSafeMode) await repairSharedNoteFiles(manager)
+
     this.workspaces.set(id, manager)
     this.data.activeWorkspaceId = id
 

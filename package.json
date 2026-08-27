@@ -7,7 +7,7 @@
   "license": "GPL-3.0",
   "private": true,
   "scripts": {
-    "dev": "ATELIER_HOME=$HOME/.atelier-dev electron-vite dev",
+    "dev": "node scripts/dev.mjs",
     "dev:realdata": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",

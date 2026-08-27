@@ -3,17 +3,28 @@
  * `ATELIER_HOME` como escape para desenvolvimento (npm run dev aponta para
  * ~/.atelier-dev, para nunca tocar nos dados reais do usuário).
  */
+import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { UUID } from '@shared/types'
 import { Constants } from '../constants'
+
+/** O caminho padrão, quando `ATELIER_HOME` não foi apontado para outro lugar. */
+export function defaultDataDir(): string {
+  return join(homedir(), Constants.appDataDirectoryName)
+}
 
 export function dataDir(): string {
   const override = process.env.ATELIER_HOME
   if (override && override.trim().length > 0) {
     return override.replace(/^~(?=$|\/|\\)/, homedir())
   }
-  return join(homedir(), Constants.appDataDirectoryName)
+  return defaultDataDir()
+}
+
+/** true quando estamos rodando sobre um `ATELIER_HOME` (o caso do `npm run dev`). */
+export function isOverriddenHome(): boolean {
+  return dataDir() !== defaultDataDir()
 }
 
 export const paths = {
@@ -41,9 +52,19 @@ export const paths = {
 /**
  * Endereço do servidor IPC.
  * Unix socket no macOS/Linux, named pipe no Windows — a API do `net` é a mesma.
+ *
+ * No Unix o caminho já mora dentro do `dataDir()`, então dev e produção não se
+ * cruzam. No Windows o nome do named pipe é GLOBAL: sem um sufixo, as duas
+ * instâncias disputariam `\\.\pipe\atelier` e só a primeira subiria. O hash do
+ * `dataDir()` mantém o nome estável para um mesmo `ATELIER_HOME` e distinto
+ * entre instâncias; o caminho padrão segue com o nome curto de sempre.
  */
 export function ipcSocketPath(): string {
-  if (process.platform === 'win32') return '\\\\.\\pipe\\atelier'
+  if (process.platform === 'win32') {
+    if (!isOverriddenHome()) return '\\\\.\\pipe\\atelier'
+    const tag = createHash('sha1').update(dataDir()).digest('hex').slice(0, 12)
+    return `\\\\.\\pipe\\atelier-${tag}`
+  }
   return join(dataDir(), 'run', 'agent.sock')
 }
 

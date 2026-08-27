@@ -12,6 +12,7 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, nativeImage } from 'electron'
 import { log } from './core/logger'
+import { dataDir, isOverriddenHome } from './core/persistence/paths'
 import { installCLI } from './core/interagent/cli-install'
 import { interAgentServer } from './core/interagent/server'
 import { installSkillsIfNeeded } from './core/connection/skill-injector'
@@ -30,6 +31,19 @@ import { createMainWindow } from './window'
  * bundle do node_modules, renomeado por scripts/fix-native-deps.mjs.
  */
 app.setName('Atelier')
+
+/**
+ * Dev e produção lado a lado: o lock de instância única do Electron é indexado
+ * pelo diretório `userData`, então sem separá-lo a instância de `npm run dev`
+ * (que roda sobre um `ATELIER_HOME`) bate de frente com a produção e uma das
+ * duas fecha no boot. Apontar o `userData` para dentro do próprio `ATELIER_HOME`
+ * dá a cada instância a sua trava e o seu perfil do Chromium. Precisa vir antes
+ * de `requestSingleInstanceLock()`, e não muda nada para quem roda no caminho
+ * padrão. O named pipe do IPC recebe o mesmo tratamento em paths.ts.
+ */
+if (isOverriddenHome()) {
+  app.setPath('userData', join(dataDir(), 'chromium'))
+}
 
 // Em dev o ícone do Dock é o do bundle do Electron; se o postinstall não
 // conseguiu trocá-lo (máquina sem sips/iconutil, por exemplo), este é o plano B.

@@ -276,6 +276,25 @@ class Store {
     })
   }
 
+  /**
+   * Apaga o workspace E O DIRETÓRIO DELE em disco — notas `.md` e anexos
+   * junto. Sem lixeira, sem desfazer: quem chama já confirmou com o usuário.
+   *
+   * Excluir o ATIVO deixa o app sem workspace aberto, e não abre outro no
+   * lugar. O main escolhe um de reserva para o próximo boot, mas herdar essa
+   * escolha aqui abriria, sem pedir, um workspace que o usuário não pediu — e
+   * a diferença entre "fechou" e "trocou sozinho" só apareceria depois de uma
+   * edição no canvas errado.
+   */
+  async deleteWorkspace(id: UUID): Promise<void> {
+    const entries = await window.atelier.workspace.remove(id)
+    if (id === this.state.activeId) {
+      this.set({ entries, workspace: null, activeId: null, selection: [], integrity: null })
+      return
+    }
+    this.set({ entries })
+  }
+
   // ─── Nós ────────────────────────────────────────────────────────────────────
 
   get workspaceId(): UUID | null {

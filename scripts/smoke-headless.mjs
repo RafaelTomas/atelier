@@ -1042,6 +1042,54 @@ await test('childEnv normaliza a chave do PATH e nunca deixa duas', () => {
   }
 })
 
+// ─── Exclusão de workspace ───────────────────────────────────────────────────
+// A ação é `rm -rf` no diretório inteiro, sem lixeira e sem desfazer. O que os
+// testes protegem é o que não dá para ver na tela: que o diretório some mesmo, e
+// que o autosave não o recria depois.
+
+await test('excluir um workspace apaga o diretório inteiro', async () => {
+  const criado = await appState.createWorkspace('Descartável', '')
+  const dir = paths.workspaceDir(criado.id)
+  assert.ok(existsSync(dir))
+
+  await appState.deleteWorkspace(criado.id)
+
+  assert.equal(existsSync(dir), false, 'o diretório sobreviveu ao rm')
+  assert.equal(
+    appState.manifest.workspaces.some((w) => w.id === criado.id),
+    false,
+    'o workspace continua no manifesto'
+  )
+  // O manifesto EM DISCO também, não só o da memória: um crash logo depois não
+  // pode ressuscitar a entrada de um workspace cujos arquivos já sumiram.
+  const manifesto = await persistence.loadManifest()
+  assert.equal(manifesto.workspaces.some((w) => w.id === criado.id), false)
+})
+
+await test('autosave em voo não recria o diretório do workspace excluído', async () => {
+  const criado = await appState.createWorkspace('Some no Meio', '')
+  const dir = paths.workspaceDir(criado.id)
+  criado.markDirty()
+
+  // A corrida de verdade: `saveDirtyWorkspaces` tira o retrato de todos os
+  // sujos de uma vez e grava um a um, com await entre eles. A exclusão parte no
+  // MESMO tick, depois do retrato e antes das gravações.
+  const gravando = appState.saveDirtyWorkspaces()
+  await appState.deleteWorkspace(criado.id)
+  await gravando
+
+  assert.equal(existsSync(dir), false, 'o autosave recriou o diretório excluído')
+})
+
+// Por último de propósito: este teste esvazia o app, e tudo o que vem antes
+// depende de haver workspace aberto.
+await test('excluir o último workspace é permitido e leva ao estado vazio', async () => {
+  const antes = appState.manifest.workspaces.map((w) => w.id)
+  for (const id of antes) await appState.deleteWorkspace(id)
+  assert.equal(appState.manifest.workspaces.length, 0)
+  assert.equal(appState.data.activeWorkspaceId, null, 'ficou apontando para um id que não existe')
+})
+
 // ─── Shutdown ─────────────────────────────────────────────────────────────────
 
 await test('shutdown grava tudo e marca cleanShutdown', async () => {

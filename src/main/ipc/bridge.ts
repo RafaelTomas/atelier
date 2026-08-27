@@ -338,6 +338,15 @@ export function registerIPC(): void {
   })
 
   ipcMain.handle('workspace:delete', async (_e, id: UUID) => {
+    // Os PTYs vão junto. `node:remove` mata o terminal de um nó apagado; aqui
+    // todos os nós somem de uma vez, e sem isto os processos ficariam rodando
+    // órfãos até o app fechar — presos a um diretório de trabalho que o `rm`
+    // acabou de levar, e sem nó nenhum na tela para reatá-los.
+    for (const node of appState.workspaces.get(id)?.nodes ?? []) {
+      if (node.content.type !== 'terminal') continue
+      terminals.kill(node.id)
+      forgetTerminal(node.id)
+    }
     await appState.deleteWorkspace(id)
     return appState.manifest.workspaces
   })

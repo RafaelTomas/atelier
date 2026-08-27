@@ -41,6 +41,8 @@ export const paths = {
   workspaceDir: (id: UUID) => join(dataDir(), 'workspaces', id),
   workspaceFile: (id: UUID) => join(dataDir(), 'workspaces', id, 'workspace.json'),
   notesDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'notes'),
+  /** Resultados de query publicados no canvas (`atelier table`). Um JSON por nó. */
+  tablesDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'tables'),
   terminalsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'terminals'),
   snapshotsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'snapshots'),
   /** Capturas de portal pedidas pelo agente (`atelier portal shot`). */

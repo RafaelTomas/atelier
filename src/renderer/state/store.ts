@@ -296,7 +296,7 @@ class Store {
   }
 
   async addNode(
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor' | 'dataTable',
     position: { x: number; y: number },
     opts: Record<string, unknown> = {},
     size?: { width: number; height: number }

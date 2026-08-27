@@ -152,7 +152,10 @@ export class WorkspaceManager {
     // Ordem canônica: para os kinds assimétricos, o terminal é sempre o lado A
     let a = idA
     let b = idB
-    if ((kind === 'note' || kind === 'portal') && this.node(idB)?.content.type === 'terminal') {
+    if (
+      (kind === 'note' || kind === 'portal' || kind === 'data') &&
+      this.node(idB)?.content.type === 'terminal'
+    ) {
       a = idB
       b = idA
     }

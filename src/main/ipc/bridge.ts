@@ -22,6 +22,7 @@ import { Constants } from '../core/constants'
 import { log } from '../core/logger'
 import {
   makeCodeEditorContent,
+  makeDataTableContent,
   makeFileTreeContent,
   makePortalContent,
   makeStickyNoteContent,
@@ -50,7 +51,7 @@ import { forgetTerminal } from '../core/connection/skill-injector'
 import { registerGuest, unregisterGuest } from '../core/portal/portal-registry'
 import { notifyRenderer } from './notify'
 
-type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor'
+type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor' | 'dataTable'
 
 function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeContent {
   switch (kind) {
@@ -92,6 +93,8 @@ function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeConte
       }
     case 'codeEditor':
       return { type: 'codeEditor', value: makeCodeEditorContent(String(opts.filePath ?? '')) }
+    case 'dataTable':
+      return { type: 'dataTable', value: makeDataTableContent(String(opts.title ?? 'Resultado')) }
   }
 }
 
@@ -111,6 +114,8 @@ function minSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: 180, height: 140 }
     case 'codeEditor':
       return { width: 240, height: 160 }
+    case 'dataTable':
+      return { width: Constants.tableMinWidth, height: Constants.tableMinHeight }
     case 'text':
       return { width: 80, height: 32 }
   }
@@ -130,6 +135,8 @@ function defaultSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: 300, height: 420 }
     case 'codeEditor':
       return { width: 620, height: 440 }
+    case 'dataTable':
+      return { width: Constants.tableDefaultWidth, height: Constants.tableDefaultHeight }
   }
 }
 
@@ -233,6 +240,14 @@ export function registerIPC(): void {
       // Nota nasce com arquivo .md em disco, como no app nativo
       if (content.type === 'stickyNote' && content.value.fileName) {
         await persistence.writeNote(ws.id, content.value.fileName, String(opts.content ?? ''))
+      }
+      // Tabela criada manualmente nasce vazia; o `atelier table` é quem popula.
+      if (content.type === 'dataTable' && content.value.fileName) {
+        await persistence.writeTable(ws.id, content.value.fileName, {
+          columns: [],
+          rows: [],
+          truncated: false
+        })
       }
       return node
     }
@@ -816,6 +831,17 @@ export function registerIPC(): void {
 
   ipcMain.handle('note:write', async (_e, workspaceId: UUID, fileName: string, content: string) => {
     await persistence.writeNote(workspaceId, fileName, content)
+    appState.workspaces.get(workspaceId)?.markDirty()
+  })
+
+  // ─── Tabelas de resultado ───────────────────────────────────────────────────
+
+  ipcMain.handle('table:read', (_e, workspaceId: UUID, fileName: string) =>
+    persistence.readTable(workspaceId, fileName)
+  )
+
+  ipcMain.handle('table:write', async (_e, workspaceId: UUID, fileName: string, value: unknown) => {
+    await persistence.writeTable(workspaceId, fileName, value)
     appState.workspaces.get(workspaceId)?.markDirty()
   })
 

@@ -95,6 +95,7 @@ const CONNECTION_SCHEMAS: ConnectionSchema[] = [
   { arrayKey: 'connections', kind: 'terminal', fieldA: 'terminalIdA', fieldB: 'terminalIdB' },
   { arrayKey: 'noteConnections', kind: 'note', fieldA: 'terminalId', fieldB: 'noteNodeId' },
   { arrayKey: 'portalConnections', kind: 'portal', fieldA: 'terminalId', fieldB: 'portalNodeId' },
+  { arrayKey: 'dataConnections', kind: 'data', fieldA: 'terminalId', fieldB: 'dataNodeId' },
   {
     arrayKey: 'portalToPortalConnections',
     kind: 'portalToPortal',

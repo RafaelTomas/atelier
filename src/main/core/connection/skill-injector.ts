@@ -27,7 +27,7 @@ const OWNER_MARKER = '<!-- installed-by: atelier -->'
 
 const SKILL_MD = `---
 name: atelier
-description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', or 'describe the projects'.
+description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), publish SQL/query results as a table node on the canvas, and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', 'show this query result on the canvas', or 'describe the projects'.
 ---
 
 ${OWNER_MARKER}
@@ -105,6 +105,30 @@ path for you to open.
 A portal that is off-screen or zoomed out is woken up for the read, so the first
 one may take a second. You cannot run arbitrary JavaScript in a portal: these
 sessions are often logged in as the user.
+
+## SQL / query results
+
+Run the query yourself with whatever tool fits (\`psql\`, \`sqlite3\`, \`mysql\`,
+…) and publish the RESULT as a table node, connected to you. The Atelier never
+touches the database — this is a snapshot.
+
+\`\`\`
+atelier table create "Title" <data> [--query "SELECT …"] [--format auto|json|csv|tsv] [--dialect postgres|sqlite|mysql]
+atelier table append "Title" <data> [--format …]
+atelier table list
+\`\`\`
+
+\`<data>\` is one positional argument. \`--format auto\` (the default) detects it:
+text starting with \`[\` or \`{\` is JSON; otherwise a tab in the first line means
+TSV, else CSV. JSON is accepted as an array of objects (\`[{"id":1,"name":"a"}]\`)
+or the explicit form \`{"columns":[…],"rows":[[…]]}\`. CSV/TSV take the first line
+as the header.
+
+Good inputs come straight from the client: \`sqlite3 -json db "SELECT …"\` or
+\`psql -A -F',' -c "SELECT …"\`. Results over ~2000 rows (or 200k cells) are
+truncated, and the reply says so. \`append\` adds rows to an existing table but
+refuses if the columns differ — a schema change between calls is an error, not
+a merge.
 
 ## Projects
 

@@ -11,6 +11,7 @@
  */
 import type {
   CodeEditorContent,
+  DataTableContent,
   FileTreeContent,
   FreehandContent,
   NodeContent,
@@ -29,9 +30,11 @@ import type {
 import {
   asRecord,
   bool,
+  decodeDate,
   decodeOptionalDate,
   decodePoint,
   encodePoint,
+  nowISO,
   normalizeUUID,
   num,
   optNum,
@@ -50,7 +53,8 @@ const VARIANTS = [
   'text',
   'shape',
   'stroke',
-  'freehand'
+  'freehand',
+  'dataTable'
 ] as const
 
 // ─── StorageMode ──────────────────────────────────────────────────────────────
@@ -151,6 +155,20 @@ function decodeFileTree(raw: Record<string, unknown>): FileTreeContent {
 
 function decodeCodeEditor(raw: Record<string, unknown>): CodeEditorContent {
   return { filePath: str(raw.filePath) }
+}
+
+function decodeDataTable(raw: Record<string, unknown>): DataTableContent {
+  return {
+    id: normalizeUUID(raw.id),
+    title: str(raw.title, 'Resultado'),
+    fileName: optStr(raw.fileName),
+    query: optStr(raw.query),
+    dialect: optStr(raw.dialect),
+    rowCount: num(raw.rowCount, 0),
+    columnCount: num(raw.columnCount, 0),
+    truncated: bool(raw.truncated),
+    executedAt: decodeDate(raw.executedAt)
+  }
 }
 
 // ─── Enums de tipografia ──────────────────────────────────────────────────────
@@ -261,6 +279,8 @@ export function decodeNodeContent(value: unknown): NodeContent | null {
       return { type: 'stroke', value: decodeStroke(payload) }
     case 'freehand':
       return { type: 'freehand', value: decodeFreehand(payload) }
+    case 'dataTable':
+      return { type: 'dataTable', value: decodeDataTable(payload) }
   }
 }
 
@@ -377,6 +397,21 @@ export function makeCodeEditorContent(filePath: string): CodeEditorContent {
   return { filePath }
 }
 
+export function makeDataTableContent(title: string): DataTableContent {
+  const id = uuid()
+  return {
+    id,
+    title,
+    fileName: `${id}.json`,
+    query: null,
+    dialect: null,
+    rowCount: 0,
+    columnCount: 0,
+    truncated: false,
+    executedAt: nowISO()
+  }
+}
+
 /** Nome exibido no header do nó, por tipo. */
 export function nodeDisplayName(content: NodeContent): string {
   switch (content.type) {
@@ -399,6 +434,8 @@ export function nodeDisplayName(content: NodeContent): string {
       return content.value.name
     case 'codeEditor':
       return fileNameOf(content.value.filePath) || 'Arquivo'
+    case 'dataTable':
+      return content.value.title
     case 'text':
       return content.value.text.slice(0, 24) || 'Text'
     default:

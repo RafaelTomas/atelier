@@ -1,6 +1,6 @@
 /** Porte de Sources/Shared/Constants.swift */
 export const Constants = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   /** Versão do índice de projetos (projects.json) — independente do workspace. */
   projectIndexSchemaVersion: 1,
   appDataDirectoryName: '.atelier',
@@ -24,6 +24,13 @@ export const Constants = {
   noteDefaultWidth: 260,
   noteDefaultHeight: 150,
   noteDefaultColor: '#FEFDE8',
+  /** Nó de resultado SQL: piso, tamanho padrão e tetos da fase 1 (snapshot). */
+  tableMinWidth: 240,
+  tableMinHeight: 140,
+  tableDefaultWidth: 520,
+  tableDefaultHeight: 360,
+  tableMaxRows: 2000,
+  tableMaxCells: 200_000,
   agentIdleTimeoutMs: 2000,
   askResponseTimeoutMs: 30_000
 } as const

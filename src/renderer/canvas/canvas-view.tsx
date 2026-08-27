@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CanvasNode, Point, Rect, UUID } from '@shared/types'
+import { isSupportedImageName } from '@shared/image'
 import { ContextMenu } from '../context-menu'
 import { FILE_DRAG_TYPE, PROJECT_DRAG_TYPE, readFileDrag } from '../drag'
 import { portalWake } from '../state/portal-wake'
@@ -144,6 +145,28 @@ export function CanvasView(): JSX.Element {
 
   useEffect(() => portalWake.subscribe(() => setWakeTick((t) => t + 1)), [])
 
+  // Colar imagem no canvas (Ctrl/Cmd+V). O terminal tem o próprio handler em
+  // captura e chama stopPropagation, então uma colagem destinada a um agente
+  // nunca chega aqui. Texto no clipboard não é problema desta tela — quem cola
+  // texto usa o item "Anexo" da dock.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent): void => {
+      const el = document.activeElement as HTMLElement | null
+      if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA'].includes(el.tagName))) return
+      const item = [...(e.clipboardData?.items ?? [])].find(
+        (i) => i.kind === 'file' && i.type.startsWith('image/')
+      )
+      if (!item) return
+      const file = item.getAsFile()
+      if (!file) return
+      e.preventDefault()
+      const at = viewport.toCanvas({ x: viewport.width / 2, y: viewport.height / 2 })
+      void store.addImageFromBlob(file, at)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [])
+
   // ─── Transform + virtualização ──────────────────────────────────────────────
 
   useEffect(() => {
@@ -244,13 +267,51 @@ export function CanvasView(): JSX.Element {
    */
   const onDragOver = (e: React.DragEvent): void => {
     const types = e.dataTransfer.types
-    if (!types.includes(PROJECT_DRAG_TYPE) && !types.includes(FILE_DRAG_TYPE)) return
+    // `Files` cobre imagem arrastada do Explorer/Finder; os dois tipos próprios
+    // continuam sendo o arrasto interno (projeto e arquivo da árvore).
+    if (
+      !types.includes(PROJECT_DRAG_TYPE) &&
+      !types.includes(FILE_DRAG_TYPE) &&
+      !types.includes('Files')
+    ) {
+      return
+    }
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copy'
   }
 
   const onDrop = (e: React.DragEvent): void => {
     const canvas = viewport.toCanvas(screenPoint(e))
+
+    // Arquivo arrastado do sistema (Explorer/Finder). Vem antes dos tipos
+    // próprios: um arrasto interno não carrega `files`, então não colide.
+    const osFiles = [...(e.dataTransfer.files ?? [])]
+    const isInternalDrag =
+      e.dataTransfer.types.includes(FILE_DRAG_TYPE) ||
+      e.dataTransfer.types.includes(PROJECT_DRAG_TYPE)
+    if (osFiles.length > 0 && !isInternalDrag) {
+      // Sempre segura o drop: sem isto o Chromium navegaria para o file://.
+      e.preventDefault()
+      const osImages = osFiles.filter((f) => f.type.startsWith('image/'))
+      if (osImages.length === 0) {
+        store.showNotice('só imagens podem ser soltas no canvas')
+        return
+      }
+      const under = hitTest(canvas)
+      if (under?.content.type === 'terminal') {
+        // Dentro de um terminal o gesto quer o caminho na linha, igual ao paste.
+        void osImages[0].arrayBuffer().then(async (buf) => {
+          const r = await window.atelier.terminal.pasteImage(under.id, buf, osImages[0].type)
+          if ('error' in r) store.showNotice(r.error)
+        })
+        return
+      }
+      osImages.forEach((file, i) => {
+        const at = { x: canvas.x + i * 24, y: canvas.y + i * 24 }
+        void store.addImageFromBlob(file, at)
+      })
+      return
+    }
 
     // Arquivo e pasta agem DIRETO, sem menu: foi o pedido. Um arquivo abre o
     // editor no ponto solto; uma pasta vira nó de árvore, que é o análogo.
@@ -269,8 +330,15 @@ export function CanvasView(): JSX.Element {
         return
       }
 
-      if (payload.isDirectory) void store.addFolderTreeToWorkspace(payload.path, payload.name, canvas)
-      else void store.openFileInWorkspace(payload.path, canvas)
+      if (payload.isDirectory) {
+        void store.addFolderTreeToWorkspace(payload.path, payload.name, canvas)
+      } else if (isSupportedImageName(payload.path)) {
+        // Imagem vira nó de imagem, não editor de código (que a rejeita por
+        // binária). O main lê os bytes pela allowlist e copia para o nó.
+        void store.addImageFromPath(payload.path, canvas)
+      } else {
+        void store.openFileInWorkspace(payload.path, canvas)
+      }
       return
     }
 

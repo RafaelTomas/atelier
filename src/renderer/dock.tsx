@@ -329,7 +329,7 @@ export function Dock(): JSX.Element {
 
       <DockButton
         label="Anexo"
-        hint="desenhe a área; cola a área de transferência nela"
+        hint="desenhe a área; cola imagem ou texto da área de transferência"
         onClick={() => {
           setOpenMenu(null)
           store.startPlacing({
@@ -391,20 +391,36 @@ export function Dock(): JSX.Element {
 }
 
 /**
- * Cola o que estiver na área de transferência como nota (texto) — o "clipe"
- * da referência. Sem permissão de leitura, cria uma nota vazia em vez de
- * falhar em silêncio.
+ * Cola o que estiver na área de transferência — o "clipe" da referência.
+ * Imagem vira nó de imagem; texto vira nó de texto; vazio (ou sem permissão de
+ * leitura) vira uma nota para escrever, em vez de falhar em silêncio.
  */
 async function pasteAttachment(frame: Rect): Promise<void> {
+  const position = { x: frame.x, y: frame.y }
+  const size = { width: frame.width, height: frame.height }
+
+  // Imagem primeiro: `clipboard.read()` dá os tipos disponíveis; se houver um
+  // `image/*`, o nó de imagem cuida da própria proporção e ignora o `frame`.
+  try {
+    const items = await navigator.clipboard.read()
+    for (const item of items) {
+      const type = item.types.find((t) => t.startsWith('image/'))
+      if (type) {
+        const blob = await item.getType(type)
+        void store.addImageFromBlob(blob, position)
+        return
+      }
+    }
+  } catch {
+    /* sem permissão ou API indisponível — cai no texto */
+  }
+
   let text = ''
   try {
     text = await navigator.clipboard.readText()
   } catch {
-    // Sem permissão de leitura o clipboard rejeita; segue com nota vazia.
     text = ''
   }
-  const position = { x: frame.x, y: frame.y }
-  const size = { width: frame.width, height: frame.height }
   // Com conteúdo vira nó de texto (é o único cujo corpo é campo de conteúdo —
   // a nota adesiva guarda o texto em arquivo). Vazio, vira nota para escrever.
   if (text.trim()) void store.addNode('text', position, { text }, size)

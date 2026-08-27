@@ -12,6 +12,8 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, nativeImage } from 'electron'
 import { log } from './core/logger'
+import { Constants } from './core/constants'
+import { persistence } from './core/persistence/persistence-manager'
 import { dataDir, isOverriddenHome } from './core/persistence/paths'
 import { installCLI } from './core/interagent/cli-install'
 import { interAgentServer } from './core/interagent/server'
@@ -87,6 +89,11 @@ async function boot(): Promise<void> {
   // 3. Estado
   await appState.loadOnLaunch()
   appState.startAutosave()
+
+  // Colagens de imagem no terminal viram arquivo temporário; varre as antigas.
+  void persistence
+    .cleanTempDir(Constants.imageTmpMaxAgeMs)
+    .catch((err) => log.warn('boot', 'limpeza de tmp falhou', err))
 
   // 4. UI
   registerIPC()

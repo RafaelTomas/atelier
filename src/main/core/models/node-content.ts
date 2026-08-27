@@ -14,6 +14,7 @@ import type {
   DataTableContent,
   FileTreeContent,
   FreehandContent,
+  ImageContent,
   NodeContent,
   PortalContent,
   PortalSource,
@@ -42,6 +43,7 @@ import {
   str,
   uuid
 } from '../coding'
+import { extForImageMime } from '@shared/image'
 import { Constants } from '../constants'
 
 const VARIANTS = [
@@ -54,7 +56,8 @@ const VARIANTS = [
   'shape',
   'stroke',
   'freehand',
-  'dataTable'
+  'dataTable',
+  'image'
 ] as const
 
 // ─── StorageMode ──────────────────────────────────────────────────────────────
@@ -171,6 +174,19 @@ function decodeDataTable(raw: Record<string, unknown>): DataTableContent {
   }
 }
 
+function decodeImage(raw: Record<string, unknown>): ImageContent {
+  return {
+    id: normalizeUUID(raw.id),
+    fileName: optStr(raw.fileName),
+    title: str(raw.title, 'Imagem'),
+    mimeType: str(raw.mimeType, 'image/png'),
+    naturalWidth: num(raw.naturalWidth, 0),
+    naturalHeight: num(raw.naturalHeight, 0),
+    alt: str(raw.alt),
+    addedAt: decodeDate(raw.addedAt)
+  }
+}
+
 // ─── Enums de tipografia ──────────────────────────────────────────────────────
 // Validamos em vez de fazer cast: um valor estranho vindo do disco (ou de uma
 // versão futura do app nativo) cairia direto no CSS e quebraria o layout.
@@ -281,6 +297,8 @@ export function decodeNodeContent(value: unknown): NodeContent | null {
       return { type: 'freehand', value: decodeFreehand(payload) }
     case 'dataTable':
       return { type: 'dataTable', value: decodeDataTable(payload) }
+    case 'image':
+      return { type: 'image', value: decodeImage(payload) }
   }
 }
 
@@ -412,6 +430,24 @@ export function makeDataTableContent(title: string): DataTableContent {
   }
 }
 
+export function makeImageContent(
+  title: string,
+  opts: Partial<Pick<ImageContent, 'mimeType' | 'naturalWidth' | 'naturalHeight' | 'alt'>> = {}
+): ImageContent {
+  const id = uuid()
+  const mimeType = opts.mimeType || 'image/png'
+  return {
+    id,
+    fileName: `${id}.${extForImageMime(mimeType)}`,
+    title,
+    mimeType,
+    naturalWidth: opts.naturalWidth ?? 0,
+    naturalHeight: opts.naturalHeight ?? 0,
+    alt: opts.alt ?? '',
+    addedAt: nowISO()
+  }
+}
+
 /** Nome exibido no header do nó, por tipo. */
 export function nodeDisplayName(content: NodeContent): string {
   switch (content.type) {
@@ -436,6 +472,8 @@ export function nodeDisplayName(content: NodeContent): string {
       return fileNameOf(content.value.filePath) || 'Arquivo'
     case 'dataTable':
       return content.value.title
+    case 'image':
+      return content.value.title || 'Imagem'
     case 'text':
       return content.value.text.slice(0, 24) || 'Text'
     default:

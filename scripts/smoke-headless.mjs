@@ -272,7 +272,7 @@ await test('primeira gravação de um workspace v2 deixa um backup ao lado', asy
 
   assert.ok(existsSync(backup), 'não gravou o backup da v2')
   assert.equal(readFileSync(backup, 'utf8'), original, 'o backup não é o arquivo original')
-  assert.equal(JSON.parse(readFileSync(file, 'utf8')).schemaVersion, 4)
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).schemaVersion, 5)
 
   // Segunda gravação não reescreve o backup: o valor dele é ser o ANTES.
   reaberto.markDirty()

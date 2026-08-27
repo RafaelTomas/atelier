@@ -296,7 +296,7 @@ class Store {
   }
 
   async addNode(
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor' | 'dataTable',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor' | 'dataTable' | 'image',
     position: { x: number; y: number },
     opts: Record<string, unknown> = {},
     size?: { width: number; height: number }
@@ -460,6 +460,60 @@ class Store {
     // `chromeHidden` tira a barra de endereço: num documento local ela não
     // serve para nada, e o visor de PDF já traz os controles dele.
     if (node) await this.patchContent(node.id, { chromeHidden: true })
+  }
+
+  /**
+   * Imagem colada (Ctrl/Cmd+V no canvas) ou arrastada do sistema: vira um nó de
+   * imagem no ponto indicado. Os bytes vão junto no `node.add`; o main grava o
+   * arquivo gerenciado.
+   *
+   * A proporção do nó sai da imagem — medida aqui, antes de criar, porque o
+   * conteúdo guarda `naturalWidth`/`naturalHeight` e o renderer não teria como
+   * dimensionar o nó depois sem um salto visível.
+   */
+  async addImageFromBlob(blob: Blob, position?: { x: number; y: number }): Promise<CanvasNode | null> {
+    if (!this.workspaceId) {
+      this.showNotice('nenhum workspace aberto para receber a imagem')
+      return null
+    }
+    if (blob.size > IMAGE_MAX_BYTES) {
+      this.showNotice('imagem grande demais (máx. 25 MB)')
+      return null
+    }
+    const bytes = await blob.arrayBuffer()
+    const { width, height } = await imageDimensions(blob)
+    const size = imageNodeSize(width, height)
+    const at = position ?? centerOfViewport(size.width, size.height)
+    const name = blob instanceof File && blob.name ? blob.name.replace(/\.[^.]+$/, '') : 'Imagem'
+    return this.addNode(
+      'image',
+      at,
+      {
+        title: name,
+        mimeType: blob.type || 'image/png',
+        naturalWidth: width,
+        naturalHeight: height,
+        bytes
+      },
+      size
+    )
+  }
+
+  /**
+   * Imagem arrastada da árvore de arquivos: o main lê os bytes pelo mesmo canal
+   * com allowlist que abre qualquer arquivo, copia para o arquivo gerenciado do
+   * nó e devolve o nó já dimensionado. Sem `size` daqui — quem mede é o main
+   * (header do PNG), e passar um tamanho aqui só brigaria com o dele.
+   */
+  async addImageFromPath(path: string, position?: { x: number; y: number }): Promise<CanvasNode | null> {
+    if (!this.workspaceId) {
+      this.showNotice('nenhum workspace aberto para receber a imagem')
+      return null
+    }
+    const at = position ?? centerOfViewport(360, 260)
+    const node = await this.addNode('image', at, { filePath: path })
+    if (!node) this.showNotice('não foi possível ler esta imagem')
+    return node
   }
 
   /** Pasta solta no canvas: o análogo natural é o nó de árvore. */
@@ -949,6 +1003,35 @@ class Store {
     const workspace = await window.atelier.workspace.open(id)
     this.set({ workspace })
   }
+}
+
+/** Espelha Constants.imageMaxBytes do main — o main recusa de novo, isto só evita o round-trip. */
+const IMAGE_MAX_BYTES = 25 * 1024 * 1024
+/** Maior lado de um nó de imagem recém-criado, em pontos de canvas. */
+const IMAGE_NODE_MAX_SIDE = 520
+const IMAGE_NODE_MIN_SIDE = 120
+/** Altura reservada para a barra do nó, somada à área da imagem. */
+const IMAGE_NODE_BAR = 24
+
+/** Dimensões naturais de um blob de imagem; (0,0) quando não dá para medir (ex.: SVG). */
+async function imageDimensions(blob: Blob): Promise<{ width: number; height: number }> {
+  try {
+    const bitmap = await createImageBitmap(blob)
+    const dims = { width: bitmap.width, height: bitmap.height }
+    bitmap.close()
+    return dims
+  } catch {
+    return { width: 0, height: 0 }
+  }
+}
+
+/** Tamanho do nó a partir da proporção da imagem, preso entre o piso e o teto. */
+function imageNodeSize(w: number, h: number): { width: number; height: number } {
+  if (w <= 0 || h <= 0) return { width: 360, height: 260 }
+  const scale = Math.min(1, IMAGE_NODE_MAX_SIDE / Math.max(w, h))
+  const width = Math.max(IMAGE_NODE_MIN_SIDE, Math.round(w * scale))
+  const height = Math.max(IMAGE_NODE_MIN_SIDE, Math.round(h * scale)) + IMAGE_NODE_BAR
+  return { width, height }
 }
 
 /** Retângulo centrado no que está à vista — onde o usuário está olhando. */

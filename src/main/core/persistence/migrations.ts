@@ -13,6 +13,10 @@
  * resultado SQL) e uma nova lista de conexões (`dataConnections`). Nenhum dado
  * é transformado — todo documento v3 já é um v4 válido.
  *
+ * A v5 é igual: um caso a mais no enum (`image`, o nó de imagem), reusando a
+ * lista `dataConnections` do cabo terminal↔imagem. Nenhum dado transformado —
+ * todo documento v4 já é um v5 válido.
+ *
  * O que migração nenhuma resolve é o sentido CONTRÁRIO — um v3 aberto por um
  * leitor mais velho:
  *
@@ -41,9 +45,9 @@ export function migrateWorkspaceDocument(raw: unknown): unknown {
 
   let current = doc
   if (version < 2) current = migrateV1toV2(current)
-  // Não há passo 2 → 3 nem 3 → 4: cada uma só acrescenta um caso ao enum de
-  // conteúdo, e todo documento da versão anterior já é válido na seguinte. Só o
-  // número muda.
+  // Não há passo 2 → 3, 3 → 4 nem 4 → 5: cada uma só acrescenta um caso ao enum
+  // de conteúdo, e todo documento da versão anterior já é válido na seguinte. Só
+  // o número muda.
   return { ...current, schemaVersion: Constants.schemaVersion }
 }
 

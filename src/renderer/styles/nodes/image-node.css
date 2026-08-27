@@ -1,0 +1,41 @@
+/* Nó Imagem — barra fina + a imagem contida, fundo xadrez para PNG com alfa. */
+
+.image-node {
+  display: flex; flex-direction: column; height: 100%; width: 100%;
+  background: var(--term-bg); color: var(--term-fg); overflow: hidden;
+}
+
+.image-node-bar {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+  padding: 3px 6px; border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm); background: var(--surface-2);
+}
+.image-node-title {
+  font-weight: 600; color: var(--text); flex-shrink: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.image-node-dims { font-size: var(--fs-xs); color: var(--text-dim); flex-shrink: 0; }
+.image-node-actions { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
+.image-node-actions .ghost-btn { font-size: var(--fs-xs); padding: 1px 5px; }
+
+.image-node-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 12px; font-size: var(--fs-sm); color: var(--text-dim); font-style: italic;
+}
+
+.image-node-canvas {
+  flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; padding: 4px;
+  background-color: var(--surface-2);
+  background-image:
+    linear-gradient(45deg, rgb(127 127 127 / .12) 25%, transparent 25%),
+    linear-gradient(-45deg, rgb(127 127 127 / .12) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgb(127 127 127 / .12) 75%),
+    linear-gradient(-45deg, transparent 75%, rgb(127 127 127 / .12) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.image-node-canvas img {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  -webkit-user-drag: none; user-select: none;
+}

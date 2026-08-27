@@ -379,8 +379,75 @@ test('conexão terminal↔dataTable vira kind "data" e volta para dataConnection
   assert.ok('dataNodeId' in back.payload.dataConnections[0])
 })
 
+test('nó image faz round-trip no formato Maestri { image: { _0: … } }', () => {
+  const doc = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      nodes: [
+        {
+          id: 'FFFFFFFF-0000-0000-0000-0000000000AA',
+          frame: [[300, 400], [360, 260]],
+          zIndex: 7,
+          isLocked: false,
+          createdAt: '2026-08-27T00:00:00Z',
+          lastModifiedAt: '2026-08-27T00:00:00Z',
+          content: {
+            image: {
+              _0: {
+                id: 'ffffffff-0000-0000-0000-0000000000ff',
+                fileName: 'FFFFFFFF-0000-0000-0000-0000000000FF.png',
+                title: 'Gráfico de vendas',
+                mimeType: 'image/png',
+                naturalWidth: 1920,
+                naturalHeight: 1080,
+                alt: 'barras por mês',
+                addedAt: '2026-08-27T12:00:00Z'
+              }
+            }
+          }
+        }
+      ]
+    }
+  })
+  assert.equal(doc.droppedNodes, 0)
+  const value = doc.payload.nodes[0].content.value
+  assert.equal(value.title, 'Gráfico de vendas')
+  assert.equal(value.mimeType, 'image/png')
+  assert.equal(value.naturalWidth, 1920)
+  assert.equal(value.alt, 'barras por mês')
+  assert.equal(value.id, value.id.toUpperCase(), 'id da imagem normalizado para maiúsculas')
+
+  const out = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.ok(out.image && '_0' in out.image, 'perdeu o embrulho da variante')
+  assert.equal(out.image._0.title, 'Gráfico de vendas')
+  assert.match(out.image._0.addedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+})
+
+test('conexão terminal↔image vira kind "data" e volta para dataConnections', () => {
+  const doc = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      dataConnections: [
+        {
+          id: 'CCCCCCCC-0000-0000-0000-0000000000BB',
+          terminalId: 'DDDDDDDD-0000-0000-0000-0000000000BB',
+          dataNodeId: 'EEEEEEEE-0000-0000-0000-0000000000BB',
+          createdAt: '2026-08-27T00:00:00Z',
+          ropePoints: []
+        }
+      ]
+    }
+  })
+  const conn = doc.payload.connections.find((c) => c.kind === 'data')
+  assert.ok(conn, 'conexão data não foi decodificada')
+  const back = encodeWorkspaceDocument(doc.payload)
+  assert.equal(back.payload.dataConnections.length, 1)
+})
+
 test('schemaVersion e type ficam corretos na raiz', () => {
-  assert.equal(reencoded.schemaVersion, 4)
+  assert.equal(reencoded.schemaVersion, 5)
   assert.equal(reencoded.type, 'workspace')
 })
 

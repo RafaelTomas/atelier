@@ -27,7 +27,7 @@ const OWNER_MARKER = '<!-- installed-by: atelier -->'
 
 const SKILL_MD = `---
 name: atelier
-description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), publish SQL/query results as a table node on the canvas, and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', 'show this query result on the canvas', or 'describe the projects'.
+description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', 'show this query result on the canvas', 'put this image on the canvas', or 'describe the projects'.
 ---
 
 ${OWNER_MARKER}
@@ -129,6 +129,17 @@ Good inputs come straight from the client: \`sqlite3 -json db "SELECT …"\` or
 truncated, and the reply says so. \`append\` adds rows to an existing table but
 refuses if the columns differ — a schema change between calls is an error, not
 a merge.
+
+## Images
+
+Publish an image as a node on the canvas, connected to you — a chart you
+generated, a screenshot, a diagram. Pass the PATH to an image file (absolute);
+PNG, JPEG, GIF, WebP, AVIF, SVG and BMP are accepted, up to 25 MB.
+
+\`\`\`
+atelier image create "Title" /abs/path/to/image.png [--alt "description"]
+atelier image list
+\`\`\`
 
 ## Projects
 

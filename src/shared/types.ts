@@ -142,6 +142,29 @@ export interface DataTableContent {
   executedAt: string
 }
 
+/**
+ * Uma imagem no canvas — colada, arrastada do sistema ou publicada por um agente
+ * (`atelier image`).
+ *
+ * Mesma regra da nota e da tabela: só identidade e metadados leves moram aqui;
+ * os bytes vão para um arquivo gerenciado (`images/<id>.<ext>`). `naturalWidth`
+ * e `naturalHeight` ficam no conteúdo porque a proporção do nó é decidida na
+ * criação, antes de o renderer ter chance de medir a imagem.
+ */
+export interface ImageContent {
+  id: UUID
+  fileName: string | null
+  title: string
+  /** `image/png`, `image/jpeg`… — decide a extensão do arquivo e o data URL. */
+  mimeType: string
+  naturalWidth: number
+  naturalHeight: number
+  /** Texto alternativo, quando informado (`atelier image --alt`). */
+  alt: string
+  /** ISO8601 de quando o nó foi criado. */
+  addedAt: string
+}
+
 export type FontFamily = 'sans' | 'serif' | 'mono' | 'rounded'
 export type FontWeight = 'light' | 'regular' | 'medium' | 'semibold' | 'bold'
 export type TextAlignment = 'left' | 'center' | 'right'
@@ -198,8 +221,10 @@ export interface FreehandContent {
  * { "<tipo>": { "_0": … } } — ver models/node-content.ts.
  *
  * Eram oito, herdadas do app nativo; `codeEditor` é a nona e é o que fez o
- * schemaVersion subir para 3. Um leitor mais velho não a conhece — o que a
- * subida de versão faz a respeito disso está em persistence/migrations.ts.
+ * schemaVersion subir para 3. `dataTable` (v4) e `image` (v5) seguem a mesma
+ * lógica: um caso a mais no enum, nenhum dado transformado. Um leitor mais
+ * velho não as conhece — o que a subida de versão faz a respeito disso está em
+ * persistence/migrations.ts.
  */
 export type NodeContent =
   | { type: 'terminal'; value: TerminalContent }
@@ -212,6 +237,7 @@ export type NodeContent =
   | { type: 'stroke'; value: StrokeContent }
   | { type: 'freehand'; value: FreehandContent }
   | { type: 'dataTable'; value: DataTableContent }
+  | { type: 'image'; value: ImageContent }
 
 export type NodeContentType = NodeContent['type']
 
@@ -220,7 +246,8 @@ export const CONNECTABLE_TYPES: NodeContentType[] = [
   'terminal',
   'stickyNote',
   'portal',
-  'dataTable'
+  'dataTable',
+  'image'
 ]
 
 export function isConnectable(content: NodeContent): boolean {
@@ -289,6 +316,10 @@ export function connectionKindForTypes(
   if (pair.has('terminal') && pair.has('stickyNote')) return 'note'
   if (pair.has('terminal') && pair.has('portal')) return 'portal'
   if (pair.has('terminal') && pair.has('dataTable')) return 'data'
+  // Imagem publicada por um agente usa o mesmo cabo do resultado de query: em
+  // disco ambos caem em `dataConnections` (só referências de id), e o sentido é
+  // o mesmo — um agente ligado a um artefato que ele produziu.
+  if (pair.has('terminal') && pair.has('image')) return 'data'
   if (a === 'portal' && b === 'portal') return 'portalToPortal'
   if (a === 'stickyNote' && b === 'stickyNote') return 'noteToNote'
   return null

@@ -412,3 +412,34 @@ export function IconChevronDown({ size = 10 }: IconProps): JSX.Element {
     </svg>
   )
 }
+
+/** Fetch — baixa até a linha, sem aplicar: consulta o remoto e para aí. */
+export function IconFetch(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M12 4v9" />
+      <path d="M8.5 9.5 12 13l3.5-3.5" />
+      <path d="M5 18h14" />
+    </Svg>
+  )
+}
+
+/** Pull — traz de lá para cá. */
+export function IconPull(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M12 4v14" />
+      <path d="M6.5 12.5 12 18l5.5-5.5" />
+    </Svg>
+  )
+}
+
+/** Push — manda daqui para lá. */
+export function IconPush(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M12 20V6" />
+      <path d="M6.5 11.5 12 6l5.5 5.5" />
+    </Svg>
+  )
+}

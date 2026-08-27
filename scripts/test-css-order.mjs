@@ -113,8 +113,7 @@ const CONHECIDOS = new Map(([
    'elementos distintos: containers diferentes'],
   ['.image-node-actions .ghost-btn|.git-file-actions .ghost-btn',
    'elementos distintos: containers diferentes'],
-  ['.git-actions .btn|.git-popover-row .btn',
-   'elementos distintos: containers diferentes'],
+
   ['.file-tree.is-empty|.code-editor.is-empty',
    'elementos distintos: a árvore vazia não é o editor vazio'],
   ['.theme-preview.is-add|.role-card.is-add',

@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GitCommitEntry, GitFileChange, UUID } from '@shared/types'
-import { IconPin, IconReload } from '../icons'
+import { IconFetch, IconPin, IconPull, IconPush, IconReload } from '../icons'
 import { truncateStart } from '../paths'
 import { store, useStore } from '../state/store'
 import { useGit } from '../state/use-git'
@@ -204,6 +204,41 @@ export function GitPanel({ projectId, onPin }: Props = {}): JSX.Element {
 
         {status && !status.upstream && status.branch && <span className="git-tag">não publicado</span>}
 
+        {/* Só o ícone: a legenda (em inglês, como o comando que ela dispara)
+            aparece no hover. */}
+        <div className="git-actions">
+          <button
+            type="button"
+            className={busy === 'fetch' ? 'git-action is-busy' : 'git-action'}
+            disabled={busy !== null || !status}
+            onClick={() => void run('fetch', () => window.atelier.git.fetch(project.path))}
+            title="Fetch"
+            aria-label="Fetch"
+          >
+            <IconFetch size={15} />
+          </button>
+          <button
+            type="button"
+            className={busy === 'pull' ? 'git-action is-busy' : 'git-action'}
+            disabled={busy !== null || !status}
+            onClick={() => void run('pull', () => window.atelier.git.pull(project.path))}
+            title="Pull"
+            aria-label="Pull"
+          >
+            <IconPull size={15} />
+          </button>
+          <button
+            type="button"
+            className={busy === 'push' ? 'git-action is-busy' : 'git-action'}
+            disabled={busy !== null || !status}
+            onClick={() => void run('push', () => window.atelier.git.push(project.path))}
+            title={status?.upstream ? 'Push' : 'Publish'}
+            aria-label={status?.upstream ? 'Push' : 'Publish'}
+          >
+            <IconPush size={15} />
+          </button>
+        </div>
+
         {branchMenu && (
           <div className="git-branch-menu" onMouseDown={(e) => e.stopPropagation()}>
             <div className="git-branch-menu-title">Trocar de branch</div>
@@ -236,36 +271,6 @@ export function GitPanel({ projectId, onPin }: Props = {}): JSX.Element {
             </button>
           </div>
         )}
-      </div>
-
-      <div className="git-actions">
-        <button
-          type="button"
-          className="btn"
-          disabled={busy !== null || !status}
-          onClick={() => void run('fetch', () => window.atelier.git.fetch(project.path))}
-          title="Consultar o remoto sem alterar nada"
-        >
-          Buscar
-        </button>
-        <button
-          type="button"
-          className="btn"
-          disabled={busy !== null || !status}
-          onClick={() => void run('pull', () => window.atelier.git.pull(project.path))}
-          title="Trazer os commits do remoto (só fast-forward)"
-        >
-          {busy === 'pull' ? 'Puxando…' : 'Pull'}
-        </button>
-        <button
-          type="button"
-          className="btn"
-          disabled={busy !== null || !status}
-          onClick={() => void run('push', () => window.atelier.git.push(project.path))}
-          title={status?.upstream ? 'Enviar os commits locais' : 'Publicar este branch em origin'}
-        >
-          {busy === 'push' ? 'Enviando…' : status?.upstream ? 'Push' : 'Publicar'}
-        </button>
       </div>
 
       {inOperation && (

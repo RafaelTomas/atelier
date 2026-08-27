@@ -38,11 +38,15 @@ export const paths = {
   rolesDir: () => join(dataDir(), 'roles'),
   roleFile: (id: UUID) => join(dataDir(), 'roles', `${id}.json`),
   runDir: () => join(dataDir(), 'run'),
+  /** Arquivos efêmeros — hoje só as imagens coladas dentro de um terminal. */
+  tmpDir: () => join(dataDir(), 'tmp'),
   workspaceDir: (id: UUID) => join(dataDir(), 'workspaces', id),
   workspaceFile: (id: UUID) => join(dataDir(), 'workspaces', id, 'workspace.json'),
   notesDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'notes'),
   /** Resultados de query publicados no canvas (`atelier table`). Um JSON por nó. */
   tablesDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'tables'),
+  /** Bytes dos nós de imagem. Um arquivo por nó, nomeado pelo id do conteúdo. */
+  imagesDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'images'),
   terminalsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'terminals'),
   snapshotsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'snapshots'),
   /** Capturas de portal pedidas pelo agente (`atelier portal shot`). */

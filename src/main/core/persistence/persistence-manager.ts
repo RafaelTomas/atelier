@@ -9,7 +9,18 @@
  * MoveFileEx com MOVEFILE_REPLACE_EXISTING — substitui sem erro.
  */
 import { constants } from 'node:fs'
-import { access, copyFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  access,
+  copyFile,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile
+} from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type {
   AgentRole,
@@ -77,6 +88,28 @@ class PersistenceManager {
     }
   }
 
+  /**
+   * Escrita atômica de binário — mesma dança `.tmp` + fsync + rename da
+   * `atomicWrite`, sem `encoding`. Para os bytes dos nós de imagem.
+   */
+  private async atomicWriteBinary(filePath: string, data: Buffer): Promise<void> {
+    await mkdir(dirname(filePath), { recursive: true })
+    const tmp = `${filePath}.${process.pid}.tmp`
+    const handle = await open(tmp, 'w')
+    try {
+      await handle.writeFile(data)
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    try {
+      await rename(tmp, filePath)
+    } catch (err) {
+      await rm(tmp, { force: true })
+      throw err
+    }
+  }
+
   private async readJSON(filePath: string): Promise<unknown | null> {
     try {
       const text = await readFile(filePath, 'utf8')
@@ -110,6 +143,7 @@ class PersistenceManager {
       paths.workspaceDir(id),
       paths.notesDir(id),
       paths.tablesDir(id),
+      paths.imagesDir(id),
       paths.terminalsDir(id),
       paths.snapshotsDir(id)
     ]) {
@@ -282,6 +316,62 @@ class PersistenceManager {
   async writeTable(workspaceId: UUID, fileName: string, value: unknown): Promise<void> {
     await mkdir(paths.tablesDir(workspaceId), { recursive: true })
     await this.atomicWrite(join(paths.tablesDir(workspaceId), fileName), this.stringify(value))
+  }
+
+  // ─── Imagens (bytes dos nós de imagem) ─────────────────────────────────────
+  // Um arquivo por nó em `images/<id>.<ext>`, só a identidade no workspace.json —
+  // mesma divisão da nota e da tabela.
+
+  /** `fileName` já vem sanitizado pelo bridge (sem `..` nem separador). */
+  async readImage(workspaceId: UUID, fileName: string): Promise<Buffer | null> {
+    try {
+      return await readFile(join(paths.imagesDir(workspaceId), fileName))
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code !== 'ENOENT') log.error('persistence', `falha lendo imagem ${fileName}`, err)
+      return null
+    }
+  }
+
+  async writeImage(workspaceId: UUID, fileName: string, data: Buffer): Promise<void> {
+    await mkdir(paths.imagesDir(workspaceId), { recursive: true })
+    await this.atomicWriteBinary(join(paths.imagesDir(workspaceId), fileName), data)
+  }
+
+  async deleteImage(workspaceId: UUID, fileName: string): Promise<void> {
+    await rm(join(paths.imagesDir(workspaceId), fileName), { force: true })
+  }
+
+  // ─── Área temporária ──────────────────────────────────────────────────────
+  // Imagem colada dentro de um terminal vira arquivo aqui, e o caminho é
+  // "digitado" no PTY para o agente ler. Efêmero: limpo no boot por idade.
+
+  async writeTempImage(fileName: string, data: Buffer): Promise<string> {
+    const dir = paths.tmpDir()
+    await mkdir(dir, { recursive: true })
+    const file = join(dir, fileName)
+    await this.atomicWriteBinary(file, data)
+    return file
+  }
+
+  /** Apaga o que passou de `maxAgeMs` em `tmpDir`. Chamado no boot, sem bloquear. */
+  async cleanTempDir(maxAgeMs: number): Promise<void> {
+    let files: string[]
+    try {
+      files = await readdir(paths.tmpDir())
+    } catch {
+      return
+    }
+    const cutoff = Date.now() - maxAgeMs
+    for (const name of files) {
+      const file = join(paths.tmpDir(), name)
+      try {
+        const info = await stat(file)
+        if (info.mtimeMs < cutoff) await rm(file, { force: true })
+      } catch {
+        /* corrida com outra limpeza — ignora */
+      }
+    }
   }
 
   // ─── Scrollback ─────────────────────────────────────────────────────────────

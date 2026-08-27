@@ -11,6 +11,7 @@ import { store } from '../state/store'
 import { CodeEditorNode, codeEditorLabel } from './code-editor-node'
 import { DataTableNode, dataTableLabel } from './data-table-node'
 import { FileTreeNode } from './file-tree-node'
+import { ImageNode, imageLabel } from './image-node'
 import { NoteNode } from './note-node'
 import { TerminalNode } from './terminal-node'
 import { TextNode } from './text-node'
@@ -44,6 +45,8 @@ function title(node: CanvasNode): string {
       return codeEditorLabel(node.content.value)
     case 'dataTable':
       return dataTableLabel(node.content.value)
+    case 'image':
+      return imageLabel(node.content.value)
     default:
       return node.content.type
   }
@@ -96,6 +99,8 @@ export function NodeShell({
         return <CodeEditorNode node={node} content={node.content.value} />
       case 'dataTable':
         return <DataTableNode node={node} content={node.content.value} workspaceId={workspaceId} />
+      case 'image':
+        return <ImageNode node={node} content={node.content.value} workspaceId={workspaceId} />
       default:
         return <PlaceholderNode type={node.content.type} />
     }

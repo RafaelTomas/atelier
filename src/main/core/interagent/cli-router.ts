@@ -7,6 +7,7 @@
 import type { UUID } from '@shared/types'
 import { handleAsk } from './handlers/ask'
 import { handleCheck } from './handlers/check'
+import { handleImage } from './handlers/image'
 import { handleList } from './handlers/list'
 import { handleNote } from './handlers/note'
 import { handlePortal } from './handlers/portal'
@@ -15,7 +16,7 @@ import { handleRole } from './handlers/role'
 import { handleTable } from './handlers/table'
 import { interAgentServer } from './server'
 
-const COMMANDS = 'list ask check note portal table role projects debug'
+const COMMANDS = 'list ask check note portal table image role projects debug'
 
 export async function routeCLI(args: string[], terminalId: UUID | null): Promise<string> {
   const command = args[0]
@@ -34,6 +35,8 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
       return handlePortal(args, terminalId)
     case 'table':
       return handleTable(args, terminalId)
+    case 'image':
+      return handleImage(args, terminalId)
     case 'role':
       return handleRole(args, terminalId)
     case 'projects':

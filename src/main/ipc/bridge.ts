@@ -4,10 +4,13 @@
  * O renderer NUNCA toca em disco, em PTY ou em socket: tudo passa por aqui,
  * o que preserva a regra do app nativo de que toda I/O é centralizada.
  */
+import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { sep } from 'node:path'
+import { basename, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { extForImageMime, isSupportedImageName, mimeForImageName, pngDimensions } from '@shared/image'
+import { quoteForShell } from '@shared/shell'
 import type {
   AgentRole,
   AgentStatus,
@@ -24,12 +27,14 @@ import {
   makeCodeEditorContent,
   makeDataTableContent,
   makeFileTreeContent,
+  makeImageContent,
   makePortalContent,
   makeStickyNoteContent,
   makeTerminalContent,
   makeTextContent
 } from '../core/models/node-content'
 import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
+import type { WorkspaceManager } from '../core/state/workspace-manager'
 import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir } from '../core/persistence/paths'
 import { listDirectory } from '../core/projects/file-tree'
@@ -51,7 +56,15 @@ import { forgetTerminal } from '../core/connection/skill-injector'
 import { registerGuest, unregisterGuest } from '../core/portal/portal-registry'
 import { notifyRenderer } from './notify'
 
-type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor' | 'dataTable'
+type NewNodeKind =
+  | 'terminal'
+  | 'note'
+  | 'text'
+  | 'portal'
+  | 'fileTree'
+  | 'codeEditor'
+  | 'dataTable'
+  | 'image'
 
 function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeContent {
   switch (kind) {
@@ -95,7 +108,117 @@ function contentFor(kind: NewNodeKind, opts: Record<string, unknown>): NodeConte
       return { type: 'codeEditor', value: makeCodeEditorContent(String(opts.filePath ?? '')) }
     case 'dataTable':
       return { type: 'dataTable', value: makeDataTableContent(String(opts.title ?? 'Resultado')) }
+    case 'image':
+      return {
+        type: 'image',
+        value: makeImageContent(String(opts.title ?? 'Imagem'), {
+          mimeType: typeof opts.mimeType === 'string' ? opts.mimeType : 'image/png',
+          naturalWidth: typeof opts.naturalWidth === 'number' ? opts.naturalWidth : 0,
+          naturalHeight: typeof opts.naturalHeight === 'number' ? opts.naturalHeight : 0,
+          alt: typeof opts.alt === 'string' ? opts.alt : ''
+        })
+      }
   }
+}
+
+/** Bytes de imagem vindos do renderer chegam como ArrayBuffer/TypedArray. */
+function toBuffer(value: unknown): Buffer | null {
+  if (value instanceof ArrayBuffer) return Buffer.from(value)
+  if (ArrayBuffer.isView(value)) {
+    return Buffer.from(value.buffer as ArrayBuffer, value.byteOffset, value.byteLength)
+  }
+  return null
+}
+
+/** Nome de arquivo seguro dentro de um diretório gerenciado — sem `..`, sem separador. */
+function safeFileName(name: unknown): string | null {
+  if (typeof name !== 'string' || name.length === 0 || name.length > 255) return null
+  if (name.includes('/') || name.includes('\\') || name.includes('..')) return null
+  return name
+}
+
+type AllowedResolver = (
+  path: string
+) => Promise<{ ok: true; path: string } | { ok: false; reason: string }>
+
+/** Frame do nó de imagem: o retângulo desenhado quando existe, senão a proporção real. */
+function imageNodeFrame(
+  w: number,
+  h: number,
+  requested?: { width: number; height: number }
+): { width: number; height: number } {
+  if (requested) {
+    return {
+      width: Math.max(requested.width, Constants.imageMinWidth),
+      height: Math.max(requested.height, Constants.imageMinHeight)
+    }
+  }
+  if (w > 0 && h > 0) {
+    const MAX = 520
+    const BAR = 24
+    const scale = Math.min(1, MAX / Math.max(w, h))
+    return {
+      width: Math.max(Constants.imageMinWidth, Math.round(w * scale)),
+      height: Math.max(Constants.imageMinHeight, Math.round(h * scale) + BAR)
+    }
+  }
+  return { width: Constants.imageDefaultWidth, height: Constants.imageDefaultHeight }
+}
+
+/**
+ * Cria o nó de imagem. `opts.filePath` (arrastado da árvore) tem os bytes no
+ * disco, sob a allowlist; `opts.bytes` (colado) já traz o conteúdo. Sem um dos
+ * dois — ou com arquivo grande/inválido demais — não cria nada.
+ */
+async function addImageNode(
+  ws: WorkspaceManager,
+  position: Point,
+  opts: Record<string, unknown>,
+  requested: { width: number; height: number } | undefined,
+  resolve: AllowedResolver
+): Promise<CanvasNode | null> {
+  let bytes: Buffer | null = null
+  let name = typeof opts.title === 'string' && opts.title ? opts.title : 'Imagem'
+  let mime = typeof opts.mimeType === 'string' ? opts.mimeType : 'image/png'
+
+  if (typeof opts.filePath === 'string' && opts.filePath) {
+    if (!isSupportedImageName(opts.filePath)) return null
+    const allowed = await resolve(opts.filePath)
+    if (!allowed.ok) return null
+    try {
+      bytes = await readFile(allowed.path)
+    } catch {
+      return null
+    }
+    mime = mimeForImageName(allowed.path)
+    name = basename(allowed.path).replace(/\.[^.]+$/, '') || 'Imagem'
+  } else {
+    bytes = toBuffer(opts.bytes)
+  }
+
+  if (!bytes || bytes.byteLength === 0 || bytes.byteLength > Constants.imageMaxBytes) return null
+
+  const png = pngDimensions(bytes)
+  const naturalWidth =
+    png?.width ?? (typeof opts.naturalWidth === 'number' ? opts.naturalWidth : 0)
+  const naturalHeight =
+    png?.height ?? (typeof opts.naturalHeight === 'number' ? opts.naturalHeight : 0)
+
+  const content = makeImageContent(name, {
+    mimeType: mime,
+    naturalWidth,
+    naturalHeight,
+    alt: typeof opts.alt === 'string' ? opts.alt : ''
+  })
+
+  const size = imageNodeFrame(naturalWidth, naturalHeight, requested)
+  const node = makeCanvasNode(
+    { x: position.x, y: position.y, ...size },
+    { type: 'image', value: content }
+  )
+  ws.addNode(node)
+  if (content.fileName) await persistence.writeImage(ws.id, content.fileName, bytes)
+  return node
 }
 
 /**
@@ -116,6 +239,8 @@ function minSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: 240, height: 160 }
     case 'dataTable':
       return { width: Constants.tableMinWidth, height: Constants.tableMinHeight }
+    case 'image':
+      return { width: Constants.imageMinWidth, height: Constants.imageMinHeight }
     case 'text':
       return { width: 80, height: 32 }
   }
@@ -137,6 +262,8 @@ function defaultSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: 620, height: 440 }
     case 'dataTable':
       return { width: Constants.tableDefaultWidth, height: Constants.tableDefaultHeight }
+    case 'image':
+      return { width: Constants.imageDefaultWidth, height: Constants.imageDefaultHeight }
   }
 }
 
@@ -226,6 +353,15 @@ export function registerIPC(): void {
       const ws = appState.workspaces.get(workspaceId)
       if (!ws) return null
 
+      // Imagem tem caminho próprio: os bytes (colados) ou um arquivo do disco
+      // (arrastado da árvore) precisam existir ANTES de criar o nó, e o tamanho
+      // sai da proporção real da imagem, não do retângulo desenhado.
+      if (kind === 'image') {
+        return addImageNode(ws, position, opts, requested, (p) =>
+          resolveAllowedPath(p, allowedRoots())
+        )
+      }
+
       const floor = minSize(kind)
       const size = requested
         ? {
@@ -258,6 +394,12 @@ export function registerIPC(): void {
     if (!ws) return
     terminals.kill(nodeId)
     forgetTerminal(nodeId)
+    // Imagem carrega um arquivo de bytes (pode ser grande): apaga junto, ao
+    // contrário da nota/tabela, cujos arquivos-texto são leves e ficam.
+    const node = ws.node(nodeId)
+    if (node?.content.type === 'image' && node.content.value.fileName) {
+      void persistence.deleteImage(ws.id, node.content.value.fileName).catch(() => undefined)
+    }
     ws.removeNode(nodeId)
   })
 
@@ -621,6 +763,32 @@ export function registerIPC(): void {
     terminals.write(nodeId, data)
   )
 
+  /**
+   * Imagem colada dentro de um terminal. O `xterm` só trata texto, e o Claude
+   * Code lê imagem por CAMINHO de arquivo — então grava os bytes num arquivo
+   * temporário e "digita" o caminho na linha do agente, o mesmo gesto de um
+   * arquivo arrastado para dentro do terminal (ver store.pasteIntoTerminal).
+   * Sem `\r`: o usuário confirma.
+   */
+  ipcMain.handle(
+    'terminal:paste-image',
+    async (_e, nodeId: UUID, bytes: ArrayBuffer, mime: string) => {
+      const buf = toBuffer(bytes)
+      if (!buf || buf.byteLength === 0) return { error: 'área de transferência sem imagem' }
+      if (buf.byteLength > Constants.imageMaxBytes) return { error: 'imagem grande demais' }
+      const ext = extForImageMime(typeof mime === 'string' ? mime : 'image/png')
+      let path: string
+      try {
+        path = await persistence.writeTempImage(`paste-${Date.now()}.${ext}`, buf)
+      } catch (err) {
+        log.error('terminal', 'falha gravando imagem colada', err)
+        return { error: 'não foi possível gravar a imagem' }
+      }
+      const ok = terminals.write(nodeId, `${quoteForShell(path, process.platform)} `)
+      return ok ? { path } : { error: 'este terminal não está rodando' }
+    }
+  )
+
   ipcMain.handle('terminal:resize', (_e, nodeId: UUID, cols: number, rows: number) => {
     terminals.resize(nodeId, cols, rows)
   })
@@ -843,6 +1011,18 @@ export function registerIPC(): void {
   ipcMain.handle('table:write', async (_e, workspaceId: UUID, fileName: string, value: unknown) => {
     await persistence.writeTable(workspaceId, fileName, value)
     appState.workspaces.get(workspaceId)?.markDirty()
+  })
+
+  // ─── Imagens ────────────────────────────────────────────────────────────────
+  // Não passa pela allowlist de `allowedRoots`: serve SÓ arquivos sob
+  // `images/` do workspace, e o nome é sanitizado antes de tocar no disco.
+
+  ipcMain.handle('image:read', async (_e, workspaceId: UUID, fileName: string) => {
+    const safe = safeFileName(fileName)
+    if (!safe) return { error: 'nome de arquivo inválido' as const }
+    const buf = await persistence.readImage(workspaceId, safe)
+    if (!buf) return { error: 'missing' as const }
+    return { dataUrl: `data:${mimeForImageName(safe)};base64,${buf.toString('base64')}` }
   })
 
   // ─── Streams do PTY para a UI ───────────────────────────────────────────────

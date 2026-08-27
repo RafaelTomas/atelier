@@ -27,7 +27,15 @@ import type {
 } from '@shared/types'
 import type { DataTablePayload } from '@shared/data-table'
 
-type NewNodeKind = 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'codeEditor' | 'dataTable'
+type NewNodeKind =
+  | 'terminal'
+  | 'note'
+  | 'text'
+  | 'portal'
+  | 'fileTree'
+  | 'codeEditor'
+  | 'dataTable'
+  | 'image'
 
 /** `ok` diz se a ação passou; `message` é o que o git respondeu, resumido. */
 interface GitActionResult {
@@ -128,6 +136,16 @@ const api = {
     /** false = não havia PTY vivo para receber o texto. */
     write: (nodeId: UUID, data: string): Promise<boolean> =>
       ipcRenderer.invoke('terminal:write', nodeId, data),
+    /**
+     * Imagem colada dentro do terminal: grava um arquivo temporário e cola o
+     * caminho na linha do agente. `path` no sucesso, `error` legível na falha.
+     */
+    pasteImage: (
+      nodeId: UUID,
+      bytes: ArrayBuffer,
+      mime: string
+    ): Promise<{ path: string } | { error: string }> =>
+      ipcRenderer.invoke('terminal:paste-image', nodeId, bytes, mime),
     resize: (nodeId: UUID, cols: number, rows: number): Promise<void> =>
       ipcRenderer.invoke('terminal:resize', nodeId, cols, rows),
     kill: (nodeId: UUID): Promise<void> => ipcRenderer.invoke('terminal:kill', nodeId),
@@ -180,6 +198,17 @@ const api = {
       ipcRenderer.invoke('table:write', workspaceId, fileName, value),
     onChanged: (cb: (p: { workspaceId: UUID; nodeId: UUID }) => void): Unsubscribe =>
       on('table:changed', cb)
+  },
+
+  /** Nós de imagem. Bytes num arquivo gerenciado; o renderer só lê o data URL. */
+  image: {
+    read: (
+      workspaceId: UUID,
+      fileName: string
+    ): Promise<{ dataUrl: string } | { error: string }> =>
+      ipcRenderer.invoke('image:read', workspaceId, fileName),
+    onChanged: (cb: (p: { workspaceId: UUID; nodeId: UUID }) => void): Unsubscribe =>
+      on('image:changed', cb)
   },
 
   project: {

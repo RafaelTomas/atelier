@@ -79,7 +79,40 @@ export function TerminalNode({
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
-    term.open(hostRef.current)
+    const host = hostRef.current
+    term.open(host)
+
+    // Colar imagem: o xterm só trata texto. Interceptamos em CAPTURA no
+    // documento (garantido antes do textarea escondido do xterm, esteja ele
+    // onde estiver na árvore) e mandamos os bytes para o main, que grava um
+    // arquivo temporário e cola o CAMINHO na linha — é assim que o Claude Code
+    // recebe imagem. Sem imagem no clipboard, o xterm segue com o texto.
+    const onPaste = (e: ClipboardEvent): void => {
+      const target = e.target as Node | null
+      if (!target || !host.contains(target)) return
+
+      const data = e.clipboardData
+      const fromItems = [...(data?.items ?? [])]
+        .filter((i) => i.kind === 'file' && i.type.startsWith('image/'))
+        .map((i) => i.getAsFile())
+        .find((f): f is File => f != null)
+      const file =
+        fromItems ?? [...(data?.files ?? [])].find((f) => f.type.startsWith('image/'))
+      if (!file) return
+
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      void file
+        .arrayBuffer()
+        .then((buf) => window.atelier.terminal.pasteImage(node.id, buf, file.type))
+        .then((r) => {
+          if (r && 'error' in r) store.showNotice(r.error)
+        })
+        .catch((err: unknown) => {
+          store.showNotice(`falha ao colar a imagem: ${(err as Error).message}`)
+        })
+    }
+    document.addEventListener('paste', onPaste, true)
 
     // WebGL fica de fora de propósito: cada contexto conta contra o limite de
     // ~16 do Chromium, e um canvas com muitos terminais estoura esse teto.
@@ -135,10 +168,11 @@ export function TerminalNode({
         /* durante o resize o nó pode ficar com tamanho zero */
       }
     })
-    ro.observe(hostRef.current)
+    ro.observe(host)
 
     return () => {
       disposed = true
+      document.removeEventListener('paste', onPaste, true)
       ro.disconnect()
       onInput.dispose()
       offData()

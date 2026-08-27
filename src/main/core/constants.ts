@@ -1,6 +1,6 @@
 /** Porte de Sources/Shared/Constants.swift */
 export const Constants = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   /** Versão do índice de projetos (projects.json) — independente do workspace. */
   projectIndexSchemaVersion: 1,
   appDataDirectoryName: '.atelier',
@@ -37,6 +37,11 @@ export const Constants = {
   imageMinHeight: 60,
   imageDefaultWidth: 360,
   imageDefaultHeight: 260,
+  /** Nó de widget (painel do app no canvas): piso e tamanho padrão. */
+  widgetMinWidth: 240,
+  widgetMinHeight: 180,
+  widgetDefaultWidth: 380,
+  widgetDefaultHeight: 460,
   /** Colagens de imagem no terminal com mais que isto (ms) são apagadas no boot. */
   imageTmpMaxAgeMs: 24 * 60 * 60 * 1000,
   agentIdleTimeoutMs: 2000,

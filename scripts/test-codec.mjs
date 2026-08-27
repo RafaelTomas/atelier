@@ -446,8 +446,72 @@ test('conexão terminal↔image vira kind "data" e volta para dataConnections', 
   assert.equal(back.payload.dataConnections.length, 1)
 })
 
+// ─── Widget (v6) ─────────────────────────────────────────────────────────────
+// O caso de enum que hospeda painéis no canvas. O que estes testes protegem não
+// é a renderização — é o formato: um `kind` que este binário não conhece tem de
+// ATRAVESSAR intacto, senão o primeiro save de uma versão mais velha troca o
+// widget do usuário por outro, em silêncio.
+
+function widgetDoc(value) {
+  return {
+    ...raw,
+    payload: {
+      ...raw.payload,
+      nodes: [
+        {
+          id: 'AAAAAAAA-0000-0000-0000-0000000000W1',
+          frame: [[0, 0], [380, 460]],
+          zIndex: 1,
+          isLocked: false,
+          createdAt: '2026-08-27T00:00:00Z',
+          lastModifiedAt: '2026-08-27T00:00:00Z',
+          content: { widget: { _0: value } }
+        }
+      ]
+    }
+  }
+}
+
+test('nó widget faz round-trip no formato Maestri { widget: { _0: … } }', () => {
+  const doc = decodeWorkspaceDocument(
+    widgetDoc({
+      kind: 'git',
+      projectId: 'BBBBBBBB-0000-0000-0000-0000000000W1',
+      view: { tab: 'history' }
+    })
+  )
+  const node = doc.payload.nodes[0]
+  assert.equal(node.content.type, 'widget')
+  assert.equal(node.content.value.kind, 'git')
+  assert.equal(node.content.value.view.tab, 'history')
+
+  const back = encodeWorkspaceDocument(doc.payload)
+  const encoded = back.payload.nodes[0].content
+  assert.ok(encoded.widget, 'não escreveu na chave widget')
+  assert.equal(encoded.widget._0.kind, 'git')
+  assert.equal(encoded.widget._0.projectId, 'BBBBBBBB-0000-0000-0000-0000000000W1')
+  assert.equal(encoded.widget._0.view.tab, 'history')
+})
+
+test('kind desconhecido atravessa intacto em vez de virar outro widget', () => {
+  const doc = decodeWorkspaceDocument(widgetDoc({ kind: 'tarefas', projectId: null, view: {} }))
+  assert.equal(doc.droppedNodes, 0, 'o nó foi descartado')
+  assert.equal(doc.payload.nodes[0].content.value.kind, 'tarefas')
+  const back = encodeWorkspaceDocument(doc.payload)
+  assert.equal(back.payload.nodes[0].content.widget._0.kind, 'tarefas')
+})
+
+test('view descarta o que não é string — o Swift lê [String: String]', () => {
+  const doc = decodeWorkspaceDocument(
+    widgetDoc({ kind: 'git', projectId: null, view: { tab: 'changes', linhas: 40 } })
+  )
+  const view = doc.payload.nodes[0].content.value.view
+  assert.equal(view.tab, 'changes')
+  assert.equal('linhas' in view, false, 'um número foi gravado num mapa de strings')
+})
+
 test('schemaVersion e type ficam corretos na raiz', () => {
-  assert.equal(reencoded.schemaVersion, 5)
+  assert.equal(reencoded.schemaVersion, 6)
   assert.equal(reencoded.type, 'workspace')
 })
 

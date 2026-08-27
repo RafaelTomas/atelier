@@ -17,6 +17,7 @@ import { TerminalNode } from './terminal-node'
 import { TextNode } from './text-node'
 import { PortalNode, portalLabel } from './portal-node'
 import { PlaceholderNode } from './placeholder-node'
+import { WidgetNode, widgetLabel } from './widget-node'
 
 interface Props {
   node: CanvasNode
@@ -28,9 +29,11 @@ interface Props {
   customThemes?: TerminalTheme[]
   /** Linha de status lida da tela do agente. null = ele nunca mostrou nada. */
   status?: AgentStatus | null
+  /** Nome do projeto de um widget FIXADO — resolvido pelo canvas (ver lá). */
+  projectName?: string | null
 }
 
-function title(node: CanvasNode): string {
+function title(node: CanvasNode, projectName: string | null): string {
   switch (node.content.type) {
     case 'terminal':
       return node.content.value.name
@@ -47,6 +50,8 @@ function title(node: CanvasNode): string {
       return dataTableLabel(node.content.value)
     case 'image':
       return imageLabel(node.content.value)
+    case 'widget':
+      return widgetLabel(node.content.value, projectName ?? undefined)
     default:
       return node.content.type
   }
@@ -71,7 +76,8 @@ export function NodeShell({
   workspaceId,
   role = null,
   customThemes = [],
-  status = null
+  status = null,
+  projectName = null
 }: Props): JSX.Element {
   const { frame } = node
   const terminal = node.content.type === 'terminal' ? node.content.value : null
@@ -101,6 +107,8 @@ export function NodeShell({
         return <DataTableNode node={node} content={node.content.value} workspaceId={workspaceId} />
       case 'image':
         return <ImageNode node={node} content={node.content.value} workspaceId={workspaceId} />
+      case 'widget':
+        return <WidgetNode node={node} content={node.content.value} />
       default:
         return <PlaceholderNode type={node.content.type} />
     }
@@ -142,7 +150,7 @@ export function NodeShell({
                 <Icon name={terminal.icon} size={14} />
               </span>
             )}
-            <span className="node-title">{title(node)}</span>
+            <span className="node-title">{title(node, projectName)}</span>
             {terminal?.isManager && (
               <span className="node-badge is-manager" title="Maestro deste canvas">
                 maestro

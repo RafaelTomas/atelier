@@ -34,6 +34,7 @@ const ESPERADA = [
   ['nodes/code-editor-node', 'depois da casca'],
   ['nodes/data-table-node',  'depois da casca'],
   ['nodes/image-node',       'depois da casca; sem dependência de ordem com os outros nós'],
+  ['nodes/widget-node',      'depois da casca; DEPOIS de panels, porque hospeda os mesmos painéis numa densidade maior'],
   ['nodes/markdown-view',    'depois da casca; sem dependência de ordem com os outros nós'],
   ['nodes/node-action-bar',  'depois da casca'],
   ['nodes/format-bar',       'depois da casca'],

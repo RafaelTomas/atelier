@@ -10,7 +10,7 @@
  *   • arrasto escreve em style.transform direto, fora do ciclo do React
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CanvasNode, Point, Rect, UUID } from '@shared/types'
+import type { CanvasNode, Point, Project, Rect, UUID } from '@shared/types'
 import { isSupportedImageName } from '@shared/image'
 import { ContextMenu } from '../context-menu'
 import { FILE_DRAG_TYPE, PROJECT_DRAG_TYPE, readFileDrag } from '../drag'
@@ -27,6 +27,19 @@ import { Minimap } from './minimap'
 import { ConnectionsLayer } from './connections-layer'
 import { ConnectionPreview, canLink } from './connection-preview'
 import { CULL_MARGIN, rectsIntersect, viewport } from './viewport'
+
+/**
+ * Nome do projeto de um widget FIXADO, para o cabeçalho do nó. Resolvido AQUI,
+ * e não dentro do widget: o canvas já assina a lista de projetos, e um widget
+ * que a assinasse por conta própria poria mais um assinante da store por nó na
+ * tela — a mesma razão pela qual role e tema de terminal descem por prop.
+ */
+function widgetProjectName(node: CanvasNode, projects: Project[]): string | null {
+  if (node.content.type !== 'widget') return null
+  const { projectId } = node.content.value
+  if (!projectId) return null
+  return projects.find((p) => p.id === projectId)?.name ?? null
+}
 
 type Interaction =
   | { kind: 'idle' }
@@ -833,6 +846,7 @@ export function CanvasView(): JSX.Element {
             }
             customThemes={customThemes}
             status={terminalStatus[node.id] ?? null}
+            projectName={widgetProjectName(node, projects)}
           />
         ))}
       </div>

@@ -1,0 +1,48 @@
+/* Nó que hospeda um painel do app (projetos, git).
+
+   O painel é o MESMO componente da cascata da rail; o que muda é só o que o
+   cerca. Esta folha existe por causa da densidade: os painéis foram
+   desenhados para uma coluna de ~220px, e num nó eles têm 380 ou mais. */
+
+.widget-node {
+  display: flex; flex-direction: column; height: 100%; min-height: 0;
+  background: var(--surface); overflow: hidden;
+  /* `flex: 1` e não só `height: 100%`, pelo mesmo motivo de .file-tree: o pai
+     (.node-body) é um flex ROW, onde a largura padrão de um filho é a do
+     CONTEÚDO dele. Sem isto o painel fica com a largura do nome mais comprido e
+     sobra vazio no resto do nó. */
+  flex: 1; min-width: 0;
+}
+
+/* Barra de escopo: de quem é este widget, e se ele segue a seleção global ou
+   está fixado. Só aparece nos kinds que dependem de projeto. */
+.widget-scope {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-xs); color: var(--text-dim);
+}
+.widget-scope-name {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Cadeado fechado = fixado num projeto; aberto = segue a seleção global. O
+   estado é visível o tempo todo de propósito: dois widgets de git lado a lado
+   só fazem sentido se dá para ver qual está preso a quê. */
+.widget-lock { flex-shrink: 0; display: flex; align-items: center; padding: 2px; }
+.widget-lock.is-locked { color: var(--accent); }
+
+.widget-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Kind que este binário não conhece — gravado por uma versão mais nova. O nó
+   monta inerte em vez de sumir: o conteúdo dele continua no arquivo, e o texto
+   diz por que não há nada para ver. */
+.widget-unknown {
+  flex: 1; display: flex; flex-direction: column; gap: 6px;
+  align-items: center; justify-content: center; text-align: center;
+  padding: 16px; color: var(--text-dim); font-size: var(--fs-md);
+}
+.widget-unknown code {
+  background: var(--border); padding: 1px 5px; border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+}

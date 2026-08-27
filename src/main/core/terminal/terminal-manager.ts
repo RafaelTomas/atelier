@@ -15,6 +15,7 @@ import { defaultShell } from '../models/node-content'
 import { atelierBinDir } from '../interagent/cli-install'
 import { persistence } from '../persistence/persistence-manager'
 import { ipcSocketPath } from '../persistence/paths'
+import { childEnv, prependPath } from '../subprocess-env'
 import { scanAgentStatus } from './agent-status'
 
 /**
@@ -100,7 +101,7 @@ class TerminalManager extends EventEmitter {
    * dentro do terminal (espelha SwiftTermProvider.swift:116-134).
    */
   private buildEnv(terminalId: UUID, role?: { id: UUID; name: string } | null): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = { ...process.env }
+    const env = childEnv()
     env.ATELIER_TERMINAL_ID = terminalId
     env.ATELIER_SOCKET = ipcSocketPath()
     env.ATELIER_SERVER_PORT = String(this.serverPort)
@@ -114,9 +115,10 @@ class TerminalManager extends EventEmitter {
     }
 
     const bin = atelierBinDir()
-    const sep = process.platform === 'win32' ? ';' : ':'
     env.ATELIER_CLI = bin.cliPath
-    env.PATH = [bin.dir, env.PATH ?? ''].filter(Boolean).join(sep)
+    // O bin do Atelier entra na frente; o PATH herdado (onde mora `claude`,
+    // `codex`, `npm`…) continua inteiro graças ao `childEnv` acima.
+    prependPath(env, bin.dir)
     return env
   }
 
@@ -128,7 +130,8 @@ class TerminalManager extends EventEmitter {
     if (!pty) return null
 
     const shell = opts.shellPath || defaultShell()
-    const cwd = opts.workingDirectory || process.env.HOME || process.cwd()
+    const cwd =
+      opts.workingDirectory || process.env.HOME || process.env.USERPROFILE || process.cwd()
 
     let proc: IPty
     try {

@@ -62,6 +62,7 @@ await esbuild.build({
       // Função pura do renderer (paths.ts não importa nada): entra aqui porque
       // aspas erradas quebram em silêncio — o comando roda com o argumento errado.
       export { quoteForShell } from './src/renderer/paths.ts'
+      export { childEnv, prependPath } from './src/main/core/subprocess-env.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -85,6 +86,7 @@ const { projectIndex, scanForProjects, isRepository, inferKind, isPathAllowed } 
 const { resolveAllowedPath, resolveAllowedTarget } = core
 const { readTextFile, writeTextFile, renameEntry, duplicateEntry, MAX_TEXT_BYTES } = core
 const { quoteForShell } = core
+const { childEnv, prependPath } = core
 
 /** Fala o protocolo real do atelier por socket. */
 function cli(args, terminalId) {
@@ -944,6 +946,36 @@ await test('isPathAllowed barra caminho fora das raízes permitidas', async () =
 })
 
 await rm(projectTree, { recursive: true, force: true })
+
+await test('childEnv normaliza a chave do PATH e nunca deixa duas', () => {
+  const original = { ...process.env }
+  try {
+    // Simula o Windows: a variável chega como `Path`, não `PATH`.
+    for (const k of Object.keys(process.env)) {
+      if (k.toLowerCase() === 'path') delete process.env[k]
+    }
+    process.env.Path = '/usr/bin:/bin'
+
+    const env = childEnv({ FOO: 'bar' })
+    const pathKeys = Object.keys(env).filter((k) => k.toLowerCase() === 'path')
+    assert.deepEqual(pathKeys, ['PATH'], 'uma única chave, e é PATH')
+    assert.equal(env.PATH, '/usr/bin:/bin')
+    assert.equal(env.FOO, 'bar')
+
+    prependPath(env, '/opt/atelier/bin')
+    const sep = process.platform === 'win32' ? ';' : ':'
+    assert.equal(env.PATH, `/opt/atelier/bin${sep}/usr/bin:/bin`)
+    assert.deepEqual(
+      Object.keys(env).filter((k) => k.toLowerCase() === 'path'),
+      ['PATH']
+    )
+  } finally {
+    for (const k of Object.keys(process.env)) {
+      if (k.toLowerCase() === 'path') delete process.env[k]
+    }
+    Object.assign(process.env, original)
+  }
+})
 
 // ─── Shutdown ─────────────────────────────────────────────────────────────────
 

@@ -9,6 +9,7 @@
  * perguntado antes: `discard` é a única destrutiva, e o painel confirma.
  */
 import type { GitCommitEntry, GitLogResult } from '@shared/types'
+import { childEnv } from '../subprocess-env'
 import { firstLine, git } from './git'
 
 export interface ActionResult {
@@ -102,7 +103,7 @@ export function commit(root: string, message: string, amend = false): Promise<Ac
       const child = execFile(
         'git',
         args,
-        { cwd: root, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' }, windowsHide: true },
+        { cwd: root, env: childEnv({ GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' }), windowsHide: true },
         (err, stdout, stderr) => {
           if (err) {
             resolve({ ok: false, message: firstLine(String(stderr)) || firstLine(String(stdout)) || 'commit falhou' })

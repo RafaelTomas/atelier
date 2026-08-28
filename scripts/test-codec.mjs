@@ -141,7 +141,7 @@ test('storageScope com partição herdada sobrevive à ida e volta', () => {
  * Um portal gravado antes do campo existir — ou pelo app nativo, que não o
  * conhece — tem de carregar com `false`: a alternativa é um portal dirigível
  * pelo agente sem que ninguém tenha clicado em nada. Ver Decisão C do
- * PLANO-controle-de-portal.md.
+ * 2026-08-27-PLANO-controle-de-portal.md.
  */
 test('controlEnabled sobrevive à ida e volta, e ausente vira false', () => {
   const clone = structuredClone(raw)

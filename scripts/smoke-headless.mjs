@@ -555,7 +555,7 @@ await test('atelier portal read sem webview montado explica em vez de pendurar',
   assert.match(out, /error: portal .* não respondeu/)
 })
 
-// ─── Controle de portal (PLANO-controle-de-portal.md) ────────────────────────
+// ─── Controle de portal (2026-08-27-PLANO-controle-de-portal.md) ─────────────
 
 await test('portal click sem permissão é recusado, e o erro diz como ligar', async () => {
   // A trava da Decisão C. O erro é metade do recurso: um agente que só ouve

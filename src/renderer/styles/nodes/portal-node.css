@@ -25,7 +25,7 @@
 }
 .portal-url:focus { border-color: var(--accent); }
 
-/* Controle do agente (PLANO-controle-de-portal.md, Decisão C).
+/* Controle do agente (2026-08-27-PLANO-controle-de-portal.md, Decisão C).
 
    A borda é permanente e por dentro (box-shadow inset, não outline): o nó já é
    recortado por overflow:hidden e um outline sumiria na borda do cartão. O

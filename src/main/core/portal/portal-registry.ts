@@ -1,7 +1,7 @@
 /**
  * Registro `nodeId → webContents do <webview>` de cada Portal.
  *
- * É a peça que as três funcionalidades do Portal usam (ver PLANO-portal.md):
+ * É a peça que as três funcionalidades do Portal usam (ver 2026-08-26-PLANO-portal.md):
  * abrir popup como nó, ler a página pelo agente e criar portal pelo CLI. Todas
  * precisam da mesma coisa — falar com o webContents convidado (*guest*) de um nó
  * — e nenhuma consegue por conta própria: o guest do `<webview>` é um processo
@@ -123,7 +123,7 @@ export async function guestFor(nodeId: UUID): Promise<WebContents | null> {
  * Um portal fora da viewport ou com zoom abaixo do congelamento não tem webview
  * montado — e para um agente "não montado" é o mesmo que não funcionar. Então o
  * main pede ao renderer que monte o nó (`portal:wake`) e espera o `registerGuest`
- * chegar. Ver a Decisão C do PLANO-portal.md: acordar sob demanda custa um
+ * chegar. Ver a Decisão C do 2026-08-26-PLANO-portal.md: acordar sob demanda custa um
  * processo pelo tempo da leitura, contra N processos vivos o tempo todo.
  */
 export async function wakeGuest(nodeId: UUID, timeoutMs = WAKE_TIMEOUT_MS): Promise<WebContents | null> {

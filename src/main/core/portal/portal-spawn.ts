@@ -60,7 +60,7 @@ interface SpawnOptions {
   name?: string
   /**
    * Partição a herdar. Vinda do portal pai, é o que mantém o popup logado —
-   * ver Decisão B do PLANO-portal.md.
+   * ver Decisão B do 2026-08-26-PLANO-portal.md.
    */
   partition?: string
 }

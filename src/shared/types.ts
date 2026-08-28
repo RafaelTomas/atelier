@@ -86,7 +86,7 @@ export interface PortalContent {
    * Padrão `false`, sempre — inclusive ao reler um portal gravado antes deste
    * campo existir. Ler é livre; agir numa sessão autenticada é decisão do
    * usuário, tomada nó a nó pelo botão do cabeçalho (Decisão C do
-   * PLANO-controle-de-portal.md).
+   * 2026-08-27-PLANO-controle-de-portal.md).
    */
   controlEnabled: boolean
 }
@@ -101,7 +101,7 @@ export interface PortalContent {
  *
  * Sem a herança, um popup nasceria com `content.id` novo, logo partição nova,
  * logo DESLOGADO: o usuário clica num link autenticado e recebe a tela de login.
- * Ver a Decisão B do PLANO-portal.md.
+ * Ver a Decisão B do 2026-08-26-PLANO-portal.md.
  */
 export function portalPartition(content: PortalContent): string {
   if (content.storageScope.startsWith('persist:')) return content.storageScope

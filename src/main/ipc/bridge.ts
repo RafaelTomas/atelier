@@ -1019,7 +1019,7 @@ export function registerIPC(): void {
    * O botão de controle do cabeçalho do portal.
    *
    * A sessão CDP nasce ao LIGAR e morre ao desligar (Decisão D do
-   * PLANO-controle-de-portal.md): `attach`/`detach` por comando custa handshake
+   * 2026-08-27-PLANO-controle-de-portal.md): `attach`/`detach` por comando custa handshake
    * a cada clique e perde os observadores de navegação que invalidam as
    * referências do mapa. O conteúdo do nó continua sendo escrito pelo renderer
    * — aqui só se abre e fecha o canal.

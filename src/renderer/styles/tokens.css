@@ -106,7 +106,7 @@
      A escala que o arquivo já usava de fato (4, 6, 8, 12, 16, 24 cobrem a
      grande maioria das ocorrências). Nasce aqui para as primitivas e os
      componentes novos; os paddings antigos não foram reescritos em massa de
-     propósito — ver PLANO-estilos.md. */
+     propósito — ver 2026-08-26-PLANO-estilos.md. */
   --s-1: 4px;
   --s-2: 6px;
   --s-3: 8px;

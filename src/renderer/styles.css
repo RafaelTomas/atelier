@@ -19,7 +19,7 @@
    `scripts/test-css-order.mjs` falha se isso acontecer.
 
    Nenhum arquivo aqui é `*.module.css`, e isso foi medido, não presumido: ver
-   a seção "Por que os modules foram retirados" em PLANO-estilos.md. */
+   a seção "Por que os modules foram retirados" em 2026-08-26-PLANO-estilos.md. */
 
 @layer tokens, base, primitives;
 

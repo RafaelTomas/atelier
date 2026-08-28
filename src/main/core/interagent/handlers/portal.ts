@@ -11,7 +11,7 @@
  *
  * OS VERBOS QUE AGEM (`click`, `type`, `key`, `scroll`) EXIGEM PERMISSÃO por nó,
  * ligada pelo usuário no cabeçalho do portal — ver a Decisão C do
- * PLANO-controle-de-portal.md. Sem ela devolvem erro explicando como ligar, e
+ * 2026-08-27-PLANO-controle-de-portal.md. Sem ela devolvem erro explicando como ligar, e
  * NUNCA abrem diálogo: o agente pode estar rodando sem ninguém olhando, e um
  * diálogo travaria o main. `map` e `wait` só leem, então passam sem permissão.
  */

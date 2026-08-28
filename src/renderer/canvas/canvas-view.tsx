@@ -26,7 +26,7 @@ import { DrawMenu, type DrawMenuState } from './draw-menu'
 import { Minimap } from './minimap'
 import { ConnectionsLayer } from './connections-layer'
 import { ConnectionPreview, canLink } from './connection-preview'
-import { CULL_MARGIN, rectsIntersect, viewport } from './viewport'
+import { CULL_MARGIN, KEEP_MARGIN, rectsIntersect, viewport } from './viewport'
 
 /**
  * Nome do projeto de um widget FIXADO, para o cabeçalho do nó. Resolvido AQUI,
@@ -85,6 +85,16 @@ function resizeFrame(frame: Rect, edge: ResizeEdge, dx: number, dy: number): Rec
   return { x, y, width, height }
 }
 
+/**
+ * Quanto um Portal continua montado depois de sair da faixa de permanência.
+ *
+ * Desmontar um portal é destruir um processo do Chromium; remontá-lo é criar
+ * outro e recarregar a página inteira — numa SPA autenticada, com login e estado
+ * em memória junto. Cinco segundos cobrem o vai-e-volta de quem foi olhar outro
+ * canto do canvas e voltou, e ainda liberam o processo de quem foi embora.
+ */
+const PORTAL_GRACE_MS = 5000
+
 const DRAG_THRESHOLD = 3 // px de tela antes de virar arrasto de verdade
 const CLICK_SLOP = 12 // px de tela: abaixo disso o gesto de área é só um clique
 
@@ -101,6 +111,11 @@ export function CanvasView(): JSX.Element {
   const liveStroke = useRef<LiveStroke | null>(null)
   const strokeTick = useRef(0)
   const [visibleIds, setVisibleIds] = useState<Set<UUID>>(new Set())
+  /** Espelho de `visibleIds` para o cálculo de culling — ver recomputeVisible. */
+  const visibleRef = useRef<Set<UUID>>(new Set())
+  /** nodeId → instante em que o portal saiu da faixa de permanência. */
+  const portalGrace = useRef(new Map<UUID, number>())
+  const graceTimer = useRef<number | null>(null)
   /** Redesenha quando o agente acorda (ou solta) um portal fora da viewport. */
   const [, setWakeTick] = useState(0)
   const [marquee, setMarquee] = useState<Rect | null>(null)
@@ -182,22 +197,82 @@ export function CanvasView(): JSX.Element {
 
   // ─── Transform + virtualização ──────────────────────────────────────────────
 
-  useEffect(() => {
-    return viewport.subscribe(() => {
-      if (nodesRef.current) nodesRef.current.style.transform = viewport.transform()
+  /**
+   * O conjunto visível, calculado com DOIS limiares e uma carência.
+   *
+   * O espelho em ref existe porque a decisão de cada nó depende de ele já estar
+   * montado (é o que separa entrar de continuar), e ler isso de dentro do
+   * updater do setState misturaria efeito com render.
+   *
+   * A carência é só para o Portal, e é o segundo degrau da mesma defesa da
+   * histerese: um pan largo que atravessa o nó de ponta a ponta o tira da faixa
+   * de KEEP_MARGIN em poucos frames, e sem ela um vai-e-volta de dois segundos
+   * ainda custaria o processo e o recarregamento da página. Terminal não entra:
+   * o PTY vive no main e sobrevive à desmontagem.
+   */
+  const recomputeVisible = useCallback((): void => {
+    const prev = visibleRef.current
+    const enter = viewport.visibleRect(CULL_MARGIN)
+    const keep = viewport.visibleRect(KEEP_MARGIN)
+    const now = performance.now()
+    const next = new Set<UUID>()
+    let wakeIn = Infinity
 
-      // Só chama setState quando o CONJUNTO visível muda de fato —
-      // sem isso o React re-renderizaria a cada pixel de pan.
-      const visible = viewport.visibleRect(CULL_MARGIN)
-      const next = new Set<UUID>()
-      for (const node of renderOrder) if (rectsIntersect(node.frame, visible)) next.add(node.id)
+    for (const node of renderOrder) {
+      const id = node.id
+      // Entra perto, permanece longe: quem oscila na borda não pisca.
+      if (rectsIntersect(node.frame, enter) || (prev.has(id) && rectsIntersect(node.frame, keep))) {
+        portalGrace.current.delete(id)
+        next.add(id)
+        continue
+      }
+      if (!prev.has(id) || node.content.type !== 'portal') {
+        portalGrace.current.delete(id)
+        continue
+      }
+      const since = portalGrace.current.get(id) ?? now
+      portalGrace.current.set(id, since)
+      const restante = PORTAL_GRACE_MS - (now - since)
+      if (restante > 0) {
+        next.add(id)
+        wakeIn = Math.min(wakeIn, restante)
+        continue
+      }
+      portalGrace.current.delete(id)
+    }
 
-      setVisibleIds((prev) => {
-        if (prev.size === next.size && [...next].every((id) => prev.has(id))) return prev
-        return next
-      })
-    })
+    // Nó removido do canvas no meio da carência não volta ao laço acima para ser
+    // limpo lá — o mapa é podado aqui.
+    for (const id of portalGrace.current.keys()) if (!next.has(id)) portalGrace.current.delete(id)
+
+    // Uma carência só termina quando o relógio anda, e o viewport parado não
+    // notifica ninguém: sem este despertar o portal ficaria montado para sempre
+    // depois de um pan que parasse fora da faixa.
+    if (wakeIn !== Infinity && graceTimer.current === null) {
+      graceTimer.current = window.setTimeout(() => {
+        graceTimer.current = null
+        recomputeVisible()
+      }, wakeIn + 16)
+    }
+
+    // Só chama setState quando o CONJUNTO visível muda de fato — sem isso o
+    // React re-renderizaria a cada pixel de pan.
+    if (prev.size === next.size && [...next].every((id) => prev.has(id))) return
+    visibleRef.current = next
+    setVisibleIds(next)
   }, [renderOrder])
+
+  useEffect(() => {
+    const unsubscribe = viewport.subscribe(() => {
+      if (nodesRef.current) nodesRef.current.style.transform = viewport.transform()
+      recomputeVisible()
+    })
+    return () => {
+      unsubscribe()
+      if (graceTimer.current !== null) clearTimeout(graceTimer.current)
+      graceTimer.current = null
+    }
+  }, [recomputeVisible])
 
   // Persiste pan/zoom (sem marcar dirty: é estado de runtime)
   useEffect(() => {

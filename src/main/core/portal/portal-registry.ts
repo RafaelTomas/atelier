@@ -34,6 +34,7 @@ const WAKE_TIMEOUT_MS = Number(process.env.ATELIER_PORTAL_WAKE_MS) || 5000
 const guests = new Map<UUID, number>()
 const waiters = new Map<UUID, ((id: number) => void)[]>()
 const listeners: ((nodeId: UUID) => void)[] = []
+const goneListeners: ((nodeId: UUID) => void)[] = []
 
 /**
  * Avisa quando um guest novo aparece. É por aqui que o tratamento de popup se
@@ -42,6 +43,15 @@ const listeners: ((nodeId: UUID) => void)[] = []
  */
 export function onGuestRegistered(cb: (nodeId: UUID) => void): void {
   listeners.push(cb)
+}
+
+/**
+ * Avisa quando um guest some (unmount por zoom, culling ou remoção do nó). É
+ * por aqui que a sessão CDP se fecha (core/portal/portal-cdp.ts) sem que este
+ * módulo precise conhecer o depurador.
+ */
+export function onGuestUnregistered(cb: (nodeId: UUID) => void): void {
+  goneListeners.push(cb)
 }
 
 /**
@@ -66,7 +76,8 @@ export function registerGuest(nodeId: UUID, webContentsId: number): void {
 
 /** Chamado no unmount do nó (zoom, virtualização, remoção). */
 export function unregisterGuest(nodeId: UUID): void {
-  guests.delete(nodeId)
+  if (!guests.delete(nodeId)) return
+  for (const cb of goneListeners) cb(nodeId)
 }
 
 /** Só o número — o que dá para saber sem depender do electron. */

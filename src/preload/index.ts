@@ -178,6 +178,12 @@ const api = {
     register: (nodeId: UUID, webContentsId: number): Promise<void> =>
       ipcRenderer.invoke('portal:register', nodeId, webContentsId),
     unregister: (nodeId: UUID): Promise<void> => ipcRenderer.invoke('portal:unregister', nodeId),
+    /** Botão de controle: abre ou fecha a sessão CDP deste portal. */
+    control: (nodeId: UUID, enabled: boolean): Promise<{ ok: boolean; message: string }> =>
+      ipcRenderer.invoke('portal:control', nodeId, enabled),
+    /** Trilha de ações do agente — uma linha por verbo, mostrada no nó. */
+    onAction: (cb: (p: { nodeId: UUID; line: string }) => void): Unsubscribe =>
+      on('portal:action', cb),
     /** O main pede que um portal adormecido (zoom/virtualização) seja montado. */
     onWake: (cb: (p: { nodeId: UUID }) => void): Unsubscribe => on('portal:wake', cb),
     /** Ctrl+roda dentro da página: o gesto é do canvas (core/portal/portal-zoom.ts). */

@@ -56,6 +56,7 @@ import { interAgentServer } from '../core/interagent/server'
 import { onConnectionCreated, restoreConnections } from '../core/connection/connection-manager'
 import { forgetTerminal } from '../core/connection/skill-injector'
 import { registerGuest, unregisterGuest } from '../core/portal/portal-registry'
+import { closeSession, openSession } from '../core/portal/portal-cdp'
 import { notifyRenderer } from './notify'
 
 type NewNodeKind =
@@ -874,6 +875,28 @@ export function registerIPC(): void {
 
   ipcMain.handle('portal:unregister', (_e, nodeId: UUID) => {
     unregisterGuest(nodeId)
+  })
+
+  /**
+   * O botão de controle do cabeçalho do portal.
+   *
+   * A sessão CDP nasce ao LIGAR e morre ao desligar (Decisão D do
+   * PLANO-controle-de-portal.md): `attach`/`detach` por comando custa handshake
+   * a cada clique e perde os observadores de navegação que invalidam as
+   * referências do mapa. O conteúdo do nó continua sendo escrito pelo renderer
+   * — aqui só se abre e fecha o canal.
+   */
+  ipcMain.handle('portal:control', async (_e, nodeId: UUID, enabled: boolean) => {
+    if (!enabled) {
+      closeSession(nodeId)
+      return { ok: true, message: 'controle desligado' }
+    }
+    try {
+      await openSession(nodeId)
+      return { ok: true, message: 'controle ligado' }
+    } catch (err) {
+      return { ok: false, message: (err as Error).message }
+    }
   })
 
   ipcMain.handle('portal:open-external', async (_e, url: string) => {

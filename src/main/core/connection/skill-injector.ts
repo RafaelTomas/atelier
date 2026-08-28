@@ -80,7 +80,8 @@ atelier note edit "Note Name" "old text" "new text"
 ## Portals
 
 A portal is a browser inside the canvas. Connected ones are yours to read — they
-are usually the page the user is looking at right now.
+are usually the page the user is looking at right now. With the user's
+permission you can also drive them: click, type, press keys, scroll.
 
 \`\`\`
 atelier portal list
@@ -105,6 +106,43 @@ path for you to open.
 A portal that is off-screen or zoomed out is woken up for the read, so the first
 one may take a second. You cannot run arbitrary JavaScript in a portal: these
 sessions are often logged in as the user.
+
+### Acting in a page
+
+\`\`\`
+atelier portal map "Portal" [--all]
+atelier portal click "Portal" <ref | --selector "css"> [--right | --double]
+atelier portal type "Portal" <ref | --selector "css"> "text" [--clear] [--enter] [--keys]
+atelier portal key "Portal" <Enter|Tab|Escape|Backspace|Delete|Space|Arrow…|Home|End|PageUp|PageDown>
+atelier portal scroll "Portal" [ref] [--down | --up | --top | --bottom]
+atelier portal wait "Portal" [--idle | --text "…" | --gone <ref> | --ms N]
+\`\`\`
+
+**Start with \`map\`.** It lists the interactive elements by an accessibility
+reference — role, label, state — and those numbers are what \`click\`, \`type\`
+and \`scroll\` take. Do not guess CSS selectors from \`html\`: in a single-page app
+the classes come from the bundler and change on every build. \`--selector\` is
+there for when you already know the exact selector.
+
+Refs belong to ONE map. Any navigation invalidates them, and a stale ref is an
+error asking for a new \`map\` — it never clicks the wrong thing by luck. The map
+covers the main frame only; if the page has iframes, the reply says so.
+
+**Acting needs permission, per portal.** \`click\`, \`type\`, \`key\` and \`scroll\`
+only work when the user has turned control on with the ⦾ button in that portal's
+header; without it you get an error saying exactly that. Ask the user to enable
+it — do not look for a way around. Reading (\`read\`, \`html\`, \`map\`, \`shot\`) never
+needs it, and there is no \`eval\`: permission opens these verbs, not a JavaScript
+interpreter.
+
+\`type\` writes AT THE CURSOR: on a field that already reads \`tst\`, typing
+\`XYZ\` leaves \`XYZtst\`. Pass \`--clear\` to replace the value instead of
+appending to it.
+
+After a click that loads something, run \`portal wait "Portal" --idle\` before
+reading. Every action reports what changed (new URL, new title) so you can tell
+whether it landed without spending a \`shot\`, and every action is logged in the
+portal node where the user can see it.
 
 ## SQL / query results
 

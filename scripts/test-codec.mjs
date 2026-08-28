@@ -135,6 +135,36 @@ test('storageScope com partição herdada sobrevive à ida e volta', () => {
   assert.equal(encoded.content.portal._0.storageScope, 'persist:portal-ABC')
 })
 
+/**
+ * A permissão de controle NUNCA volta ligada por omissão de dado.
+ *
+ * Um portal gravado antes do campo existir — ou pelo app nativo, que não o
+ * conhece — tem de carregar com `false`: a alternativa é um portal dirigível
+ * pelo agente sem que ninguém tenha clicado em nada. Ver Decisão C do
+ * PLANO-controle-de-portal.md.
+ */
+test('controlEnabled sobrevive à ida e volta, e ausente vira false', () => {
+  const clone = structuredClone(raw)
+  const portalNode = clone.payload.nodes.find((n) => n.content.portal)
+  assert.ok(
+    !('controlEnabled' in portalNode.content.portal._0),
+    'o fixture já traz o campo — o caso do documento antigo deixou de ser testado'
+  )
+
+  const { payload: velho } = decodeWorkspaceDocument(clone)
+  const semCampo = velho.nodes.find((n) => n.content.type === 'portal')
+  assert.equal(semCampo.content.value.controlEnabled, false)
+
+  portalNode.content.portal._0.controlEnabled = true
+  const { payload: p } = decodeWorkspaceDocument(clone)
+  const decoded = p.nodes.find((n) => n.content.type === 'portal')
+  assert.equal(decoded.content.value.controlEnabled, true)
+
+  const back = encodeWorkspaceDocument(p)
+  const encoded = back.payload.nodes.find((n) => n.content.portal)
+  assert.equal(encoded.content.portal._0.controlEnabled, true)
+})
+
 test('CGPoint dentro de stroke re-encoda como array', () => {
   const stroke = reencoded.payload.nodes.find((n) => n.content.stroke)
   assert.deepEqual(stroke.content.stroke._0.startPoint, [0, 0.5])

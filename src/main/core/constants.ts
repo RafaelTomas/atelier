@@ -1,6 +1,6 @@
 /** Porte de Sources/Shared/Constants.swift */
 export const Constants = {
-  schemaVersion: 6,
+  schemaVersion: 7,
   /** Versão do índice de projetos (projects.json) — independente do workspace. */
   projectIndexSchemaVersion: 1,
   appDataDirectoryName: '.atelier',
@@ -42,6 +42,13 @@ export const Constants = {
   widgetMinHeight: 180,
   widgetDefaultWidth: 380,
   widgetDefaultHeight: 460,
+  /** Nó de cofre: piso e tamanho padrão. Estreito — é uma lista de nomes. */
+  vaultMinWidth: 220,
+  vaultMinHeight: 140,
+  vaultDefaultWidth: 320,
+  vaultDefaultHeight: 280,
+  /** Revelar valor na UI: teto de revelações por minuto, por cofre. */
+  vaultRevealPerMinute: 10,
   /** Colagens de imagem no terminal com mais que isto (ms) são apagadas no boot. */
   imageTmpMaxAgeMs: 24 * 60 * 60 * 1000,
   agentIdleTimeoutMs: 2000,

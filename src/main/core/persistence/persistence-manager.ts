@@ -22,6 +22,8 @@ import {
   writeFile
 } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import type { VaultFile } from '@shared/vault'
+import { decodeVaultFile, emptyVaultFile } from '@shared/vault'
 import type {
   AgentRole,
   AppStateData,
@@ -49,6 +51,7 @@ import {
 } from '../models/project'
 import { decodeAgentRole, encodeAgentRole } from '../models/role'
 import { decodeWorkspaceDocument, encodeWorkspaceDocument } from '../models/workspace'
+import { decryptFromBase64, encryptToBase64, vaultEncryptionAvailable } from '../vault/crypto'
 import { migrateWorkspaceDocument } from './migrations'
 import { paths } from './paths'
 
@@ -145,6 +148,7 @@ class PersistenceManager {
       paths.tablesDir(id),
       paths.imagesDir(id),
       paths.terminalsDir(id),
+      paths.vaultsDir(id),
       paths.snapshotsDir(id)
     ]) {
       await mkdir(dir, { recursive: true })
@@ -349,6 +353,95 @@ class PersistenceManager {
 
   async deleteImage(workspaceId: UUID, fileName: string): Promise<void> {
     await rm(join(paths.imagesDir(workspaceId), fileName), { force: true })
+  }
+
+  // ─── Cofres (.vault cifrado) ───────────────────────────────────────────────
+  // Mesma divisão da nota, da tabela e da imagem — um arquivo por nó, só a
+  // identidade no workspace.json —, com uma diferença que muda tudo: o que vai
+  // para o disco é o `safeStorage.encryptString` do JSON, em base64, nunca o
+  // JSON cru. Sem chaveiro do SO não se lê nem se grava: o cofre fica bloqueado,
+  // e o nó mostra esse estado em vez de o Atelier cair para texto em claro.
+
+  /** Dá para cifrar neste sistema? false = todo cofre está bloqueado. */
+  vaultAvailable(): boolean {
+    return vaultEncryptionAvailable()
+  }
+
+  /**
+   * O cofre decifrado.
+   *
+   * Distinção que importa a quem chama: cofre que ainda não existe volta VAZIO
+   * (é o estado de um nó recém-criado), enquanto cofre ilegível — chaveiro
+   * ausente, blob de outro sistema — volta null, e null é o que acende o estado
+   * bloqueado na UI. Confundir os dois faria a UI oferecer "adicionar chave"
+   * num cofre cujo conteúdo ela não conseguiu ler, e o primeiro save apagaria
+   * o que estava lá.
+   */
+  async readVault(workspaceId: UUID, vaultId: UUID): Promise<VaultFile | null> {
+    if (!vaultEncryptionAvailable()) return null
+    const file = paths.vaultFile(workspaceId, vaultId)
+    let base64: string
+    try {
+      base64 = await readFile(file, 'utf8')
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') return emptyVaultFile()
+      log.error('persistence', `falha lendo o cofre ${vaultId}`, err)
+      return null
+    }
+    const plain = decryptFromBase64(base64.trim())
+    if (plain === null) return null
+    let decoded: VaultFile | null
+    try {
+      decoded = decodeVaultFile(JSON.parse(plain))
+    } catch (err) {
+      log.error('persistence', `cofre ${vaultId} decifrou mas não é JSON`, err)
+      return null
+    }
+    // Cofre de uma versão mais nova que esta: mesmo caminho do chaveiro
+    // ausente — bloqueado na UI, e nada é regravado por cima.
+    if (!decoded) {
+      log.error('persistence', `cofre ${vaultId} é de uma versão mais nova — não será tocado`)
+      return null
+    }
+    return decoded
+  }
+
+  /** true = gravou. false = sem chaveiro; NADA foi escrito, nem em claro. */
+  async writeVault(workspaceId: UUID, vaultId: UUID, file: VaultFile): Promise<boolean> {
+    const base64 = encryptToBase64(JSON.stringify(file))
+    if (base64 === null) return false
+    await mkdir(paths.vaultsDir(workspaceId), { recursive: true })
+    await this.atomicWrite(paths.vaultFile(workspaceId, vaultId), base64)
+    return true
+  }
+
+  async deleteVault(workspaceId: UUID, vaultId: UUID): Promise<void> {
+    await rm(paths.vaultFile(workspaceId, vaultId), { force: true })
+  }
+
+  /**
+   * Uma linha na trilha de auditoria dos cofres. Append simples, como o
+   * scrollback: alta frequência não é o caso aqui, mas escrita atômica de um
+   * arquivo que só cresce seria trocar o arquivo inteiro a cada acesso.
+   *
+   * O arquivo é EM CLARO, de propósito — ele precisa ser legível sem chaveiro,
+   * para responder "quem leu o quê" mesmo num sistema onde o cofre não abre. É
+   * por isso que quem chama nunca escreve valor aqui.
+   */
+  async appendVaultAccess(workspaceId: UUID, line: string): Promise<void> {
+    await mkdir(paths.vaultsDir(workspaceId), { recursive: true })
+    await writeFile(paths.vaultAccessLog(workspaceId), line, { flag: 'a', encoding: 'utf8' })
+  }
+
+  /** As últimas linhas da trilha, mais novas primeiro. Vazio se não há arquivo. */
+  async readVaultAccess(workspaceId: UUID, limit = 20): Promise<string[]> {
+    try {
+      const text = await readFile(paths.vaultAccessLog(workspaceId), 'utf8')
+      return text.split('\n').filter(Boolean).reverse().slice(0, limit)
+    } catch {
+      return []
+    }
   }
 
   // ─── Área temporária ──────────────────────────────────────────────────────

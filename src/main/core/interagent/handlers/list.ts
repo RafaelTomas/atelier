@@ -54,5 +54,20 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
     }
   }
 
+  // Cofres: NOME e contagem, nunca as chaves e muito menos os valores. Quem
+  // precisa das chaves pede `atelier vault list`, que é onde o aviso sobre o
+  // que fazer com um segredo também mora.
+  const vaults = nodes.filter((n) => n.content.type === 'secretVault')
+  if (vaults.length > 0) {
+    lines.push('', 'Connected vaults:')
+    for (const node of vaults) {
+      const v = node.content.type === 'secretVault' ? node.content.value : null
+      const count = v?.keys.length ?? 0
+      const state = v?.locked ? '  (locked)' : ''
+      lines.push(`  ${nodeDisplayName(node.content)}  ${count} key${count === 1 ? '' : 's'}${state}`)
+    }
+    lines.push("  Use 'atelier vault list' for the key names.")
+  }
+
   return lines.join('\n')
 }

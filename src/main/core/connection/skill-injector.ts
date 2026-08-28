@@ -27,7 +27,7 @@ const OWNER_MARKER = '<!-- installed-by: atelier -->'
 
 const SKILL_MD = `---
 name: atelier
-description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', 'show this query result on the canvas', 'put this image on the canvas', or 'describe the projects'.
+description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, read secrets from a connected vault (including logging into a page without ever seeing the password), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', 'show this query result on the canvas', 'put this image on the canvas', or 'describe the projects'.
 ---
 
 ${OWNER_MARKER}
@@ -116,6 +116,7 @@ atelier portal type "Portal" <ref | --selector "css"> "text" [--clear] [--enter]
 atelier portal key "Portal" <Enter|Tab|Escape|Backspace|Delete|Space|Arrow…|Home|End|PageUp|PageDown>
 atelier portal scroll "Portal" [ref] [--down | --up | --top | --bottom]
 atelier portal wait "Portal" [--idle | --text "…" | --gone <ref> | --ms N]
+atelier portal login "Portal" <ref | --selector "css"> --vault "Vault" --key KEY [--enter]
 \`\`\`
 
 **Start with \`map\`.** It lists the interactive elements by an accessibility
@@ -139,10 +140,47 @@ interpreter.
 \`XYZ\` leaves \`XYZtst\`. Pass \`--clear\` to replace the value instead of
 appending to it.
 
+\`login\` types a secret you never see. The value goes from the vault straight to
+the page — it never enters your context, your scrollback, or the trail the user
+reads. It works only when the vault node is cabled to BOTH you and that portal,
+and only when the key declares the page's origin: a key for
+\`https://github.com\` is refused on any other site, and a key with no origin is
+refused everywhere. Fill the user field, then the password field, then press
+Enter with \`portal key\` or \`--enter\`.
+
 After a click that loads something, run \`portal wait "Portal" --idle\` before
 reading. Every action reports what changed (new URL, new title) so you can tell
 whether it landed without spending a \`shot\`, and every action is logged in the
 portal node where the user can see it.
+
+## Secrets / vault
+
+A vault node holds secrets encrypted on disk. You can read the names of the keys
+in the vaults cabled to you, and one value at a time when you really need it.
+
+\`\`\`
+atelier vault list
+atelier vault get "Vault" <key>
+atelier vault set "Vault" <KEY> <value>
+atelier vault env "Vault"
+\`\`\`
+
+\`set\` CREATES a key, and that is the only write you have. It refuses a key that
+already exists — you cannot change a value, and you cannot delete one; both are
+the user's action in the node. A key you create is inert: no origin, so
+\`portal login\` will not type it anywhere, and out of every terminal's
+environment. Ask the user to turn those on if the key needs them. Every write is
+in the vault's access trail.
+
+Values you \`get\` land in your context and stay there. Prefer the injected
+environment variable when there is one — \`atelier vault env\` lists which are
+set — and prefer \`atelier portal login\` when the secret is going into a web
+form, because there the value never reaches you at all. Never echo a secret into
+the terminal, into a file, or into another agent's prompt.
+
+A key only becomes an environment variable from the NEXT boot of this terminal
+after the cable was drawn, so if \`$KEY\` is empty right after connecting a
+vault, ask the user to reload the terminal.
 
 ## SQL / query results
 

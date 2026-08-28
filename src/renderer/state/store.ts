@@ -382,7 +382,8 @@ class Store {
       | 'codeEditor'
       | 'dataTable'
       | 'image'
-      | 'widget',
+      | 'widget'
+      | 'secretVault',
     position: { x: number; y: number },
     opts: Record<string, unknown> = {},
     size?: { width: number; height: number }

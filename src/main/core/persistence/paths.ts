@@ -47,6 +47,15 @@ export const paths = {
   tablesDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'tables'),
   /** Bytes dos nós de imagem. Um arquivo por nó, nomeado pelo id do conteúdo. */
   imagesDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'images'),
+  /**
+   * Cofres de segredos. Um `.vault` por nó, com o blob cifrado pelo
+   * `safeStorage`, mais o `access.log` da auditoria — que NUNCA guarda valor.
+   * Fora do workspace.json pela mesma regra da nota e da tabela.
+   */
+  vaultsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'vaults'),
+  vaultFile: (id: UUID, vaultId: UUID) =>
+    join(dataDir(), 'workspaces', id, 'vaults', `${vaultId}.vault`),
+  vaultAccessLog: (id: UUID) => join(dataDir(), 'workspaces', id, 'vaults', 'access.log'),
   terminalsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'terminals'),
   snapshotsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'snapshots'),
   /** Capturas de portal pedidas pelo agente (`atelier portal shot`). */

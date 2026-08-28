@@ -16,6 +16,7 @@ import { atelierBinDir } from '../interagent/cli-install'
 import { persistence } from '../persistence/persistence-manager'
 import { ipcSocketPath } from '../persistence/paths'
 import { childEnv, prependPath } from '../subprocess-env'
+import { forgetTerminalSecrets, hasSecrets, maskForTerminal } from '../vault/masking'
 import { scanAgentStatus } from './agent-status'
 
 /**
@@ -100,7 +101,11 @@ class TerminalManager extends EventEmitter {
    * Ambiente injetado no PTY — é o contrato que faz o `atelier` funcionar
    * dentro do terminal (espelha SwiftTermProvider.swift:116-134).
    */
-  private buildEnv(terminalId: UUID, role?: { id: UUID; name: string } | null): NodeJS.ProcessEnv {
+  private buildEnv(
+    terminalId: UUID,
+    role?: { id: UUID; name: string } | null,
+    extraEnv?: Record<string, string>
+  ): NodeJS.ProcessEnv {
     const env = childEnv()
     env.ATELIER_TERMINAL_ID = terminalId
     env.ATELIER_SOCKET = ipcSocketPath()
@@ -119,6 +124,19 @@ class TerminalManager extends EventEmitter {
     // O bin do Atelier entra na frente; o PATH herdado (onde mora `claude`,
     // `codex`, `npm`…) continua inteiro graças ao `childEnv` acima.
     prependPath(env, bin.dir)
+
+    // Os cofres por último, mas SEM poder pisar no que veio antes: uma chave
+    // chamada ATELIER_SOCKET ou PATH apontaria o CLI do agente para outro lugar,
+    // e o cofre passaria de guardador de segredo a sequestrador do canal.
+    if (extraEnv) {
+      for (const [key, value] of Object.entries(extraEnv)) {
+        if (key in env) {
+          log.warn('vault', `chave '${key}' ignorada: já existe no ambiente do PTY`)
+          continue
+        }
+        env[key] = value
+      }
+    }
     return env
   }
 
@@ -140,7 +158,7 @@ class TerminalManager extends EventEmitter {
         cols: opts.cols ?? 80,
         rows: opts.rows ?? 24,
         cwd,
-        env: this.buildEnv(opts.nodeId, opts.role) as Record<string, string>
+        env: this.buildEnv(opts.nodeId, opts.role, opts.extraEnv) as Record<string, string>
       })
     } catch (err) {
       ptyLoadError = `falha ao abrir PTY (${shell}): ${(err as Error).message}`
@@ -169,11 +187,21 @@ class TerminalManager extends EventEmitter {
       session.lastOutputAt = Date.now()
       this.emit('data', session.id, data)
       this.scanStatus(session)
-      void persistence.appendScrollback(session.workspaceId, session.id, data).catch(() => undefined)
+      // O que vai para o DISCO passa pela máscara; o que vai para a tela, não.
+      // O usuário está olhando o próprio terminal e pediu aquele valor — quem
+      // não deve ficar com ele em claro é o arquivo, que sobrevive à sessão e é
+      // lido depois por quem reabrir o workspace. `hasSecrets` evita varrer
+      // cada chunk quando nenhum segredo foi revelado a este terminal, que é o
+      // caso comum.
+      const chunk = hasSecrets(session.id) ? maskForTerminal(session.id, data) : data
+      void persistence
+        .appendScrollback(session.workspaceId, session.id, chunk)
+        .catch(() => undefined)
     })
 
     proc.onExit(({ exitCode }) => {
       session.exited = true
+      forgetTerminalSecrets(session.id)
       log.info('terminal', `PTY ${session.id.slice(0, 8)} saiu (código ${exitCode})`)
       this.emit('exit', session.id, exitCode)
     })

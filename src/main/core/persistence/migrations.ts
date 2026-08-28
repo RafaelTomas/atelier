@@ -22,6 +22,12 @@
  * DENTRO do payload —, justamente para que painel novo não peça versão nova.
  * Nenhum dado transformado: todo documento v5 já é um v6 válido.
  *
+ * A v7 acrescenta `secretVault`, o nó de cofre, e uma nova lista de conexões
+ * (`secretConnections`, o cabo terminal↔cofre e portal↔cofre). Nenhum dado é
+ * transformado: todo documento v6 já é um v7 válido. Os segredos NÃO estão no
+ * arquivo — moram cifrados em `vaults/<id>.vault` —, então não há nada de
+ * cifrado a migrar aqui, hoje nem quando a passphrase chegar.
+ *
  * As molduras de grupo NÃO subiram a versão, e é o ponto inteiro do desenho
  * delas: `groups` é uma chave a mais no topo do payload, não um caso a mais no
  * enum de conteúdo. Um leitor mais velho — daqui ou o app nativo — ignora a
@@ -56,9 +62,9 @@ export function migrateWorkspaceDocument(raw: unknown): unknown {
 
   let current = doc
   if (version < 2) current = migrateV1toV2(current)
-  // Não há passo 2 → 3, 3 → 4, 4 → 5 nem 5 → 6: cada uma só acrescenta um caso
-  // ao enum de conteúdo, e todo documento da versão anterior já é válido na
-  // seguinte. Só o número muda.
+  // Não há passo 2 → 3, 3 → 4, 4 → 5, 5 → 6 nem 6 → 7: cada uma só acrescenta
+  // um caso ao enum de conteúdo, e todo documento da versão anterior já é
+  // válido na seguinte. Só o número muda.
   return { ...current, schemaVersion: Constants.schemaVersion }
 }
 
@@ -72,6 +78,7 @@ function migrateV1toV2(doc: Record<string, unknown>): Record<string, unknown> {
     'portalToPortalConnections',
     'noteToNoteConnections',
     'crossFloorConnections',
+    'secretConnections',
     'floors',
     'drawings',
     // Molduras de grupo. Mesmo motivo dos outros: o resto do código conta com

@@ -109,7 +109,11 @@ const CONNECTION_SCHEMAS: ConnectionSchema[] = [
     fieldA: 'noteNodeIdA',
     fieldB: 'noteNodeIdB'
   },
-  { arrayKey: 'crossFloorConnections', kind: 'crossFloor', fieldA: 'nodeIdA', fieldB: 'nodeIdB' }
+  { arrayKey: 'crossFloorConnections', kind: 'crossFloor', fieldA: 'nodeIdA', fieldB: 'nodeIdB' },
+  // Campos NEUTROS de propósito: o mesmo kind cobre terminal↔cofre e
+  // portal↔cofre, e mais tarde dataTable↔cofre — como o crossFloor já faz.
+  // Uma lista por par de tipos obrigaria uma migração a cada par novo.
+  { arrayKey: 'secretConnections', kind: 'secret', fieldA: 'nodeIdA', fieldB: 'nodeIdB' }
 ]
 
 function decodeConnections(raw: Record<string, unknown>): Connection[] {

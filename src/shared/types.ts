@@ -254,6 +254,46 @@ export interface ShapeContent {
   rotation: number
 }
 
+/**
+ * Nó de cofre — a IDENTIDADE de um conjunto de segredos, e a lista de nomes de
+ * chave. Nenhum valor, em lugar nenhum: eles moram cifrados em
+ * `vaults/<id>.vault`, e o workspace.json é arquivo em claro.
+ *
+ * Nome de chave em claro é aceitável e deliberado: é o que a UI e o
+ * `atelier vault list` mostram sem decifrar nada, e saber que existe um segredo
+ * chamado `DB_URL` não é o segredo.
+ */
+export interface SecretVaultKeyRef {
+  key: string
+  /** Entra no ambiente do PTY dos terminais ligados. */
+  inEnv: boolean
+  /**
+   * Origem onde este segredo pode ser digitado por `portal login`. null = uso
+   * em portal PROIBIDO. Quem não declarou, não autorizou.
+   */
+  origin: string | null
+  note: string | null
+  /**
+   * Quando o segredo foi gravado, e por quem — o que o nó precisa para pedir a
+   * troca (ver `rotationReason` em shared/vault.ts). Nenhum dos dois é o valor:
+   * a projeção continua sem segredo nenhum.
+   */
+  updatedAt: string
+  source: 'user' | 'agent'
+}
+
+export interface SecretVaultContent {
+  id: UUID
+  name: string
+  keys: SecretVaultKeyRef[]
+  /**
+   * O `.vault` não pôde ser lido — `safeStorage` indisponível ou blob de outro
+   * chaveiro. Gravado no conteúdo para o nó já nascer mostrando o estado certo
+   * antes de a UI perguntar ao main.
+   */
+  locked: boolean
+}
+
 export interface StrokeContent {
   strokeType: 'line' | 'arrow'
   startPoint: Point
@@ -285,6 +325,9 @@ export interface FreehandContent {
  *
  * `widget` é o último caso que um PAINEL vai pedir: o discriminador dele mora
  * no payload (ver WidgetContent), então painel novo não é caso novo.
+ *
+ * `secretVault` (v7) é o caso mais recente, e a mesma história: um caso a mais,
+ * nenhum dado transformado.
  */
 export type NodeContent =
   | { type: 'terminal'; value: TerminalContent }
@@ -299,6 +342,7 @@ export type NodeContent =
   | { type: 'dataTable'; value: DataTableContent }
   | { type: 'image'; value: ImageContent }
   | { type: 'widget'; value: WidgetContent }
+  | { type: 'secretVault'; value: SecretVaultContent }
 
 export type NodeContentType = NodeContent['type']
 
@@ -308,7 +352,8 @@ export const CONNECTABLE_TYPES: NodeContentType[] = [
   'stickyNote',
   'portal',
   'dataTable',
-  'image'
+  'image',
+  'secretVault'
 ]
 
 export function isConnectable(content: NodeContent): boolean {
@@ -360,6 +405,7 @@ export type ConnectionKind =
   | 'noteToNote'
   | 'crossFloor'
   | 'data'
+  | 'secret'
 
 export type ConnectionStatus = 'idle' | 'communicating' | 'error'
 
@@ -381,6 +427,10 @@ export function connectionKindForTypes(
   // disco ambos caem em `dataConnections` (só referências de id), e o sentido é
   // o mesmo — um agente ligado a um artefato que ele produziu.
   if (pair.has('terminal') && pair.has('image')) return 'data'
+  // Um kind só para terminal↔cofre e portal↔cofre — e, mais tarde,
+  // dataTable↔cofre. Em disco os campos são neutros (`nodeIdA`/`nodeIdB`),
+  // como no crossFloor, justamente para o par novo não pedir lista nova.
+  if (pair.has('secretVault') && (pair.has('terminal') || pair.has('portal'))) return 'secret'
   if (a === 'portal' && b === 'portal') return 'portalToPortal'
   if (a === 'stickyNote' && b === 'stickyNote') return 'noteToNote'
   return null
@@ -602,6 +652,12 @@ export interface TerminalSpawnOptions {
   rows?: number
   /** Responsabilidade atribuída — vira ATELIER_ROLE_* no ambiente do PTY. */
   role?: { id: UUID; name: string } | null
+  /**
+   * Variáveis vindas dos cofres ligados a este terminal. Mescladas DEPOIS das
+   * `ATELIER_*`, para um cofre não conseguir sobrescrever `ATELIER_SOCKET` e
+   * sequestrar o canal do CLI.
+   */
+  extraEnv?: Record<string, string>
 }
 
 export interface BootInfo {

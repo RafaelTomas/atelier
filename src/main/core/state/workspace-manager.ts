@@ -187,6 +187,13 @@ export class WorkspaceManager {
       a = idB
       b = idA
     }
+    // No cabo de cofre quem manda no lado B é o COFRE, não o terminal: o outro
+    // lado pode ser um terminal ou um portal, e ancorar no cofre é o que deixa
+    // "os cofres ligados a este nó" ser uma pergunta só, com uma resposta só.
+    if (kind === 'secret' && this.node(idA)?.content.type === 'secretVault') {
+      a = idB
+      b = idA
+    }
 
     const conn = makeConnection(kind, a, b)
     this.payload.connections.push(conn)

@@ -17,6 +17,7 @@ import { TerminalNode } from './terminal-node'
 import { TextNode } from './text-node'
 import { PortalNode, portalLabel } from './portal-node'
 import { PlaceholderNode } from './placeholder-node'
+import { SecretVaultNode, secretVaultLabel } from './secret-vault-node'
 import { WidgetNode, widgetLabel } from './widget-node'
 
 interface Props {
@@ -66,6 +67,8 @@ function title(node: CanvasNode, projectName: string | null): string {
       return imageLabel(node.content.value)
     case 'widget':
       return widgetLabel(node.content.value, projectName ?? undefined)
+    case 'secretVault':
+      return secretVaultLabel(node.content.value)
     default:
       return node.content.type
   }
@@ -125,6 +128,10 @@ export function NodeShell({
         return <ImageNode node={node} content={node.content.value} workspaceId={workspaceId} />
       case 'widget':
         return <WidgetNode node={node} content={node.content.value} />
+      case 'secretVault':
+        return (
+          <SecretVaultNode node={node} content={node.content.value} workspaceId={workspaceId} />
+        )
       default:
         return <PlaceholderNode type={node.content.type} />
     }

@@ -43,6 +43,7 @@ const MIN_SIZE: Record<string, [number, number]> = {
   note: [120, 80],
   portal: [240, 180],
   fileTree: [180, 140],
+  secretVault: [220, 140],
   text: [80, 32]
 }
 
@@ -82,7 +83,7 @@ export function Dock(): JSX.Element {
    * peso) é campo de conteúdo e vai por patchContent.
    */
   const create = (
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault',
     frame: Rect,
     opts: Record<string, unknown> = {},
     patch?: Record<string, unknown>
@@ -99,7 +100,7 @@ export function Dock(): JSX.Element {
    * canvas vale como "tamanho padrão aqui" (ver CLICK_SLOP no canvas-view).
    */
   const add = (
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault',
     size: [number, number],
     opts: Record<string, unknown> = {},
     patch?: Record<string, unknown>,
@@ -363,6 +364,16 @@ export function Dock(): JSX.Element {
         }
       >
         <IconGlobe />
+      </DockButton>
+
+      {/* Ao lado do navegador de propósito: o cofre existe, entre outras coisas,
+          para o portal poder logar sem o segredo passar pelo agente. */}
+      <DockButton
+        label="Cofre"
+        hint="guarda segredos cifrados; ligue por cabo a um terminal ou portal"
+        onClick={() => add('secretVault', [320, 280], { name: 'Cofre' }, undefined, 'cofre')}
+      >
+        <IconLock />
       </DockButton>
 
       <DockMenuButton

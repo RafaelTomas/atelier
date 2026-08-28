@@ -22,11 +22,24 @@ import type {
   Project,
   Preferences,
   Rect,
+  SecretVaultKeyRef,
   UUID,
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
 import type { DataTablePayload } from '@shared/data-table'
+
+/** O que a UI manda ao gravar uma chave. `value` sobe; nunca desce de volta. */
+interface VaultEntryInput {
+  key: string
+  value: string
+  origin?: string | null
+  inEnv?: boolean
+  note?: string | null
+}
+
+/** `error: 'locked'` = cofre ilegível neste sistema (chaveiro ausente). */
+type VaultKeysResult = { keys: SecretVaultKeyRef[] } | { error: string }
 
 type NewNodeKind =
   | 'terminal'
@@ -38,6 +51,7 @@ type NewNodeKind =
   | 'dataTable'
   | 'image'
   | 'widget'
+  | 'secretVault'
 
 /** `ok` diz se a ação passou; `message` é o que o git respondeu, resumido. */
 interface GitActionResult {
@@ -251,6 +265,37 @@ const api = {
       ipcRenderer.invoke('image:read', workspaceId, fileName),
     onChanged: (cb: (p: { workspaceId: UUID; nodeId: UUID }) => void): Unsubscribe =>
       on('image:changed', cb)
+  },
+
+  /**
+   * Nós de cofre. Tudo aqui trafega NOME de chave, nunca valor — a única
+   * exceção é `reveal`, que devolve um valor por pedido explícito do usuário e
+   * sob limite de frequência no main. Não existe `onChanged`: um evento que
+   * carregasse segredo seria um segredo empurrado para o renderer sem ninguém
+   * pedir.
+   */
+  vault: {
+    /** false = sem chaveiro do SO; todo cofre está bloqueado neste sistema. */
+    available: (): Promise<boolean> => ipcRenderer.invoke('vault:available'),
+    listKeys: (workspaceId: UUID, nodeId: UUID): Promise<VaultKeysResult> =>
+      ipcRenderer.invoke('vault:list-keys', workspaceId, nodeId),
+    set: (workspaceId: UUID, nodeId: UUID, entry: VaultEntryInput): Promise<VaultKeysResult> =>
+      ipcRenderer.invoke('vault:set', workspaceId, nodeId, entry),
+    remove: (workspaceId: UUID, nodeId: UUID, key: string): Promise<VaultKeysResult> =>
+      ipcRenderer.invoke('vault:remove', workspaceId, nodeId, key),
+    /** O valor chega UMA vez. Quem o recebe não o guarda — ver o nó de cofre. */
+    reveal: (
+      workspaceId: UUID,
+      nodeId: UUID,
+      key: string
+    ): Promise<{ value: string } | { error: string }> =>
+      ipcRenderer.invoke('vault:reveal', workspaceId, nodeId, key),
+    /** Linhas da trilha de auditoria, mais novas primeiro. Nunca trazem valor. */
+    accessLog: (workspaceId: UUID, limit?: number): Promise<string[]> =>
+      ipcRenderer.invoke('vault:access-log', workspaceId, limit),
+    /** O agente gravou uma chave (`atelier vault set`): o nó aberto relê a lista. */
+    onChanged: (cb: (p: { workspaceId: UUID; nodeId: UUID }) => void): Unsubscribe =>
+      on('vault:changed', cb)
   },
 
   project: {

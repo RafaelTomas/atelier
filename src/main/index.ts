@@ -10,7 +10,7 @@
  *   4. Janela        — só depois que o estado está em memória
  */
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeImage } from 'electron'
+import { app, BrowserWindow, nativeImage, safeStorage } from 'electron'
 import { log } from './core/logger'
 import { Constants } from './core/constants'
 import { persistence } from './core/persistence/persistence-manager'
@@ -25,6 +25,7 @@ import { fileWatcher } from './core/projects/file-watcher'
 import { armPopupHandling } from './core/portal/portal-popup'
 import { armPortalZoom } from './core/portal/portal-zoom'
 import { armPortalCDP } from './core/portal/portal-cdp'
+import { useSafeStorage } from './core/vault/crypto'
 import { registerIPC } from './ipc/bridge'
 import { createMainWindow } from './window'
 
@@ -92,6 +93,13 @@ const LAUNCH_SCAN_DELAY_MS = 2000
 
 async function boot(): Promise<void> {
   const started = Date.now()
+
+  // 0. A cripto do cofre. Injetada em vez de importada lá dentro: o núcleo é
+  //    bundlado sem Electron nos testes headless, e um import de `electron` no
+  //    persistence-manager quebraria o bundle inteiro. Sem chaveiro do SO isto
+  //    continua sendo chamado — e `vaultEncryptionAvailable()` responde false,
+  //    que é o estado bloqueado do nó.
+  useSafeStorage(safeStorage)
 
   // 1. IPC primeiro, sempre
   try {

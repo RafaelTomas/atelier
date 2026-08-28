@@ -11,6 +11,8 @@ import { pathToFileURL } from 'node:url'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { extForImageMime, isSupportedImageName, mimeForImageName, pngDimensions } from '@shared/image'
 import { quoteForShell } from '@shared/shell'
+import type { VaultEntry, VaultFile } from '@shared/vault'
+import { isValidKeyName, originOf } from '@shared/vault'
 import type {
   AgentRole,
   AgentStatus,
@@ -19,6 +21,7 @@ import type {
   NodeContent,
   Point,
   Rect,
+  SecretVaultContent,
   UUID
 } from '@shared/types'
 import { Constants } from '../core/constants'
@@ -29,6 +32,7 @@ import {
   makeFileTreeContent,
   makeImageContent,
   makePortalContent,
+  makeSecretVaultContent,
   makeStickyNoteContent,
   makeTerminalContent,
   makeTextContent,
@@ -52,6 +56,15 @@ import { takenNoteFiles } from '../core/state/note-files'
 import { projectIndex } from '../core/state/project-store'
 import { roles } from '../core/state/role-store'
 import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manager'
+// `keyRefs`/`syncVaultKeys` moram no vault-manager: o `.vault` tem dois
+// escritores (esta UI e o `atelier vault set`), e o espelho dos nomes no nó
+// precisa ser exatamente o mesmo código nos dois caminhos.
+import {
+  envForTerminal,
+  keyRefs,
+  resolveTemplate,
+  syncVaultKeys
+} from '../core/vault/vault-manager'
 import { interAgentServer } from '../core/interagent/server'
 import { onConnectionCreated, restoreConnections } from '../core/connection/connection-manager'
 import { forgetTerminal } from '../core/connection/skill-injector'
@@ -69,6 +82,7 @@ type NewNodeKind =
   | 'dataTable'
   | 'image'
   | 'widget'
+  | 'secretVault'
 
 function contentFor(
   kind: NewNodeKind,
@@ -121,6 +135,11 @@ function contentFor(
       return { type: 'codeEditor', value: makeCodeEditorContent(String(opts.filePath ?? '')) }
     case 'dataTable':
       return { type: 'dataTable', value: makeDataTableContent(String(opts.title ?? 'Resultado')) }
+    case 'secretVault':
+      return {
+        type: 'secretVault',
+        value: makeSecretVaultContent(String(opts.name ?? 'Cofre'))
+      }
     case 'image':
       return {
         type: 'image',
@@ -266,6 +285,8 @@ function minSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: Constants.imageMinWidth, height: Constants.imageMinHeight }
     case 'widget':
       return { width: Constants.widgetMinWidth, height: Constants.widgetMinHeight }
+    case 'secretVault':
+      return { width: Constants.vaultMinWidth, height: Constants.vaultMinHeight }
     case 'text':
       return { width: 80, height: 32 }
   }
@@ -291,7 +312,39 @@ function defaultSize(kind: NewNodeKind): { width: number; height: number } {
       return { width: Constants.imageDefaultWidth, height: Constants.imageDefaultHeight }
     case 'widget':
       return { width: Constants.widgetDefaultWidth, height: Constants.widgetDefaultHeight }
+    case 'secretVault':
+      return { width: Constants.vaultDefaultWidth, height: Constants.vaultDefaultHeight }
   }
+}
+
+/**
+ * O nó de cofre e o conteúdo dele, ou null se o id não é (mais) um cofre. Todo
+ * canal `vault:*` começa por aqui: um nodeId vindo do renderer é entrada não
+ * confiável, e sem esta checagem `vault:reveal` leria o arquivo de um cofre
+ * qualquer a partir de um id qualquer.
+ */
+function vaultNode(
+  workspaceId: UUID,
+  nodeId: UUID
+): { content: SecretVaultContent } | null {
+  const node = appState.workspaces.get(workspaceId)?.node(nodeId)
+  if (!node || node.content.type !== 'secretVault') return null
+  return { content: node.content.value }
+}
+
+/** Janela deslizante de um minuto por cofre — ver `vault:reveal`. */
+const revealHits = new Map<UUID, number[]>()
+
+function allowReveal(vaultId: UUID): boolean {
+  const now = Date.now()
+  const hits = (revealHits.get(vaultId) ?? []).filter((t) => now - t < 60_000)
+  if (hits.length >= Constants.vaultRevealPerMinute) {
+    revealHits.set(vaultId, hits)
+    return false
+  }
+  hits.push(now)
+  revealHits.set(vaultId, hits)
+  return true
 }
 
 export function registerIPC(): void {
@@ -467,6 +520,18 @@ export function registerIPC(): void {
     (_e, workspaceId: UUID, nodeId: UUID, patch: Record<string, unknown>) => {
       const ws = appState.workspaces.get(workspaceId)
       if (!ws) return null
+
+      // Num cofre, o patch genérico só pode mexer no NOME. `keys` e `locked`
+      // são a projeção do arquivo cifrado, e quem os escreve é `vault:set` /
+      // `vault:remove` depois de gravar o `.vault` — deixar o patch tocá-los
+      // faria a lista do canvas divergir do que existe em disco. Um `value`
+      // vindo por aqui seria pior ainda: segredo em claro no workspace.json.
+      if (ws.node(nodeId)?.content.type === 'secretVault') {
+        const allowed: Record<string, unknown> = {}
+        if (typeof patch.name === 'string') allowed.name = patch.name
+        patch = allowed
+      }
+
       ws.updateContent(nodeId, (node) => {
         // Patch raso preservando a variante: o `type` nunca muda, só o payload.
         node.content = {
@@ -790,11 +855,25 @@ export function registerIPC(): void {
 
       const tc = node.content.value
       const role = roles.get(tc.assignedRoleId)
+
+      // Os cofres ligados, antes de abrir o PTY. Colisão de chave entre dois
+      // cofres RECUSA o spawn: escolher um valor em silêncio faria o agente
+      // rodar contra o banco errado sem ninguém perceber.
+      const vaultEnv = await envForTerminal(nodeId)
+      if (vaultEnv.error) return { error: vaultEnv.error }
+
+      // `${vault:Cofre/CHAVE}` no comando é expandido AQUI, no que é escrito no
+      // PTY — nunca no que está gravado. O workspace.json continua com o
+      // template; o shell recebe o valor.
+      const resolved = await resolveTemplate(nodeId, tc.command ?? '')
+      if ('error' in resolved) return { error: resolved.error }
+
       const session = await terminals.spawn({
         nodeId,
         workspaceId,
         shellPath: tc.shellPath,
-        command: tc.command,
+        command: resolved.command,
+        extraEnv: vaultEnv.env,
         workingDirectory: tc.workingDirectory || ws.payload.workingDirectory,
         cols,
         rows,
@@ -1141,6 +1220,135 @@ export function registerIPC(): void {
     if (!buf) return { error: 'missing' as const }
     return { dataUrl: `data:${mimeForImageName(safe)};base64,${buf.toString('base64')}` }
   })
+
+  // ─── Cofres ─────────────────────────────────────────────────────────────────
+  // O renderer NUNCA recebe valor de segredo, com uma exceção explícita e
+  // pedida pelo usuário: `vault:reveal`, que devolve UM valor, UMA vez, sob
+  // limite de frequência. Todo o resto trafega só nomes de chave.
+  //
+  // Cada escrita faz duas coisas na ordem certa: grava o `.vault` cifrado e só
+  // depois espelha os NOMES no conteúdo do nó. Se a cifra falhar, o
+  // workspace.json não passa a anunciar uma chave que não existe em disco.
+
+  ipcMain.handle('vault:available', () => persistence.vaultAvailable())
+
+  ipcMain.handle('vault:list-keys', async (_e, workspaceId: UUID, nodeId: UUID) => {
+    const found = vaultNode(workspaceId, nodeId)
+    if (!found) return { error: 'este nó não é um cofre' as const }
+    const file = await persistence.readVault(workspaceId, found.content.id)
+    if (!file) {
+      syncVaultKeys(workspaceId, nodeId, null)
+      return { error: 'locked' as const }
+    }
+    syncVaultKeys(workspaceId, nodeId, file)
+    return { keys: keyRefs(file) }
+  })
+
+  ipcMain.handle(
+    'vault:set',
+    async (_e, workspaceId: UUID, nodeId: UUID, input: Record<string, unknown>) => {
+      const found = vaultNode(workspaceId, nodeId)
+      if (!found) return { error: 'este nó não é um cofre' as const }
+
+      const key = String(input.key ?? '').trim()
+      if (!isValidKeyName(key)) {
+        return {
+          error: 'nome de chave inválido — use letras, números e _, começando por letra ou _'
+        }
+      }
+      const value = String(input.value ?? '')
+      if (!value) return { error: 'segredo vazio não é segredo' }
+
+      // Origem é opcional, mas se vier tem de ser uma origem de verdade: uma
+      // string torta aqui viraria uma comparação que nunca casa no
+      // `portal login`, e o erro apareceria a quilômetros daqui.
+      let origin: string | null = null
+      if (typeof input.origin === 'string' && input.origin.trim()) {
+        origin = originOf(input.origin.trim())
+        if (!origin) return { error: 'origem inválida — use algo como https://github.com' }
+      }
+
+      const file = await persistence.readVault(workspaceId, found.content.id)
+      if (!file) {
+        syncVaultKeys(workspaceId, nodeId, null)
+        return { error: 'locked' as const }
+      }
+
+      const entry: VaultEntry = {
+        key,
+        value,
+        origin,
+        inEnv: input.inEnv === true,
+        note: typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null,
+        updatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+        source: 'user'
+      }
+      const entries = file.entries.filter((e) => e.key !== key)
+      entries.push(entry)
+      entries.sort((a, b) => a.key.localeCompare(b.key))
+
+      const next: VaultFile = { ...file, entries }
+      if (!(await persistence.writeVault(workspaceId, found.content.id, next))) {
+        syncVaultKeys(workspaceId, nodeId, null)
+        return { error: 'locked' as const }
+      }
+      syncVaultKeys(workspaceId, nodeId, next)
+      log.info('vault', `chave ${key} gravada no cofre "${found.content.name}"`)
+      return { keys: keyRefs(next) }
+    }
+  )
+
+  ipcMain.handle('vault:remove', async (_e, workspaceId: UUID, nodeId: UUID, key: string) => {
+    const found = vaultNode(workspaceId, nodeId)
+    if (!found) return { error: 'este nó não é um cofre' as const }
+    const file = await persistence.readVault(workspaceId, found.content.id)
+    if (!file) {
+      syncVaultKeys(workspaceId, nodeId, null)
+      return { error: 'locked' as const }
+    }
+    const next: VaultFile = { ...file, entries: file.entries.filter((e) => e.key !== key) }
+    if (!(await persistence.writeVault(workspaceId, found.content.id, next))) {
+      return { error: 'locked' as const }
+    }
+    syncVaultKeys(workspaceId, nodeId, next)
+    return { keys: keyRefs(next) }
+  })
+
+  /**
+   * O ÚNICO canal que devolve valor ao renderer, e por pedido explícito do
+   * usuário no nó. Limite de frequência por cofre: um renderer comprometido (ou
+   * um bug em loop) não drena o cofre inteiro num piscar. O renderer não guarda
+   * o que recebe — ver secret-vault-node.tsx.
+   */
+  ipcMain.handle('vault:reveal', async (_e, workspaceId: UUID, nodeId: UUID, key: string) => {
+    const found = vaultNode(workspaceId, nodeId)
+    if (!found) return { error: 'este nó não é um cofre' as const }
+    if (!allowReveal(found.content.id)) {
+      return { error: 'muitas revelações seguidas — espere um instante' }
+    }
+    const file = await persistence.readVault(workspaceId, found.content.id)
+    if (!file) return { error: 'locked' as const }
+    const entry = file.entries.find((e) => e.key === key)
+    if (!entry) return { error: 'esta chave não existe neste cofre' }
+    void persistence
+      .appendVaultAccess(
+        workspaceId,
+        `${new Date().toISOString()}\tui\t${found.content.id}\treveal ${key}\n`
+      )
+      .catch(() => undefined)
+    return { value: entry.value }
+  })
+
+  /**
+   * A trilha de acessos, para o nó mostrar "últimos acessos".
+   *
+   * O arquivo é em claro de propósito — ele precisa ser legível num sistema em
+   * que o cofre não abre, que é justamente quando alguém quer saber quem leu o
+   * quê. Por isso nada aqui carrega valor: só quando, qual terminal, qual chave.
+   */
+  ipcMain.handle('vault:access-log', async (_e, workspaceId: UUID, limit?: number) =>
+    persistence.readVaultAccess(workspaceId, typeof limit === 'number' ? limit : 20)
+  )
 
   // ─── Streams do PTY para a UI ───────────────────────────────────────────────
 

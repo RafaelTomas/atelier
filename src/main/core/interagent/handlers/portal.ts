@@ -1,5 +1,5 @@
 /**
- * `atelier portal <list|open|go|read|html|shot|close|map|click|type|key|scroll|wait>`
+ * `atelier portal <list|open|go|read|html|shot|close|map|click|type|key|scroll|wait|login>`
  * — o Portal visto pelo agente.
  *
  * O escopo é o mesmo das notas e dos agentes: só o que está LIGADO POR CABO ao
@@ -17,6 +17,7 @@
  */
 import type { UUID } from '@shared/types'
 import { portalPartition } from '@shared/types'
+import { maskSecrets } from '@shared/vault'
 import { normalizeURL } from '@shared/portal-url'
 import { notifyRenderer } from '../../../ipc/notify'
 import { nodeDisplayName } from '../../models/node-content'
@@ -35,10 +36,29 @@ import {
   portalWait
 } from '../../portal/portal-bridge'
 import { spawnPortal } from '../../portal/portal-spawn'
+import { secretForPortal, valuesForPortal } from '../../vault/vault-manager'
 import { connectedNodes, findConnectedNode, requireTerminalId, workspaceForTerminal } from './context'
 
 const USAGE =
-  'error: usage: atelier portal <list|open|go|read|html|shot|close|map|click|type|key|scroll|wait> …'
+  'error: usage: atelier portal <list|open|go|read|html|shot|close|map|click|type|key|scroll|wait|login> …'
+
+/**
+ * Tudo que sai da PÁGINA para o agente passa por aqui.
+ *
+ * Um segredo digitado por `portal login` fica no DOM, e `read`, `html` e `map`
+ * leem o DOM: sem esta passagem, o valor que o agente nunca recebeu voltaria
+ * para ele no comando seguinte. Mascara-se contra os valores dos cofres ligados
+ * AQUELE portal — poucos e conhecidos —, não contra o workspace inteiro.
+ *
+ * Isto substitui a ideia de "mascarar o value de campo password no map": a
+ * árvore de acessibilidade não expõe o valor de um input de senha de forma
+ * confiável, e um filtro por papel erraria nos dois sentidos. Mascarar pelo
+ * valor conhecido acerta em `read`, `html` e `map` de uma vez.
+ */
+async function safeForAgent(portalNodeId: UUID, text: string): Promise<string> {
+  const values = await valuesForPortal(portalNodeId)
+  return values.length === 0 ? text : maskSecrets(text, values)
+}
 
 export async function handlePortal(args: string[], terminalId: UUID | null): Promise<string> {
   const tid = requireTerminalId(terminalId)
@@ -71,6 +91,8 @@ export async function handlePortal(args: string[], terminalId: UUID | null): Pro
       return scrollPortal(args, tid)
     case 'wait':
       return waitPortal(args, tid)
+    case 'login':
+      return loginPortal(args, tid)
     default:
       return USAGE
   }
@@ -236,9 +258,9 @@ async function readPortal(args: string[], tid: UUID): Promise<string> {
     const limit = Number(args[4])
     // offset/limit em LINHAS, igual ao `note read` — não inventar convenção nova
     if (Number.isFinite(offset) && Number.isFinite(limit)) {
-      return text.split('\n').slice(offset, offset + limit).join('\n')
+      return safeForAgent(found.id, text.split('\n').slice(offset, offset + limit).join('\n'))
     }
-    return text
+    return safeForAgent(found.id, text)
   } catch (err) {
     return `error: ${(err as Error).message}`
   }
@@ -248,7 +270,7 @@ async function htmlPortal(args: string[], tid: UUID): Promise<string> {
   const found = target(tid, args[2])
   if (typeof found === 'string') return found
   try {
-    return await portalHTML(found.id, args[3])
+    return await safeForAgent(found.id, await portalHTML(found.id, args[3]))
   } catch (err) {
     return `error: ${(err as Error).message}`
   }
@@ -354,7 +376,7 @@ async function mapPortal(args: string[], tid: UUID): Promise<string> {
       )
     }
     lines.push(`\nRefs are valid until the page navigates. Use 'atelier portal click "${args[2]}" <ref>'.`)
-    return lines.join('\n')
+    return safeForAgent(found.id, lines.join('\n'))
   } catch (err) {
     return `error: ${(err as Error).message}`
   }
@@ -406,6 +428,72 @@ async function typePortal(args: string[], tid: UUID): Promise<string> {
     trail(found.id, `type falhou — ${(err as Error).message}`)
     return `error: ${(err as Error).message}`
   }
+}
+
+/**
+ * `atelier portal login "Portal" <ref|--selector S> --vault "Cofre" --key K [--enter]`
+ *
+ * O terceiro caminho de uso de um segredo, ao lado do env do PTY e do
+ * `atelier vault get` — e o único em que o valor é USADO sem passar pelo agente.
+ * Quem digita é o main, por CDP (`Input.insertText`), que entra pelo motor do
+ * navegador e não pelo JS da página nem pelo renderer.
+ *
+ * As travas moram no `secretForPortal` (cabo até o portal, `origin` declarada,
+ * origem batendo com a da página). Aqui ficam as duas que são desta camada:
+ * `writable()`, o mesmo ⦾ de `click` e `type`, e a trilha SEM o valor — o
+ * `trail` publica no renderer, e é por isso que esta linha não pode conter o
+ * segredo, ao contrário do `type`, que ecoa o texto que o agente já tinha.
+ */
+async function loginPortal(args: string[], tid: UUID): Promise<string> {
+  const found = writable(tid, args[2])
+  if (typeof found === 'string') return found
+
+  const vaultName = flagValue(args, '--vault')
+  const key = flagValue(args, '--key')
+  if (!vaultName || !key) {
+    return (
+      'error: usage: atelier portal login "Portal" <ref|--selector "css"> ' +
+      '--vault "Vault" --key KEY [--enter]'
+    )
+  }
+
+  // Args COMPLETOS, como no `type`: é `pickTarget` quem procura o `--selector`,
+  // e um array já sem flags esconderia dele justamente o que ele busca.
+  const what = pickTarget(args, 3)
+  if (typeof what === 'string') return what
+
+  let pageURL: string
+  try {
+    pageURL = (await portalInfo(found.id)).url
+  } catch (err) {
+    return `error: ${(err as Error).message}`
+  }
+
+  const secret = await secretForPortal(tid, found.id, vaultName, key, pageURL)
+  if (typeof secret === 'string') {
+    trail(found.id, `login recusado — chave ${key}`)
+    return secret
+  }
+
+  try {
+    const result = await portalType(found.id, what, secret.value, {
+      enter: args.includes('--enter'),
+      clear: true
+    })
+    trail(found.id, `login → ${result.label} (chave ${key} do cofre "${secret.vault.label}")`)
+    return `Filled ${result.label} on '${found.label}' from '${secret.vault.label}' — ${result.change}.`
+  } catch (err) {
+    trail(found.id, `login falhou — ${(err as Error).message}`)
+    return `error: ${(err as Error).message}`
+  }
+}
+
+/** Valor de uma flag `--nome valor`, ou null quando ausente. */
+function flagValue(args: string[], flag: string): string | null {
+  const at = args.indexOf(flag)
+  if (at < 0) return null
+  const value = args[at + 1]
+  return value && !value.startsWith('--') ? value : null
 }
 
 async function keyPortal(args: string[], tid: UUID): Promise<string> {

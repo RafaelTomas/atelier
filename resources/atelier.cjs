@@ -32,6 +32,7 @@ Commands:
   ask "Agent" "prompt"              Send prompt to connected agent
   check "Agent" [lines]             View agent's recent output
   note <read|write|create>          Read/write connected notes
+  vault <list|get|env>              Secrets from connected vaults (never writes)
   role [list]                       Your assigned responsibility
   projects <list|info|describe>     The user's indexed projects
   debug                             Diagnose connection issues

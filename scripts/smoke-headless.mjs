@@ -63,6 +63,10 @@ await esbuild.build({
       // aspas erradas quebram em silêncio — o comando roda com o argumento errado.
       export { quoteForShell } from './src/renderer/paths.ts'
       export { childEnv, prependPath } from './src/main/core/subprocess-env.ts'
+      export { useSafeStorage } from './src/main/core/vault/crypto.ts'
+      export { makePortalContent, makeSecretVaultContent } from './src/main/core/models/node-content.ts'
+      export { envForTerminal, resolveTemplate, secretForPortal } from './src/main/core/vault/vault-manager.ts'
+      export { maskForTerminal } from './src/main/core/vault/masking.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -85,6 +89,8 @@ const { scanAgentStatus } = core
 const { projectIndex, scanForProjects, isRepository, inferKind, isPathAllowed } = core
 const { resolveAllowedPath, resolveAllowedTarget } = core
 const { readTextFile, writeTextFile, renameEntry, duplicateEntry, MAX_TEXT_BYTES } = core
+const { useSafeStorage, makePortalContent, makeSecretVaultContent } = core
+const { envForTerminal, resolveTemplate, secretForPortal, maskForTerminal } = core
 const { quoteForShell } = core
 const { childEnv, prependPath } = core
 
@@ -427,7 +433,7 @@ await test('primeira gravação de um workspace v2 deixa um backup ao lado', asy
 
   assert.ok(existsSync(backup), 'não gravou o backup da v2')
   assert.equal(readFileSync(backup, 'utf8'), original, 'o backup não é o arquivo original')
-  assert.equal(JSON.parse(readFileSync(file, 'utf8')).schemaVersion, 6)
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).schemaVersion, 7)
 
   // Segunda gravação não reescreve o backup: o valor dele é ser o ANTES.
   reaberto.markDirty()
@@ -595,6 +601,211 @@ await test('atelier portal close leva o cabo junto', async () => {
     !ws.connections.some((c) => c.nodeIdA === portalId || c.nodeIdB === portalId),
     'a conexão sobreviveu ao nó'
   )
+})
+
+// ─── Cofre: CLI, ambiente do PTY e login de portal ───────────────────────────
+// O cofre inteiro depende de uma cripto do SO que não existe num teste headless,
+// então o `safeStorage` é INJETADO — é para isso que `crypto.ts` recebe a
+// implementação em vez de importá-la. O mock não cifra nada de verdade (base64
+// com um prefixo); o que está sob teste aqui não é a cifra do Electron, é o
+// caminho: quem pode ler o quê, o que entra no ambiente, e o que o Atelier
+// recusa a digitar numa página.
+
+const fakeStorage = {
+  isEncryptionAvailable: () => true,
+  encryptString: (text) => Buffer.from(`mock:${text}`, 'utf8'),
+  decryptString: (buf) => buf.toString('utf8').replace(/^mock:/, '')
+}
+
+let vaultNodeId
+let vaultPortalId
+
+await test('monta cofre, terminal e portal ligados por cabo', async () => {
+  useSafeStorage(fakeStorage)
+
+  const vault = makeCanvasNode(
+    { x: 11200, y: 8600, width: 320, height: 280 },
+    { type: 'secretVault', value: makeSecretVaultContent('Pessoal') }
+  )
+  const portal = makeCanvasNode(
+    { x: 11600, y: 8600, width: 640, height: 440 },
+    { type: 'portal', value: makePortalContent('Conta', 'https://github.com/login') }
+  )
+  ws.addNode(vault)
+  ws.addNode(portal)
+  vaultNodeId = vault.id
+  vaultPortalId = portal.id
+
+  assert.equal(ws.addConnection(terminalId, vault.id)?.kind, 'secret')
+  assert.equal(ws.addConnection(portal.id, vault.id)?.kind, 'secret')
+  assert.ok(ws.addConnection(terminalId, portal.id), 'terminal ↔ portal')
+
+  // As entradas vão direto ao arquivo, como se a UI as tivesse gravado: o CLI
+  // não escreve segredo, e é justamente isso que este teste NÃO pode contornar.
+  const content = ws.node(vault.id).content.value
+  await persistence.writeVault(ws.id, content.id, {
+    version: 1,
+    kdf: null,
+    entries: [
+      { key: 'DB_URL', value: 'postgres://u:senha@host/db', origin: null, inEnv: true, note: null, updatedAt: '' },
+      { key: 'GITHUB_PASS', value: 'hunter2-github', origin: 'https://github.com', inEnv: false, note: null, updatedAt: '' },
+      { key: 'SEM_ORIGEM', value: 'valor-sem-origem', origin: null, inEnv: false, note: null, updatedAt: '' }
+    ]
+  })
+  ws.updateContent(vault.id, (node) => {
+    node.content.value.keys = [
+      { key: 'DB_URL', inEnv: true, origin: null, note: null },
+      { key: 'GITHUB_PASS', inEnv: false, origin: 'https://github.com', note: null },
+      { key: 'SEM_ORIGEM', inEnv: false, origin: null, note: null }
+    ]
+  })
+})
+
+await test('atelier vault list mostra chaves e flags, nunca valores', async () => {
+  const out = await cli(['vault', 'list'], terminalId)
+  assert.match(out, /Pessoal/)
+  assert.match(out, /DB_URL/)
+  assert.match(out, /origin https:\/\/github\.com/)
+  assert.doesNotMatch(out, /hunter2/, 'list vazou um valor')
+  assert.doesNotMatch(out, /senha@host/, 'list vazou um valor')
+})
+
+await test('atelier vault get entrega o valor e avisa que ele está no contexto', async () => {
+  const out = await cli(['vault', 'get', 'Pessoal', 'GITHUB_PASS'], terminalId)
+  assert.match(out, /hunter2-github/)
+  assert.match(out, /now in your context/)
+})
+
+await test('o valor lido passa a ser mascarado no scrollback daquele terminal', () => {
+  // O `get` acima registrou o valor. O que o PTY gravar a partir de agora sai
+  // com a máscara — é o que impede o segredo de ficar em claro no arquivo.
+  const masked = maskForTerminal(terminalId, 'echo hunter2-github > /tmp/x')
+  assert.doesNotMatch(masked, /hunter2-github/)
+  assert.match(masked, /echo .* > \/tmp\/x/)
+})
+
+await test('outro terminal não herda o mascaramento nem o acesso', async () => {
+  const outro = makeCanvasNode(
+    { x: 0, y: 0, width: 100, height: 100 },
+    { type: 'terminal', value: makeTerminalContent('Sem cabo') }
+  )
+  ws.addNode(outro)
+  assert.match(maskForTerminal(outro.id, 'hunter2-github'), /hunter2-github/)
+  const out = await cli(['vault', 'get', 'Pessoal', 'GITHUB_PASS'], outro.id)
+  assert.match(out, /not found/, 'cofre sem cabo não pode ser lido')
+})
+
+await test('atelier vault get recusa chave que não existe, e diz quais existem', async () => {
+  const out = await cli(['vault', 'get', 'Pessoal', 'NAO_EXISTE'], terminalId)
+  assert.match(out, /error: key 'NAO_EXISTE' not found/)
+  assert.match(out, /DB_URL/)
+})
+
+await test('só as chaves marcadas "no ambiente" entram no PTY', async () => {
+  const { env, keys, error } = await envForTerminal(terminalId)
+  assert.equal(error, undefined)
+  assert.deepEqual(keys, ['DB_URL'])
+  assert.equal(env.DB_URL, 'postgres://u:senha@host/db')
+  assert.equal(env.GITHUB_PASS, undefined, 'chave sem inEnv não pode vazar para o ambiente')
+})
+
+await test('colisão de chave entre dois cofres RECUSA o spawn, não escolhe um', async () => {
+  const outro = makeCanvasNode(
+    { x: 11200, y: 9000, width: 320, height: 280 },
+    { type: 'secretVault', value: makeSecretVaultContent('Trabalho') }
+  )
+  ws.addNode(outro)
+  ws.addConnection(terminalId, outro.id)
+  await persistence.writeVault(ws.id, outro.content.value.id, {
+    version: 1,
+    kdf: null,
+    entries: [
+      { key: 'DB_URL', value: 'postgres://outro', origin: null, inEnv: true, note: null, updatedAt: '' }
+    ]
+  })
+
+  const { error } = await envForTerminal(terminalId)
+  assert.match(error ?? '', /DB_URL/)
+  assert.match(error ?? '', /Pessoal/)
+  assert.match(error ?? '', /Trabalho/)
+
+  ws.removeNode(outro.id)
+})
+
+await test('${vault:...} é expandido no comando, e some quando o cabo não existe', async () => {
+  const ok = await resolveTemplate(terminalId, 'psql "${vault:Pessoal/DB_URL}"')
+  assert.equal(ok.command, 'psql "postgres://u:senha@host/db"')
+
+  const semCofre = await resolveTemplate(terminalId, 'psql "${vault:Inexistente/DB_URL}"')
+  assert.match(semCofre.error ?? '', /não é um cofre ligado/)
+
+  const semChave = await resolveTemplate(terminalId, 'psql "${vault:Pessoal/NADA}"')
+  assert.match(semChave.error ?? '', /não tem a chave/)
+})
+
+await test('portal login: chave sem origem declarada é recusada em qualquer página', async () => {
+  const out = await secretForPortal(terminalId, vaultPortalId, 'Pessoal', 'SEM_ORIGEM', 'https://github.com/login')
+  assert.equal(typeof out, 'string')
+  assert.match(out, /declares no origin/)
+})
+
+await test('portal login: origem diferente da página é recusada, nomeando as duas', async () => {
+  const out = await secretForPortal(terminalId, vaultPortalId, 'Pessoal', 'GITHUB_PASS', 'https://phishing.example/login')
+  assert.equal(typeof out, 'string')
+  assert.match(out, /only allowed on https:\/\/github\.com/)
+  assert.match(out, /phishing\.example/)
+  assert.match(out, /Nothing was typed/)
+})
+
+await test('portal login: http não passa por https — o downgrade é o ataque', async () => {
+  const out = await secretForPortal(terminalId, vaultPortalId, 'Pessoal', 'GITHUB_PASS', 'http://github.com/login')
+  assert.equal(typeof out, 'string')
+  assert.match(out, /only allowed on/)
+})
+
+await test('portal login: origem batendo entrega o valor para o main digitar', async () => {
+  const out = await secretForPortal(terminalId, vaultPortalId, 'Pessoal', 'GITHUB_PASS', 'https://github.com/session')
+  assert.equal(typeof out, 'object', out.toString?.())
+  assert.equal(out.value, 'hunter2-github')
+  assert.equal(out.vault.label, 'Pessoal')
+})
+
+await test('portal login: cofre ligado ao terminal mas NÃO ao portal é recusado', async () => {
+  const solto = makeCanvasNode(
+    { x: 12200, y: 9000, width: 640, height: 440 },
+    { type: 'portal', value: makePortalContent('Outro', 'https://github.com/login') }
+  )
+  ws.addNode(solto)
+  ws.addConnection(terminalId, solto.id)
+  const out = await secretForPortal(terminalId, solto.id, 'Pessoal', 'GITHUB_PASS', 'https://github.com/login')
+  assert.equal(typeof out, 'string')
+  assert.match(out, /not connected to that portal/)
+  ws.removeNode(solto.id)
+})
+
+await test('a trilha de auditoria registra os acessos e nenhum valor', async () => {
+  const linhas = await persistence.readVaultAccess(ws.id, 50)
+  assert.ok(linhas.length >= 2, 'nada foi auditado')
+  const texto = linhas.join('\n')
+  assert.match(texto, /get GITHUB_PASS/)
+  assert.match(texto, /login GITHUB_PASS/)
+  assert.doesNotMatch(texto, /hunter2/, 'a trilha gravou o segredo')
+})
+
+await test('atelier list anuncia o cofre pelo nome e pela contagem, sem as chaves', async () => {
+  const out = await cli(['list'], terminalId)
+  assert.match(out, /Connected vaults:/)
+  assert.match(out, /Pessoal {2}3 keys/)
+  assert.doesNotMatch(out, /GITHUB_PASS/, 'list expôs nome de chave')
+  assert.doesNotMatch(out, /hunter2/, 'list expôs um valor')
+})
+
+await test('cofre ilegível (sem chaveiro) é recusado inteiro, e o CLI explica', async () => {
+  useSafeStorage({ ...fakeStorage, isEncryptionAvailable: () => false })
+  const out = await cli(['vault', 'get', 'Pessoal', 'GITHUB_PASS'], terminalId)
+  assert.match(out, /locked/)
+  assert.match(out, /keychain/)
+  useSafeStorage(fakeStorage)
 })
 
 // ─── Responsabilidades (agentes) ──────────────────────────────────────────────

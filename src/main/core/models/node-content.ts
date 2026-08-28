@@ -147,7 +147,10 @@ function decodePortal(raw: Record<string, unknown>): PortalContent {
     source: decodePortalSource(raw.source),
     status: str(raw.status, 'idle'),
     chromeHidden: bool(raw.chromeHidden),
-    storageScope: str(raw.storageScope, 'isolated')
+    storageScope: str(raw.storageScope, 'isolated'),
+    // `bool` dá false para ausente — e é exatamente o que se quer aqui: portal
+    // gravado antes deste campo (ou pelo app nativo) NUNCA volta dirigível.
+    controlEnabled: bool(raw.controlEnabled)
   }
 }
 
@@ -447,7 +450,8 @@ export function makePortalContent(name: string, url = ''): PortalContent {
     source: url ? { kind: 'url', url } : { kind: 'none' },
     status: 'idle',
     chromeHidden: false,
-    storageScope: 'isolated'
+    storageScope: 'isolated',
+    controlEnabled: false
   }
 }
 

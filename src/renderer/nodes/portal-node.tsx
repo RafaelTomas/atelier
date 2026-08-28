@@ -109,6 +109,8 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
   const [loading, setLoading] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [nav, setNav] = useState({ back: false, forward: false })
+  /** Últimas ações do agente neste portal — a trilha da Decisão C. */
+  const [trail, setTrail] = useState<string[]>([])
 
   useEffect(() => viewport.subscribe((v) => setFrozen(v.zoom < FREEZE_ZOOM)), [])
 
@@ -189,6 +191,44 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
       }),
     [node.id, registerGuest]
   )
+
+  /**
+   * Enquanto o controle está ligado, o nó não pode ser desmontado.
+   *
+   * O culling do canvas derruba o `<webview>` de um nó fora da viewport — no
+   * meio de uma sequência de ações isso faria o agente perder o alvo entre um
+   * `map` e o `click`. `portalWake` expira em 30 s; renovar de dentro do nó
+   * montado mantém a corrente presa enquanto o usuário deixar o controle
+   * ligado, e a solta sozinha assim que ele desligar (Decisão D).
+   */
+  useEffect(() => {
+    if (!content.controlEnabled) return
+    portalWake.keep(node.id)
+    const timer = setInterval(() => portalWake.keep(node.id), 10_000)
+    return () => {
+      clearInterval(timer)
+      portalWake.release(node.id)
+    }
+  }, [content.controlEnabled, node.id])
+
+  /** A trilha: verbo, alvo e resultado, para ação nenhuma passar sem auditoria. */
+  useEffect(() => {
+    return window.atelier.portal.onAction(({ nodeId, line }) => {
+      if (nodeId !== node.id) return
+      setTrail((prev) => [line, ...prev].slice(0, 20))
+    })
+  }, [node.id])
+
+  const toggleControl = async (): Promise<void> => {
+    const next = !content.controlEnabled
+    const result = await window.atelier.portal.control(node.id, next)
+    if (next && !result.ok) {
+      setTrail((prev) => [`controle recusado — ${result.message}`, ...prev].slice(0, 20))
+      return
+    }
+    await store.patchContent(node.id, { controlEnabled: next })
+    setTrail((prev) => [next ? 'controle ligado' : 'controle desligado', ...prev].slice(0, 20))
+  }
 
   // A URL pode mudar por fora (patchContent vindo do CLI ou de outra sessão).
   useEffect(() => {
@@ -289,8 +329,47 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
     )
   }
 
+  /**
+   * O botão da Decisão C: agir exige permissão explícita POR NÓ.
+   *
+   * Ele mora junto da barra de endereço quando ela existe, e numa faixa própria
+   * quando o portal está sem cromo (documento local) — senão haveria portal que
+   * o usuário não teria como liberar nem como desligar depois.
+   */
+  const controlButton = (
+    <button
+      type="button"
+      className={`icon-btn portal-btn portal-control${content.controlEnabled ? ' is-on' : ''}`}
+      title={
+        content.controlEnabled
+          ? 'O agente pode clicar e digitar aqui — clique para tirar o controle'
+          : 'Permitir que o agente clique e digite nesta página'
+      }
+      aria-pressed={content.controlEnabled}
+      onClick={() => void toggleControl()}
+    >
+      {content.controlEnabled ? '⦿' : '⦾'}
+    </button>
+  )
+
+  /** A última linha da trilha, com o histórico curto no title. */
+  const trailLine = trail.length > 0 && (
+    <span className="portal-trail" title={trail.join('\n')}>
+      {trail[0]}
+    </span>
+  )
+
   return (
-    <div className="portal-node" data-node-interactive>
+    <div
+      className={`portal-node${content.controlEnabled ? ' is-controlled' : ''}`}
+      data-node-interactive
+    >
+      {content.chromeHidden && (content.controlEnabled || trail.length > 0) && (
+        <div className="portal-chrome portal-chrome--bare">
+          {controlButton}
+          {trailLine}
+        </div>
+      )}
       {!content.chromeHidden && (
         <div className="portal-chrome">
           <button
@@ -348,6 +427,9 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
               }
             }}
           />
+
+          {trailLine}
+          {controlButton}
 
           <button
             type="button"

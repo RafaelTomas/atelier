@@ -449,6 +449,44 @@ await test('atelier portal read sem webview montado explica em vez de pendurar',
   assert.match(out, /error: portal .* não respondeu/)
 })
 
+// ─── Controle de portal (PLANO-controle-de-portal.md) ────────────────────────
+
+await test('portal click sem permissão é recusado, e o erro diz como ligar', async () => {
+  // A trava da Decisão C. O erro é metade do recurso: um agente que só ouve
+  // "não pode" tenta outro caminho; um que lê onde fica o botão pede ao usuário.
+  const out = await cli(['portal', 'click', 'Dev', '1'], terminalId)
+  assert.match(out, /control is off/)
+  assert.match(out, /button in that portal header/)
+  assert.match(out, /Reading .* works without it/)
+})
+
+await test('portal map sem webview montado explica em vez de pendurar', async () => {
+  // Ler é livre: `map` não passa pela permissão, só pelo caminho de timeout.
+  const out = await cli(['portal', 'map', 'Dev'], terminalId)
+  assert.match(out, /error: portal .* não respondeu/)
+})
+
+await test('ref sem mapa válido pede um mapa novo, não acorda o portal', async () => {
+  // Com a permissão ligada, uma ref de mapa velho (ou inexistente) tem de
+  // devolver "rode map" — nunca "o portal não respondeu", e nunca um clique
+  // num elemento que calhou de ter o mesmo número.
+  ws.updateContent(portalId, (node) => {
+    node.content.value.controlEnabled = true
+  })
+  const out = await cli(['portal', 'click', 'Dev', '3'], terminalId)
+  assert.match(out, /nenhum mapa válido/)
+  assert.match(out, /portal map/)
+  ws.updateContent(portalId, (node) => {
+    node.content.value.controlEnabled = false
+  })
+})
+
+await test('portal não conectado ao terminal não é alcançável nem para clicar', async () => {
+  // O escopo por cabo não ganha exceção nova por causa dos verbos de escrita.
+  const out = await cli(['portal', 'click', 'Inexistente', '1'], terminalId)
+  assert.match(out, /not found/)
+})
+
 await test('atelier portal close leva o cabo junto', async () => {
   const out = await cli(['portal', 'close', 'Dev'], terminalId)
   assert.match(out, /Closed portal 'Dev'/)

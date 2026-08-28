@@ -80,6 +80,15 @@ export interface PortalContent {
   status: string
   chromeHidden: boolean
   storageScope: string
+  /**
+   * O agente pode CLICAR e DIGITAR neste portal.
+   *
+   * Padrão `false`, sempre — inclusive ao reler um portal gravado antes deste
+   * campo existir. Ler é livre; agir numa sessão autenticada é decisão do
+   * usuário, tomada nó a nó pelo botão do cabeçalho (Decisão C do
+   * PLANO-controle-de-portal.md).
+   */
+  controlEnabled: boolean
 }
 
 /**

@@ -24,6 +24,7 @@ import { terminals } from './core/terminal/terminal-manager'
 import { fileWatcher } from './core/projects/file-watcher'
 import { armPopupHandling } from './core/portal/portal-popup'
 import { armPortalZoom } from './core/portal/portal-zoom'
+import { armPortalCDP } from './core/portal/portal-cdp'
 import { registerIPC } from './ipc/bridge'
 import { createMainWindow } from './window'
 
@@ -103,6 +104,9 @@ async function boot(): Promise<void> {
   armPopupHandling()
   // Ctrl+roda dentro da página do portal dá zoom no canvas, não na página.
   armPortalZoom()
+  // Nó desmontado pelo culling leva a sessão CDP junto — sem isso o controle
+  // ficaria pendurado num webContents morto (Decisão D do controle de portal).
+  armPortalCDP()
   createMainWindow()
 
   log.info('boot', `pronto em ${Date.now() - started}ms`)

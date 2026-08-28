@@ -20,6 +20,7 @@ export type RendererEvent =
   | 'fs:file-removed'
   | 'portal:wake'
   | 'portal:zoom-gesture'
+  | 'portal:action'
 
 /**
  * Import dinâmico do electron: fora do app (teste headless, CI) isto vira um

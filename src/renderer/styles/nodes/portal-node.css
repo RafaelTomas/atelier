@@ -25,6 +25,28 @@
 }
 .portal-url:focus { border-color: var(--accent); }
 
+/* Controle do agente (PLANO-controle-de-portal.md, Decisão C).
+
+   A borda é permanente e por dentro (box-shadow inset, não outline): o nó já é
+   recortado por overflow:hidden e um outline sumiria na borda do cartão. O
+   usuário precisa ver, de longe e sem interagir, QUAL portal está dirigível. */
+.portal-node.is-controlled {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.portal-control.is-on { color: var(--accent); }
+
+.portal-chrome--bare { justify-content: flex-end; }
+
+/* A trilha de ações. Encolhe antes da barra de endereço: ela é auditoria, não
+   navegação — e o histórico curto continua no title. */
+.portal-trail {
+  flex: 0 1 auto; min-width: 0;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--text-dim); font-size: var(--fs-xs);
+  padding: 0 4px; user-select: text;
+}
+
 .portal-viewport { flex: 1; min-height: 0; position: relative; display: flex; }
 
 /* O <webview> é um elemento de verdade: herda o transform do .nodes-layer e é

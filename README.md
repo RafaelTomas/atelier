@@ -275,6 +275,8 @@ atelier note create "rascunho"            # cria já conectada a mim
 atelier portal open localhost:5173        # abre um navegador já conectado a mim
 atelier portal read "Dev"                 # o texto visível da página
 atelier portal shot "Dev"                 # captura em PNG, devolve o caminho
+atelier portal map "Dev"                  # os elementos interativos, numerados
+atelier portal click "Dev" 7              # clica na ref 7 do último mapa
 atelier role                              # qual é a minha responsabilidade?
 atelier role list                         # as responsabilidades disponíveis
 atelier projects list [--pending]         # o índice de projetos do usuário

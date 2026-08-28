@@ -38,6 +38,11 @@ export const paths = {
   rolesDir: () => join(dataDir(), 'roles'),
   roleFile: (id: UUID) => join(dataDir(), 'roles', `${id}.json`),
   runDir: () => join(dataDir(), 'run'),
+  /** Lista das contas do Claude (rótulo + id). Os segredos não estão aqui. */
+  claudeAccounts: () => join(dataDir(), 'claude-accounts.json'),
+  claudeAccountsDir: () => join(dataDir(), 'claude-accounts'),
+  /** O `CLAUDE_CONFIG_DIR` de uma conta — um ~/.claude só dela. */
+  claudeAccountDir: (id: string) => join(dataDir(), 'claude-accounts', id),
   /** Arquivos efêmeros — hoje só as imagens coladas dentro de um terminal. */
   tmpDir: () => join(dataDir(), 'tmp'),
   workspaceDir: (id: UUID) => join(dataDir(), 'workspaces', id),
@@ -86,4 +91,15 @@ export function ipcSocketPath(): string {
 /** ~/.claude/skills/ — destino da skill injetada (igual nos três sistemas). */
 export function claudeSkillsDir(): string {
   return join(homedir(), '.claude', 'skills')
+}
+
+/**
+ * ~/.claude — a configuração da conta PADRÃO do Claude Code.
+ *
+ * NÃO depende de `ATELIER_HOME`: é o diretório do `claude`, não do Atelier, e
+ * mesmo o `npm run dev` fala com a instalação real do usuário. As contas extras
+ * ficam em `paths.claudeAccountDir()`, aí sim dentro do dado do Atelier.
+ */
+export function claudeHomeDir(): string {
+  return join(homedir(), '.claude')
 }

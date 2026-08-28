@@ -23,3 +23,15 @@
 .action-btn:hover:not(:disabled) { background: var(--surface-2); }
 
 .action-sep { width: 1px; height: 16px; margin: 0 2px; background: var(--border); }
+
+/* Conta do Claude: o único botão da barra com texto. Ele é largura variável
+   de propósito — o rótulo da conta é a informação, e um ícone mudo aqui
+   obrigaria a abrir o menu só para saber em qual conta o agente está. */
+.action-btn.is-account {
+  width: auto; gap: 4px; padding: 0 6px;
+  display: inline-flex; align-items: center;
+  color: var(--text-dim); font-size: var(--fs-sm);
+}
+.action-btn.is-account .account-name {
+  max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

@@ -106,7 +106,8 @@ export function App(): JSX.Element {
           themeId: editing.content.value.themeId,
           fontFamily: editing.content.value.fontFamily,
           fontSize: editing.content.value.fontSize,
-          assignedRoleId: editing.content.value.assignedRoleId
+          assignedRoleId: editing.content.value.assignedRoleId,
+          claudeAccountId: editing.content.value.claudeAccountId
         }
       : null
 

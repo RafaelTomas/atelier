@@ -15,6 +15,7 @@
  */
 import type { UUID } from '@shared/types'
 import { QUICK_STARTS, presetById } from '@shared/terminal-presets'
+import { claudeAccounts } from '../../claude/accounts'
 import { Constants } from '../../constants'
 import { makeTerminalContent } from '../../models/node-content'
 import { makeCanvasNode } from '../../models/workspace'
@@ -27,14 +28,14 @@ import { requireTerminalId, workspaceForTerminal } from './context'
 const TERMINAL_SIZE = { width: 560, height: 360 }
 
 const USAGE =
-  'error: usage: atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd /path] [--role "Role"]'
+  'error: usage: atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd /path] [--role "Role"] [--account "Account"]'
 
 function takeFlags(argv: string[]): { rest: string[]; flags: Map<string, string> } {
   const rest: string[] = []
   const flags = new Map<string, string>()
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
-    if (arg === '--preset' || arg === '--cwd' || arg === '--role') {
+    if (arg === '--preset' || arg === '--cwd' || arg === '--role' || arg === '--account') {
       flags.set(arg.slice(2), argv[++i] ?? '')
     } else {
       rest.push(arg)
@@ -90,6 +91,20 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
     assignedRoleId = match.id
   }
 
+  // Conta do Claude: mesma regra do papel — um nome que não existe é recusa, e
+  // não a conta padrão em silêncio. Cair na padrão levaria o recrutado a rodar
+  // logado como outra pessoa, que é o oposto do que quem passou a flag pediu.
+  const accountName = flags.get('account')
+  let claudeAccountId: string | null = null
+  if (accountName) {
+    const match = claudeAccounts.resolve(accountName)
+    if (!match) {
+      const names = claudeAccounts.all.map((a) => `'${a.label}'`).join(', ') || '(none created)'
+      return `error: Claude account '${accountName}' not found. Available: ${names}.`
+    }
+    claudeAccountId = match === 'default' ? null : match.id
+  }
+
   const name = args[1]
   // Sem `--cwd`, o recrutado nasce onde o chamador está: é quase sempre o que se
   // quer (ajuda no MESMO projeto), e herdar o diretório do workspace levaria o
@@ -103,7 +118,8 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
     icon: preset.icon,
     color: preset.color,
     workingDirectory,
-    assignedRoleId
+    assignedRoleId,
+    claudeAccountId
   })
 
   const spot = freeSpotRightOf(ws, caller, TERMINAL_SIZE)
@@ -115,8 +131,9 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
 
   const where = workingDirectory || '(workspace default)'
   const role = assignedRoleId ? `, role '${roles.get(assignedRoleId)?.name}'` : ''
+  const account = claudeAccountId ? `, Claude account '${claudeAccounts.labelFor(claudeAccountId)}'` : ''
   return [
-    `Recruited '${name}' (${preset.label}) in ${where}${role}, connected to this terminal.`,
+    `Recruited '${name}' (${preset.label}) in ${where}${role}${account}, connected to this terminal.`,
     "It boots when its node is on screen — run 'atelier list' and wait for it to leave [not started]",
     'before asking it anything.'
   ].join('\n')

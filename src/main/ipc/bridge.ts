@@ -24,6 +24,7 @@ import type {
   SecretVaultContent,
   UUID
 } from '@shared/types'
+import { claudeAccounts } from '../core/claude/accounts'
 import { Constants } from '../core/constants'
 import { log } from '../core/logger'
 import {
@@ -34,10 +35,10 @@ import {
   makePortalContent,
   makeSecretVaultContent,
   makeStickyNoteContent,
-  makeTerminalContent,
   makeTextContent,
   makeWidgetContent
 } from '../core/models/node-content'
+import { terminalContentFromOpts } from '../core/models/terminal-draft'
 import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import type { WorkspaceManager } from '../core/state/workspace-manager'
 import { persistence } from '../core/persistence/persistence-manager'
@@ -98,23 +99,9 @@ function contentFor(
     case 'terminal':
       return {
         type: 'terminal',
-        value: makeTerminalContent(String(opts.name ?? 'Terminal'), {
-          agentType: String(opts.agentType ?? 'generic_shell'),
-          command: String(opts.command ?? ''),
-          workingDirectory: String(opts.workingDirectory ?? ''),
-          icon: String(opts.icon ?? 'terminal'),
-          color: String(opts.color ?? '#007AFF'),
-          isManager: opts.isManager === true,
-          monitorWithOmbro: opts.monitorWithOmbro === true,
-          themeId: typeof opts.themeId === 'string' ? opts.themeId : null,
-          fontFamily: typeof opts.fontFamily === 'string' ? opts.fontFamily : null,
-          fontSize: typeof opts.fontSize === 'number' ? opts.fontSize : null,
-          // Só aceita responsabilidade que existe de fato — um id órfão vindo
-          // do renderer deixaria o terminal apontando para o nada
-          assignedRoleId:
-            typeof opts.assignedRoleId === 'string' && roles.has(opts.assignedRoleId as UUID)
-              ? (opts.assignedRoleId as UUID)
-              : null
+        value: terminalContentFromOpts(opts, {
+          roleExists: (id) => roles.has(id as UUID),
+          accountExists: (id) => claudeAccounts.has(id)
         })
       }
     case 'note':
@@ -546,6 +533,28 @@ export function registerIPC(): void {
     }
   )
 
+  // ─── Contas do Claude ───────────────────────────────────────────────────────
+
+  ipcMain.handle('claude-account:list', () => claudeAccounts.list())
+
+  ipcMain.handle('claude-account:create', async (_e, label: string) => {
+    const { account, warnings } = await claudeAccounts.create(String(label ?? ''))
+    return { account, warnings, accounts: await claudeAccounts.list() }
+  })
+
+  ipcMain.handle('claude-account:rename', async (_e, id: string, label: string) => {
+    await claudeAccounts.rename(id, String(label ?? ''))
+    return claudeAccounts.list()
+  })
+
+  ipcMain.handle('claude-account:remove', async (_e, id: string, deleteFiles: boolean) => {
+    await claudeAccounts.remove(id, deleteFiles === true)
+    // Os terminais que apontavam para ela NÃO são reescritos, ao contrário do
+    // que role:delete faz: a conta não some da tela do nó — ela vira "padrão" no
+    // próximo boot do PTY, e o usuário vê isso acontecer.
+    return claudeAccounts.list()
+  })
+
   // ─── Responsabilidades (agentes) ────────────────────────────────────────────
 
   ipcMain.handle('role:list', () => roles.all)
@@ -852,12 +861,17 @@ export function registerIPC(): void {
       const resolved = await resolveTemplate(nodeId, tc.command ?? '')
       if ('error' in resolved) return { error: resolved.error }
 
+      // A conta do Claude vira CLAUDE_CONFIG_DIR. `configDirFor` já resolve a
+      // padrão (e a conta apagada) para null, que é "não definir a variável".
+      const claudeConfigDir = claudeAccounts.configDirFor(tc.claudeAccountId)
+
       const session = await terminals.spawn({
         nodeId,
         workspaceId,
         shellPath: tc.shellPath,
         command: resolved.command,
         extraEnv: vaultEnv.env,
+        ...(claudeConfigDir ? { claudeConfigDir } : {}),
         workingDirectory: tc.workingDirectory || ws.payload.workingDirectory,
         cols,
         rows,

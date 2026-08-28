@@ -12,6 +12,7 @@ import type {
   AgentRole,
   AgentStatus,
   CanvasNode,
+  ClaudeAccountInfo,
   Connection,
   DiscoveredProject,
   Drawing,
@@ -24,6 +25,7 @@ import type {
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
+import { DEFAULT_CLAUDE_ACCOUNT_ID } from '@shared/types'
 import { viewport } from '../canvas/viewport'
 import { boundsForNodes, groupOf } from '../canvas/group-geometry'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
@@ -127,6 +129,8 @@ export interface AppSnapshot {
   pen: PenSettings
   /** Responsabilidades disponíveis (globais + as deste workspace). */
   roles: AgentRole[]
+  /** Contas do Claude, com a padrão (~/.claude) sempre na primeira posição. */
+  claudeAccounts: ClaudeAccountInfo[]
   /** Diálogo "Novo Terminal" aberto — a dock dispara, o App renderiza. */
   newTerminalOpen: boolean
   /** Área desenhada antes do diálogo abrir — o terminal nasce nela. */
@@ -206,6 +210,7 @@ const initial: AppSnapshot = {
   tool: 'select',
   pen: { color: '#e0245e', lineWidth: 3 },
   roles: [],
+  claudeAccounts: [],
   newTerminalOpen: false,
   newTerminalFrame: null,
   editTerminalId: null,
@@ -251,10 +256,14 @@ class Store {
 
   async load(): Promise<void> {
     try {
-      const [{ entries, activeId }, prefs, roles, projects] = await Promise.all([
+      const [{ entries, activeId }, prefs, roles, claudeAccounts, projects] = await Promise.all([
         window.atelier.workspace.list(),
         window.atelier.prefs.get(),
         window.atelier.role.list(),
+        // As contas entram no boot pelo mesmo motivo das responsabilidades: o
+        // nó de terminal mostra em qual conta está antes de qualquer diálogo
+        // abrir, e o seletor da barra de ações não pode piscar vazio.
+        window.atelier.claudeAccount.list(),
         // O índice entra no BOOT, e não só quando o painel de projetos monta.
         // Um widget de git fixado num projeto precisa resolver esse id para
         // saber de que repositório ele é — e ele pode estar na tela sem que a
@@ -274,6 +283,7 @@ class Store {
         workspace,
         integrity,
         roles,
+        claudeAccounts,
         prefs,
         projects,
         theme,
@@ -1008,6 +1018,52 @@ class Store {
 
   setTerminalStatus(nodeId: UUID, status: AgentStatus): void {
     this.set({ terminalStatus: { ...this.state.terminalStatus, [nodeId]: status } })
+  }
+
+  // ─── Contas do Claude ───────────────────────────────────────────────────────
+
+  async refreshClaudeAccounts(): Promise<ClaudeAccountInfo[]> {
+    const claudeAccounts = await window.atelier.claudeAccount.list()
+    this.set({ claudeAccounts })
+    return claudeAccounts
+  }
+
+  /**
+   * Cria a conta. NÃO faz login: o diretório nasce vazio de credencial, e quem
+   * conduz o /login é o próprio `claude` no primeiro terminal aberto nela — é
+   * por isso que o aviso abaixo fala em abrir um terminal, e não em autenticar.
+   */
+  async createClaudeAccount(label: string): Promise<string | null> {
+    try {
+      const { account, warnings, accounts } = await window.atelier.claudeAccount.create(label)
+      this.set({ claudeAccounts: accounts })
+      if (warnings.length > 0) this.showNotice(warnings.join('; '))
+      return account.id
+    } catch (err) {
+      this.showNotice(`não deu para criar a conta: ${(err as Error).message}`)
+      return null
+    }
+  }
+
+  async removeClaudeAccount(id: string, deleteFiles: boolean): Promise<void> {
+    const claudeAccounts = await window.atelier.claudeAccount.remove(id, deleteFiles)
+    this.set({ claudeAccounts })
+  }
+
+  /**
+   * Troca a conta de um terminal e reinicia o PTY dele.
+   *
+   * O reinício não é zelo: `CLAUDE_CONFIG_DIR` é lido no `exec` do `claude`, e
+   * um processo já rodando continuaria na conta antiga por mais que o nó
+   * mostrasse a nova. Só este terminal cai — os outros do canvas seguem.
+   */
+  async setTerminalAccount(nodeId: UUID, accountId: string): Promise<void> {
+    const id = accountId === DEFAULT_CLAUDE_ACCOUNT_ID ? null : accountId
+    await this.patchContent(nodeId, { claudeAccountId: id })
+    await this.restartTerminal(nodeId)
+    const label =
+      this.state.claudeAccounts.find((a) => a.id === accountId)?.label ?? 'conta padrão'
+    this.showNotice(`terminal reiniciado na conta ${label}`)
   }
 
   // ─── Responsabilidades (agentes) ────────────────────────────────────────────

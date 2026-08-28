@@ -53,6 +53,11 @@ export interface TerminalContent {
   themeId: string | null
   fontFamily: string | null
   fontSize: number | null
+  /**
+   * Conta do Claude que este terminal usa — vira `CLAUDE_CONFIG_DIR` no spawn.
+   * `null` (ou `DEFAULT_CLAUDE_ACCOUNT_ID`) = a conta padrão, ~/.claude.
+   */
+  claudeAccountId: string | null
 }
 
 export type StorageMode = { kind: 'managed' } | { kind: 'custom'; path: string }
@@ -612,6 +617,38 @@ export interface TerminalTheme {
   foreground: string
 }
 
+// ─── Contas do Claude ─────────────────────────────────────────────────────────
+
+/**
+ * A conta padrão do Claude Code: o ~/.claude de sempre.
+ *
+ * É SINTÉTICA — nunca vai para `claude-accounts.json` e não tem diretório
+ * próprio. Ela significa exatamente "não definir CLAUDE_CONFIG_DIR": apontar a
+ * variável para ~/.claude não seria equivalente, porque o `claude` passaria a
+ * procurar ~/.claude/.claude.json (que não existe) e trataria a conta atual do
+ * usuário como um onboarding novo.
+ */
+export const DEFAULT_CLAUDE_ACCOUNT_ID = 'default'
+
+export interface ClaudeAccount {
+  id: string
+  label: string
+  createdAt: string
+}
+
+/**
+ * O que a UI mostra sobre uma conta. O e-mail e o plano saem do
+ * `.claude.json` do próprio diretório; `authenticated` é a existência do
+ * `.credentials.json`, que é o que decide se o `claude` vai pedir /login.
+ */
+export interface ClaudeAccountInfo extends ClaudeAccount {
+  /** null na conta padrão — ela é a ausência de CLAUDE_CONFIG_DIR. */
+  configDir: string | null
+  email: string | null
+  plan: string | null
+  authenticated: boolean
+}
+
 // ─── Responsabilidades (agentes) ──────────────────────────────────────────────
 
 /**
@@ -647,6 +684,8 @@ export interface TerminalDraft {
   fontFamily: string | null
   fontSize: number | null
   assignedRoleId: UUID | null
+  /** Conta do Claude escolhida no diálogo. null = padrão (~/.claude). */
+  claudeAccountId: string | null
 }
 
 // ─── Ponte renderer ⇄ main ────────────────────────────────────────────────────
@@ -661,6 +700,11 @@ export interface TerminalSpawnOptions {
   rows?: number
   /** Responsabilidade atribuída — vira ATELIER_ROLE_* no ambiente do PTY. */
   role?: { id: UUID; name: string } | null
+  /**
+   * Diretório da conta do Claude — vira `CLAUDE_CONFIG_DIR`. Ausente na conta
+   * padrão: a variável então NÃO é definida, e o `claude` usa ~/.claude.
+   */
+  claudeConfigDir?: string
   /**
    * Variáveis vindas dos cofres ligados a este terminal. Mescladas DEPOIS das
    * `ATELIER_*`, para um cofre não conseguir sobrescrever `ATELIER_SOCKET` e

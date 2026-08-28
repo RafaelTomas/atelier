@@ -11,6 +11,8 @@ import type {
   BootInfo,
   FileOpError,
   CanvasNode,
+  ClaudeAccount,
+  ClaudeAccountInfo,
   DiscoveredProject,
   Connection,
   Drawing,
@@ -132,6 +134,25 @@ const api = {
       patch: Record<string, unknown>
     ): Promise<CanvasNode | null> =>
       ipcRenderer.invoke('node:patch-content', workspaceId, nodeId, patch)
+  },
+
+  /**
+   * Contas do Claude. Uma conta é um CLAUDE_CONFIG_DIR próprio; a lista sempre
+   * vem com a padrão (~/.claude) na frente. Nenhuma credencial trafega aqui —
+   * quem loga é o `claude` dentro do terminal.
+   */
+  claudeAccount: {
+    list: (): Promise<ClaudeAccountInfo[]> => ipcRenderer.invoke('claude-account:list'),
+    /** `warnings` traz o que não deu para herdar do ~/.claude (símlink recusado). */
+    create: (
+      label: string
+    ): Promise<{ account: ClaudeAccount; warnings: string[]; accounts: ClaudeAccountInfo[] }> =>
+      ipcRenderer.invoke('claude-account:create', label),
+    rename: (id: string, label: string): Promise<ClaudeAccountInfo[]> =>
+      ipcRenderer.invoke('claude-account:rename', id, label),
+    /** `deleteFiles` leva junto a credencial — o login precisa ser refeito. */
+    remove: (id: string, deleteFiles: boolean): Promise<ClaudeAccountInfo[]> =>
+      ipcRenderer.invoke('claude-account:remove', id, deleteFiles)
   },
 
   role: {

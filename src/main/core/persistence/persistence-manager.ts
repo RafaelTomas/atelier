@@ -12,6 +12,7 @@ import { constants } from 'node:fs'
 import {
   access,
   copyFile,
+  cp,
   mkdir,
   open,
   readdir,
@@ -19,6 +20,7 @@ import {
   rename,
   rm,
   stat,
+  symlink,
   writeFile
 } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -27,6 +29,7 @@ import { decodeVaultFile, emptyVaultFile } from '@shared/vault'
 import type {
   AgentRole,
   AppStateData,
+  ClaudeAccount,
   Preferences,
   ProjectIndex,
   UUID,
@@ -56,6 +59,25 @@ import { migrateWorkspaceDocument } from './migrations'
 import { paths } from './paths'
 
 const isDev = process.env.NODE_ENV === 'development'
+
+/**
+ * O que uma conta nova do Claude herda do ~/.claude do usuário, por symlink.
+ *
+ * A lista é curta de propósito: é configuração, não identidade. Entra o que o
+ * usuário espera reencontrar em qualquer conta (permissões, skills, plugins,
+ * comandos, subagentes); fica de fora tudo que amarra o diretório a UMA conta —
+ * `.credentials.json`, `.claude.json`, `projects/`, `sessions/`,
+ * `history.jsonl`, `shell-snapshots/`, `telemetry/`, `cache/`. Ligar qualquer
+ * um desses derrubaria o ponto inteiro do recurso: as duas contas voltariam a
+ * disputar as mesmas credenciais.
+ */
+const CLAUDE_INHERITED_ENTRIES = [
+  'settings.json',
+  'skills',
+  'plugins',
+  'commands',
+  'agents'
+] as const
 
 /** O workspace lido e o que o decoder observou no caminho. */
 export interface LoadedWorkspace {
@@ -278,6 +300,90 @@ class PersistenceManager {
 
   async deleteRole(id: UUID): Promise<void> {
     await rm(paths.roleFile(id), { force: true })
+  }
+
+  // ─── Contas do Claude (claude-accounts.json + claude-accounts/<id>/) ────────
+  // Arquivo raiz próprio, e NÃO uma chave em preferences.json: aquele arquivo é
+  // compartilhado com o app nativo Swift, que regravaria o preferences sem a
+  // chave que ele não conhece — e as contas sumiriam no primeiro save de lá.
+
+  async loadClaudeAccounts(): Promise<ClaudeAccount[]> {
+    const raw = await this.readJSON(paths.claudeAccounts())
+    if (!Array.isArray(raw)) return []
+    return raw
+      .map((item) => asRecord(item))
+      .filter((o) => typeof o.id === 'string' && o.id.length > 0)
+      .map((o) => ({
+        id: String(o.id),
+        label: typeof o.label === 'string' && o.label ? o.label : String(o.id),
+        createdAt: typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString()
+      }))
+  }
+
+  async saveClaudeAccounts(accounts: ClaudeAccount[]): Promise<void> {
+    await this.atomicWrite(paths.claudeAccounts(), this.stringify(accounts))
+  }
+
+  /**
+   * Cria o diretório de uma conta e liga o que ela HERDA do ~/.claude do
+   * usuário: settings, skills, plugins, comandos e subagentes. O que não é
+   * ligado — credenciais, sessões, histórico, projetos — é justamente o que
+   * precisa ficar separado para duas contas coexistirem.
+   *
+   * Symlink, não cópia: settings e skills continuam sendo UM lugar só, então
+   * editar a skill no ~/.claude vale para todas as contas. No Windows o link
+   * simbólico exige privilégio; quando falha, copia e devolve o aviso, porque a
+   * diferença é visível para o usuário (a cópia congela no tempo).
+   */
+  async createClaudeAccountDir(dir: string, inheritFrom: string): Promise<string[]> {
+    await mkdir(dir, { recursive: true })
+    const warnings: string[] = []
+    for (const entry of CLAUDE_INHERITED_ENTRIES) {
+      const source = join(inheritFrom, entry)
+      const target = join(dir, entry)
+      let isDir: boolean
+      try {
+        isDir = (await stat(source)).isDirectory()
+      } catch {
+        continue // o usuário não tem esse arquivo/pasta; não há o que herdar
+      }
+      if (await this.exists(target)) continue
+      try {
+        await symlink(source, target, isDir ? 'junction' : 'file')
+      } catch {
+        try {
+          await cp(source, target, { recursive: true })
+          warnings.push(`'${entry}' foi copiado em vez de ligado (o sistema recusou o link)`)
+        } catch (err) {
+          log.warn('claude-accounts', `não deu para herdar '${entry}'`, err)
+          warnings.push(`'${entry}' não pôde ser herdado do ~/.claude`)
+        }
+      }
+    }
+    return warnings
+  }
+
+  async deleteClaudeAccountDir(dir: string): Promise<void> {
+    // `rm` não segue symlink: apaga o link, nunca o ~/.claude do outro lado.
+    await rm(dir, { recursive: true, force: true })
+  }
+
+  /**
+   * O que o `claude` já gravou naquele diretório: quem está logado e se há
+   * credencial. `configFile` é o `.claude.json` do CLAUDE_CONFIG_DIR — na conta
+   * padrão ele mora no home, e não dentro do ~/.claude (ver claudeAccountInfo).
+   */
+  async readClaudeProfile(
+    configFile: string,
+    credentialsFile: string
+  ): Promise<{ email: string | null; plan: string | null; authenticated: boolean }> {
+    const raw = asRecord(await this.readJSON(configFile))
+    const account = asRecord(raw.oauthAccount)
+    return {
+      email: typeof account.emailAddress === 'string' ? account.emailAddress : null,
+      plan: typeof account.organizationType === 'string' ? account.organizationType : null,
+      authenticated: await this.exists(credentialsFile)
+    }
   }
 
   // ─── Índice de projetos (projects.json) ─────────────────────────────────────

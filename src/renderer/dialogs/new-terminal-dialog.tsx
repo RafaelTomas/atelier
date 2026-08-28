@@ -8,6 +8,8 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import type { AgentRole, TerminalDraft, TerminalTheme, UUID } from '@shared/types'
+import { DEFAULT_CLAUDE_ACCOUNT_ID } from '@shared/types'
+import { ADD_ACCOUNT, accountLabel, isClaudeCommand } from '../claude-accounts'
 import { Icon, ICON_NAMES } from '../node-icons'
 import { shortenPath } from '../paths'
 import { store, useStore } from '../state/store'
@@ -54,7 +56,8 @@ function emptyDraft(workingDirectory: string): TerminalDraft {
     themeId: SYSTEM_THEME_ID,
     fontFamily: null,
     fontSize: null,
-    assignedRoleId: null
+    assignedRoleId: null,
+    claudeAccountId: null
   }
 }
 
@@ -227,6 +230,8 @@ function DetailsTab({
         />
       </div>
 
+      <ClaudeAccountField draft={draft} patch={patch} />
+
       <div className="field-row">
         <label className="field-label">Diretório de Trabalho</label>
         <span className="path-display" title={draft.workingDirectory}>
@@ -244,6 +249,84 @@ function DetailsTab({
         </p>
       )}
     </div>
+  )
+}
+
+/**
+ * Seletor de conta do Claude. Só aparece para terminal que roda `claude`: para
+ * um shell ou para o Codex a linha seria ruído, porque `CLAUDE_CONFIG_DIR` não
+ * significa nada para eles.
+ *
+ * "Adicionar conta…" cria só o DIRETÓRIO da conta. O login não acontece aqui —
+ * acontece no terminal, quando o `claude` subir naquela conta e pedir /login.
+ * É por isso que a conta recém-criada aparece marcada como não autenticada em
+ * vez de o diálogo tentar autenticá-la.
+ */
+function ClaudeAccountField({ draft, patch }: TabProps): JSX.Element | null {
+  const { claudeAccounts } = useStore()
+  const [adding, setAdding] = useState(false)
+  const [newLabel, setNewLabel] = useState('')
+
+  if (!isClaudeCommand(draft)) return null
+
+  const create = async (): Promise<void> => {
+    const id = await store.createClaudeAccount(newLabel)
+    setAdding(false)
+    setNewLabel('')
+    if (id) patch({ claudeAccountId: id })
+  }
+
+  return (
+    <>
+      <div className="field-row">
+        <label className="field-label">Conta Claude</label>
+        <select
+          className="field-input"
+          value={draft.claudeAccountId ?? DEFAULT_CLAUDE_ACCOUNT_ID}
+          onChange={(e) => {
+            if (e.target.value === ADD_ACCOUNT) {
+              setAdding(true)
+              return
+            }
+            patch({
+              claudeAccountId:
+                e.target.value === DEFAULT_CLAUDE_ACCOUNT_ID ? null : e.target.value
+            })
+          }}
+        >
+          {claudeAccounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {accountLabel(a)}
+            </option>
+          ))}
+          <option value={ADD_ACCOUNT}>Adicionar conta…</option>
+        </select>
+      </div>
+
+      {adding && (
+        <div className="inline-editor">
+          <input
+            autoFocus
+            className="field-input"
+            value={newLabel}
+            placeholder="Nome da conta (ex: Trabalho)"
+            onChange={(e) => setNewLabel(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && void create()}
+          />
+          <button type="button" className="btn is-primary" onClick={() => void create()}>
+            Criar
+          </button>
+          <button type="button" className="btn" onClick={() => setAdding(false)}>
+            Cancelar
+          </button>
+          <p className="field-hint">
+            A conta nasce sem login: abra um terminal nela e o próprio Claude
+            pede o /login. Settings, skills e plugins do seu ~/.claude são
+            reaproveitados.
+          </p>
+        </div>
+      )}
+    </>
   )
 }
 

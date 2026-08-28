@@ -122,7 +122,10 @@ function decodeTerminal(raw: Record<string, unknown>): TerminalContent {
     lastActiveAt: decodeOptionalDate(raw.lastActiveAt),
     themeId: optStr(raw.themeId),
     fontFamily: optStr(raw.fontFamily),
-    fontSize: optNum(raw.fontSize)
+    fontSize: optNum(raw.fontSize),
+    // Chave nova: terminal gravado antes das contas (ou pelo app nativo) volta
+    // como null, que é a conta padrão — o comportamento que ele já tinha.
+    claudeAccountId: optStr(raw.claudeAccountId)
   }
 }
 
@@ -433,6 +436,7 @@ export function makeTerminalContent(
     themeId: null,
     fontFamily: null,
     fontSize: null,
+    claudeAccountId: null,
     ...opts
   }
 }

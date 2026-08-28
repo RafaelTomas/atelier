@@ -58,6 +58,15 @@ export interface TerminalContent {
    * `null` (ou `DEFAULT_CLAUDE_ACCOUNT_ID`) = a conta padrão, ~/.claude.
    */
   claudeAccountId: string | null
+  /**
+   * Terminal que criou este pelo `atelier recruit`. `null` = nasceu da mão do
+   * usuário, no diálogo.
+   *
+   * É a permissão do `atelier dismiss`: um agente só desfaz o que ele mesmo
+   * recrutou. Sem esse registro, "remover um terminal conectado" deixaria um
+   * agente apagar o trabalho em andamento de outro — inclusive o do usuário.
+   */
+  recruitedBy: UUID | null
 }
 
 export type StorageMode = { kind: 'managed' } | { kind: 'custom'; path: string }

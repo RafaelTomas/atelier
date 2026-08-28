@@ -125,7 +125,10 @@ function decodeTerminal(raw: Record<string, unknown>): TerminalContent {
     fontSize: optNum(raw.fontSize),
     // Chave nova: terminal gravado antes das contas (ou pelo app nativo) volta
     // como null, que é a conta padrão — o comportamento que ele já tinha.
-    claudeAccountId: optStr(raw.claudeAccountId)
+    claudeAccountId: optStr(raw.claudeAccountId),
+    // Sem registro de quem recrutou, o terminal conta como criado pelo usuário
+    // — e o `atelier dismiss` recusa removê-lo. É o default seguro.
+    recruitedBy: raw.recruitedBy ? normalizeUUID(raw.recruitedBy) : null
   }
 }
 
@@ -437,6 +440,7 @@ export function makeTerminalContent(
     fontFamily: null,
     fontSize: null,
     claudeAccountId: null,
+    recruitedBy: null,
     ...opts
   }
 }

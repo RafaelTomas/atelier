@@ -64,13 +64,28 @@ atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd
 
 Creates a terminal node already cabled to you, so you can hand work to it with
 \`ask\`. Default preset is \`claude\`; without \`--cwd\` it starts in YOUR working
-directory.
+directory. \`--account\` picks which Claude login the new agent runs under (the
+names the user set up in Atelier); without it, the agent uses the default one.
 A recruited agent boots only when its node is on screen: run \`atelier list\` and
 wait for it to leave \`[not started]\` before asking it anything.
 
 Recruit when the work is genuinely parallel or belongs to a different
 responsibility — not to split a task you can finish yourself. The canvas refuses
 to go past a dozen terminals.
+
+## Dismiss an agent you recruited
+
+\`\`\`
+atelier dismiss "Name" [--force]
+\`\`\`
+
+Kills the process and removes the node from the canvas. You can only dismiss an
+agent YOU recruited — never the user's own terminal, and never a colleague's,
+even when you are cabled to it. Dismissing an agent that is still working is
+refused; run \`check\` first, and pass \`--force\` only when you are sure killing
+it mid-task is what you want. Dismiss when the work you handed over is finished
+and the node would just sit there; leave it alone if the user might still want
+to read its screen.
 
 ## Your own responsibility
 

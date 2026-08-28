@@ -60,9 +60,9 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
   }
 
   // Teto de terminais por canvas. Um agente que recruta em laço encheria o
-  // workspace de PTYs — e `dismiss` não existe, então cada nó a mais é trabalho
-  // manual do usuário para remover. Criar na mão continua livre: o teto é do
-  // CLI, não do canvas.
+  // workspace de PTYs, e `dismiss` só desfaz o que o PRÓPRIO chamador criou —
+  // o resto sobra como trabalho manual do usuário. Criar na mão continua livre:
+  // o teto é do CLI, não do canvas.
   const existing = ws.nodes.filter((n) => n.content.type === 'terminal').length
   if (existing >= Constants.recruitMaxTerminals) {
     return `error: this canvas already has ${existing} terminals (limit for 'recruit' is ${Constants.recruitMaxTerminals}). Ask the user to remove one, or to create the terminal by hand.`
@@ -119,7 +119,9 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
     color: preset.color,
     workingDirectory,
     assignedRoleId,
-    claudeAccountId
+    claudeAccountId,
+    // Quem recrutou é quem pode dispensar — ver handlers/dismiss.ts.
+    recruitedBy: tid
   })
 
   const spot = freeSpotRightOf(ws, caller, TERMINAL_SIZE)
@@ -135,6 +137,6 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
   return [
     `Recruited '${name}' (${preset.label}) in ${where}${role}${account}, connected to this terminal.`,
     "It boots when its node is on screen — run 'atelier list' and wait for it to leave [not started]",
-    'before asking it anything.'
+    "before asking it anything. When it is done, 'atelier dismiss' removes it."
   ].join('\n')
 }

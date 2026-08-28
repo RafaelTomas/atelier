@@ -70,6 +70,9 @@ await esbuild.build({
       // O registro que o renderer alimenta: aqui não há renderer, então o teste
       // empurra no lugar dele — é o único jeito de exercitar o buffer sujo.
       export { setEditorState, resetEditors } from './src/main/core/editor/editor-registry.ts'
+      // A permissão do dismiss: 'ocupado' não existe sem PTY, e é a regra que
+      // ninguém quer descobrir quebrada em produção.
+      export { dismissRefusal } from './src/main/core/interagent/handlers/dismiss.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -95,8 +98,9 @@ const { readTextFile, writeTextFile, renameEntry, duplicateEntry, MAX_TEXT_BYTES
 const { useSafeStorage, makePortalContent, makeSecretVaultContent } = core
 const { envForTerminal, resolveTemplate, secretForPortal, maskForTerminal } = core
 const { quoteForShell } = core
-const { setEditorState, resetEditors } = core
 const { childEnv, prependPath } = core
+const { setEditorState, resetEditors } = core
+const { dismissRefusal } = core
 
 /** Fala o protocolo real do atelier por socket. */
 function cli(args, terminalId) {
@@ -502,7 +506,7 @@ await test('comando desconhecido não derruba o servidor', async () => {
 })
 
 await test('comando não portado responde de forma honesta', async () => {
-  const out = await cli(['dismiss', 'x'], terminalId)
+  const out = await cli(['connect', 'x'], terminalId)
   assert.match(out, /ainda não implementado/)
 })
 
@@ -534,6 +538,51 @@ await test('recruit recusa papel inexistente sem criar nó', async () => {
 
 await test('recruit sem nome devolve o uso', async () => {
   assert.match(await cli(['recruit'], terminalId), /usage: atelier recruit/)
+})
+
+await test('dismiss remove o agente que o chamador recrutou', async () => {
+  await cli(['recruit', 'Dispensavel'], terminalId)
+  const antes = ws.nodes.length
+  const out = await cli(['dismiss', 'Dispensavel'], terminalId)
+  assert.match(out, /Dismissed 'Dispensavel'/)
+  assert.equal(ws.nodes.length, antes - 1, 'o nó continuou no canvas')
+  assert.doesNotMatch(await cli(['list'], terminalId), /Dispensavel/)
+})
+
+await test('dismiss recusa terminal que o chamador não recrutou', async () => {
+  await cli(['recruit', 'Do Usuario'], terminalId)
+  const alvo = ws.nodes.find(
+    (n) => n.content.type === 'terminal' && n.content.value.name === 'Do Usuario'
+  )
+  // Simula o terminal criado à mão pelo usuário: sem registro de quem recrutou.
+  alvo.content.value.recruitedBy = null
+
+  const out = await cli(['dismiss', 'Do Usuario'], terminalId)
+  assert.match(out, /was not recruited by you/)
+  assert.ok(ws.node(alvo.id), 'o nó foi removido apesar da recusa')
+})
+
+await test('dismiss recusa o próprio chamador e nome inexistente', async () => {
+  const eu = ws.node(terminalId).content.value.name
+  assert.match(await cli(['dismiss', eu], terminalId), /cannot dismiss itself/)
+  assert.match(await cli(['dismiss', 'ninguem'], terminalId), /not found/)
+  assert.match(await cli(['dismiss'], terminalId), /usage: atelier dismiss/)
+})
+
+await test('dismiss não mata agente ocupado sem --force', () => {
+  const eu = '11111111-1111-4111-8111-111111111111'
+  const outro = '22222222-2222-4222-8222-222222222222'
+  const base = { name: 'Ocupado', callerId: eu, targetId: outro, recruitedBy: eu }
+
+  assert.match(dismissRefusal({ ...base, busy: true, force: false }), /still working/)
+  assert.equal(dismissRefusal({ ...base, busy: true, force: true }), null)
+  assert.equal(dismissRefusal({ ...base, busy: false, force: false }), null)
+  // A permissão vem ANTES do --force: forçar não vira licença para matar o
+  // terminal de outro.
+  assert.match(
+    dismissRefusal({ ...base, recruitedBy: outro, busy: false, force: true }),
+    /was not recruited by you/
+  )
 })
 
 await test('recruit para no teto de terminais do canvas', async () => {

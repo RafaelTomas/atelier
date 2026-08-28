@@ -53,6 +53,21 @@ type NewNodeKind =
   | 'widget'
   | 'secretVault'
 
+/**
+ * Estado de um editor de código, empurrado ao main. Espelha o `EditorState` de
+ * core/editor/editor-registry.ts — a forma é duplicada aqui, e não importada,
+ * porque o preload não pode alcançar o núcleo do main.
+ */
+interface EditorPush {
+  path: string
+  dirty: boolean
+  /** Linhas 1-based. null = só cursor. */
+  selection: { from: number; to: number } | null
+  cursorLine: number
+  /** Só enquanto sujo: arquivo limpo o main lê do disco. */
+  buffer: string | null
+}
+
 /** `ok` diz se a ação passou; `message` é o que o git respondeu, resumido. */
 interface GitActionResult {
   ok: boolean
@@ -393,6 +408,17 @@ const api = {
     unwatch: (path: string): Promise<void> => ipcRenderer.invoke('fs:unwatch', path),
     onFileChanged: (cb: (p: { path: string }) => void): Unsubscribe => on('fs:file-changed', cb),
     onFileRemoved: (cb: (p: { path: string }) => void): Unsubscribe => on('fs:file-removed', cb)
+  },
+
+  /**
+   * O que só o renderer sabe sobre um editor aberto: arquivo, buffer sujo,
+   * cursor e seleção. `send`, não `invoke`: é notificação, e o único caminho por
+   * onde o main pode responder às perguntas do agente sobre o que o usuário está
+   * olhando. `state` nulo apaga a entrada (desmonte do nó).
+   */
+  editor: {
+    push: (nodeId: UUID, state: EditorPush | null): void =>
+      ipcRenderer.send('editor:state', nodeId, state)
   },
 
   events: {

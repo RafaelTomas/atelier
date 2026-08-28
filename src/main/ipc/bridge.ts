@@ -45,6 +45,9 @@ import { ipcSocketPath, dataDir } from '../core/persistence/paths'
 import { listDirectory } from '../core/projects/file-tree'
 import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../core/projects/file-ops'
 import { fileWatcher } from '../core/projects/file-watcher'
+import type { EditorState } from '../core/editor/editor-registry'
+import { clearEditorState, setEditorState } from '../core/editor/editor-registry'
+import { allowedRoots } from '../core/projects/allowed-roots'
 import { resolveAllowedPath, resolveAllowedTarget } from '../core/projects/fs-access'
 import * as gitActions from '../core/git/actions'
 import { status as gitStatus, treeStatus as gitTreeStatus } from '../core/git/git'
@@ -658,25 +661,6 @@ export function registerIPC(): void {
   })
 
   // ─── Sistema de arquivos (árvore do nó de projeto) ──────────────────────────
-
-  /**
-   * Raízes que o renderer pode ler: os projetos do índice, o diretório do
-   * workspace ativo e o rootPath de cada nó de árvore aberto. Recalculado a
-   * cada chamada de propósito — ver fs-access.ts.
-   */
-  function allowedRoots(): { roots: string[] } {
-    const roots = projectIndex.all.map((p) => p.path)
-    const ws = appState.activeWorkspace
-    if (ws) {
-      if (ws.payload.workingDirectory) roots.push(ws.payload.workingDirectory)
-      for (const node of ws.nodes) {
-        if (node.content.type === 'fileTree' && node.content.value.rootPath) {
-          roots.push(node.content.value.rootPath)
-        }
-      }
-    }
-    return { roots }
-  }
 
   ipcMain.handle('fs:list-dir', async (_e, path: string) => {
     const allowed = await resolveAllowedPath(path, allowedRoots())
@@ -1349,6 +1333,24 @@ export function registerIPC(): void {
   ipcMain.handle('vault:access-log', async (_e, workspaceId: UUID, limit?: number) =>
     persistence.readVaultAccess(workspaceId, typeof limit === 'number' ? limit : 20)
   )
+
+  // ─── Estado dos editores de código ──────────────────────────────────────────
+
+  /**
+   * O renderer empurra o que só ele sabe: qual arquivo está aberto, se o buffer
+   * difere do disco, onde está o cursor e o que está selecionado.
+   *
+   * `ipcMain.on`, não `handle`: é notificação, não pergunta — o renderer não tem
+   * o que fazer com uma resposta, e um `invoke` a cada 300 ms de digitação
+   * pagaria um round-trip por nada. `state` nulo é o desmonte do nó: sem ele o
+   * main afirmaria "há um editor neste arquivo" depois do nó ter saído da tela.
+   *
+   * Ver core/editor/editor-registry.ts.
+   */
+  ipcMain.on('editor:state', (_e, nodeId: UUID, state: EditorState | null) => {
+    if (state) setEditorState(nodeId, state)
+    else clearEditorState(nodeId)
+  })
 
   // ─── Streams do PTY para a UI ───────────────────────────────────────────────
 

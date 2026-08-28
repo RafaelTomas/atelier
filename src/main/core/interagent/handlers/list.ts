@@ -1,5 +1,6 @@
 /** `atelier list` — agentes, notas e portais conectados ao chamador. */
 import type { UUID } from '@shared/types'
+import { editorState } from '../../editor/editor-registry'
 import { nodeDisplayName } from '../../models/node-content'
 import { roles } from '../../state/role-store'
 import { terminals } from '../../terminal/terminal-manager'
@@ -52,6 +53,24 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
       const dims = t ? `${t.rowCount} rows × ${t.columnCount} cols` : ''
       lines.push(`  ${nodeDisplayName(node.content)}  ${dims}${t?.truncated ? ' (truncated)' : ''}`)
     }
+  }
+
+  // Editores: o CAMINHO ABSOLUTO é o dado que serve para algo — é o que
+  // destrava as ferramentas de arquivo do próprio agente, que são melhores para
+  // editar do que qualquer verbo que caberia neste CLI (ver Decisão C do
+  // 2026-08-28-PLANO-editor-e-terminal.md). O `(unsaved changes)` vem do
+  // registro alimentado pelo renderer; sem registro (nó fora da tela, ainda não
+  // montado) sai SEM sufixo, que é o estado honesto: não sei.
+  const editors = nodes.filter((n) => n.content.type === 'codeEditor')
+  if (editors.length > 0) {
+    lines.push('', 'Connected editors:')
+    for (const node of editors) {
+      const path = node.content.type === 'codeEditor' ? node.content.value.filePath : ''
+      const state = editorState(node.id)
+      const suffix = state?.dirty ? '  (unsaved changes)' : ''
+      lines.push(`  ${nodeDisplayName(node.content)}  ${path}${suffix}`)
+    }
+    lines.push("  Read them with 'atelier editor read'; edit the file with your own tools.")
   }
 
   // Cofres: NOME e contagem, nunca as chaves e muito menos os valores. Quem

@@ -427,6 +427,15 @@ export function connectionKindForTypes(
   // disco ambos caem em `dataConnections` (só referências de id), e o sentido é
   // o mesmo — um agente ligado a um artefato que ele produziu.
   if (pair.has('terminal') && pair.has('image')) return 'data'
+  // Editor de código ligado a um agente: MESMO cabo `data`, não um kind novo.
+  // Em disco cai em `dataConnections`, cujos campos são só referências de id
+  // (`terminalId`/`dataNodeId`) — `codeEditor` é caso de enum desde a v3 e a
+  // lista existe desde a v4, então nenhum documento muda de forma e o
+  // `schemaVersion` não sobe. A alternativa descartada era um `kind: 'file'`
+  // com `fileConnections` próprio: custaria uma migração inteira, e um Atelier
+  // mais antigo ignoraria a chave nova e apagaria os cabos no primeiro
+  // autosave. O ganho seria só uma cor de cabo diferente.
+  if (pair.has('terminal') && pair.has('codeEditor')) return 'data'
   // Um kind só para terminal↔cofre e portal↔cofre — e, mais tarde,
   // dataTable↔cofre. Em disco os campos são neutros (`nodeIdA`/`nodeIdB`),
   // como no crossFloor, justamente para o par novo não pedir lista nova.

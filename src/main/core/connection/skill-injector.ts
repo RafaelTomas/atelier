@@ -27,7 +27,7 @@ const OWNER_MARKER = '<!-- installed-by: atelier -->'
 
 const SKILL_MD = `---
 name: atelier
-description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, read secrets from a connected vault (including logging into a page without ever seeing the password), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', 'show this query result on the canvas', 'put this image on the canvas', or 'describe the projects'.
+description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), read the file the user has open in a connected code editor node (including unsaved changes and the lines they selected), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, read secrets from a connected vault (including logging into a page without ever seeing the password), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', 'what file am I looking at', 'explain/refactor this selection', 'show this query result on the canvas', 'put this image on the canvas', or 'describe the projects'.
 ---
 
 ${OWNER_MARKER}
@@ -76,6 +76,42 @@ atelier note read "Note Name" [offset] [limit]
 atelier note write "Note Name" "content"
 atelier note edit "Note Name" "old text" "new text"
 \`\`\`
+
+## Code editors
+
+A code editor node is a file open on the canvas — usually the file the user is
+looking at right now. The cable answers the three things you cannot get from
+disk: **which** file it is, **what** the user selected, and whether the buffer
+has changes that were never saved.
+
+\`\`\`
+atelier editor list
+atelier editor open <absolute path>
+atelier editor read "File" [offset] [limit] [--selection]
+atelier editor close "File"
+\`\`\`
+
+\`list\` prints the ABSOLUTE PATH of every connected editor, plus the cursor line
+and the selected line range. That path is the point of the cable: **read here,
+but edit the file with your own tools** — your \`Edit\`/\`Write\` have the diff,
+the permission prompt and the history that this CLI does not, the file is the
+same file, and the node reloads by itself afterwards. There is deliberately no
+\`editor write\`.
+
+\`read\` gives the buffer when it differs from disk (prefixed with
+\`# unsaved changes — not on disk\`), otherwise the file. \`offset\`/\`limit\` are
+in lines, like \`note read\`. \`--selection\` returns only the lines the user
+selected, which is what answers "explain THIS" or "refactor THIS method"; with
+nothing selected it is an error, never a guessed range.
+
+**An editor with unsaved changes is one you do not touch.** Writing the file
+under it destroys work nobody has reviewed — ask the user to save first, then
+edit. \`close\` refuses a dirty editor for the same reason.
+
+\`open\` creates the node already cabled to you, and only for a path under an
+indexed project, the workspace working directory or a file-tree root. A path
+already open in another node gives you THAT node back instead of a second buffer
+fighting over the same file.
 
 ## Portals
 

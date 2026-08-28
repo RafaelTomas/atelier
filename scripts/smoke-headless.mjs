@@ -67,6 +67,9 @@ await esbuild.build({
       export { makePortalContent, makeSecretVaultContent } from './src/main/core/models/node-content.ts'
       export { envForTerminal, resolveTemplate, secretForPortal } from './src/main/core/vault/vault-manager.ts'
       export { maskForTerminal } from './src/main/core/vault/masking.ts'
+      // O registro que o renderer alimenta: aqui não há renderer, então o teste
+      // empurra no lugar dele — é o único jeito de exercitar o buffer sujo.
+      export { setEditorState, resetEditors } from './src/main/core/editor/editor-registry.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -92,6 +95,7 @@ const { readTextFile, writeTextFile, renameEntry, duplicateEntry, MAX_TEXT_BYTES
 const { useSafeStorage, makePortalContent, makeSecretVaultContent } = core
 const { envForTerminal, resolveTemplate, secretForPortal, maskForTerminal } = core
 const { quoteForShell } = core
+const { setEditorState, resetEditors } = core
 const { childEnv, prependPath } = core
 
 /** Fala o protocolo real do atelier por socket. */
@@ -1357,6 +1361,79 @@ await test('isPathAllowed barra caminho fora das raízes permitidas', async () =
   // O separador no prefixo importa: 'proj' não pode liberar 'projeto-x'
   assert.equal(await isPathAllowed(projectTree + '-outro', permitido), false)
   assert.equal(await isPathAllowed('nao/absoluto', permitido), false)
+})
+
+// ─── Editor no cabo, pelo CLI ─────────────────────────────────────────────────
+// O par terminal ↔ codeEditor de ponta a ponta: o cabo, a seção no `list`, e a
+// regra que justifica o comando — buffer sujo vence o disco.
+
+// Dentro de um projeto INDEXADO: é o que a allowlist de `allowed-roots` libera.
+const editorFile = join(projectTree, 'b', 'editado.ts')
+await writeFile(editorFile, 'linha 1\nlinha 2\nlinha 3\n')
+let editorNodeId
+
+await test('atelier editor open cria editor já conectado ao chamador', async () => {
+  const out = await cli(['editor', 'open', editorFile], terminalId)
+  assert.match(out, /Opened 'editado\.ts'/)
+
+  const abertos = ws.nodes.filter((n) => n.content.type === 'codeEditor')
+  editorNodeId = abertos[abertos.length - 1].id
+  // Decisão A: reusa o cabo `data`, sem kind novo e sem subir o schemaVersion.
+  assert.ok(
+    ws.connections.some(
+      (c) => (c.nodeIdA === editorNodeId || c.nodeIdB === editorNodeId) && c.kind === 'data'
+    ),
+    'o editor nasceu sem o cabo data'
+  )
+})
+
+await test('editor open fora da allowlist recusa sem criar nó', async () => {
+  const antes = ws.nodes.length
+  const out = await cli(['editor', 'open', '/etc/passwd'], terminalId)
+  assert.match(out, /outside the paths/)
+  assert.equal(ws.nodes.length, antes)
+})
+
+await test('atelier list ganha a seção dos editores, com o caminho absoluto', async () => {
+  resetEditors()
+  const out = await cli(['list'], terminalId)
+  assert.match(out, /Connected editors/)
+  assert.ok(out.includes(editorFile), 'a listagem não trouxe o caminho absoluto')
+})
+
+await test('atelier editor read devolve o conteúdo do arquivo', async () => {
+  resetEditors()
+  assert.equal(await cli(['editor', 'read', 'editado.ts'], terminalId), 'linha 1\nlinha 2\nlinha 3\n')
+  // offset/limit em linhas, como o `note read`
+  assert.equal(await cli(['editor', 'read', 'editado.ts', '1', '1'], terminalId), 'linha 2')
+})
+
+await test('read de editor sujo devolve o BUFFER, não o disco', async () => {
+  resetEditors()
+  setEditorState(editorNodeId, {
+    path: editorFile,
+    dirty: true,
+    buffer: 'linha 1 mexida\nlinha 2\n',
+    selection: { from: 1, to: 1 },
+    cursorLine: 1
+  })
+  const out = await cli(['editor', 'read', 'editado.ts'], terminalId)
+  assert.match(out, /# unsaved changes — not on disk/)
+  assert.ok(out.includes('linha 1 mexida'), 'não devolveu o buffer')
+
+  const sel = await cli(['editor', 'read', 'editado.ts', '--selection'], terminalId)
+  assert.match(sel, /# lines 1-1/)
+  assert.ok(sel.includes('linha 1 mexida') && !sel.includes('linha 2'))
+})
+
+await test('editor close recusa buffer sujo e aceita depois de limpo', async () => {
+  const sujo = await cli(['editor', 'close', 'editado.ts'], terminalId)
+  assert.match(sujo, /unsaved changes/)
+  assert.ok(ws.node(editorNodeId), 'fechou o editor sujo')
+
+  resetEditors()
+  assert.match(await cli(['editor', 'close', 'editado.ts'], terminalId), /Closed editor/)
+  assert.equal(ws.node(editorNodeId), undefined)
 })
 
 await rm(projectTree, { recursive: true, force: true })

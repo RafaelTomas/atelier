@@ -25,7 +25,17 @@ async function loadCodec() {
   const outdir = await mkdtemp(join(tmpdir(), 'atelier-codec-'))
   const outfile = join(outdir, 'codec.mjs')
   await esbuild.build({
-    entryPoints: [join(ROOT, 'src/main/core/models/workspace.ts')],
+    // Bundle por stdin, e não por entryPoint único, porque o par de tipos que
+    // vira `kind` mora em shared/types.ts: testar a dedução pelo documento
+    // gravado provaria só o codec, e a regra que decide o cabo ficaria de fora.
+    stdin: {
+      contents: `
+        export * from './src/main/core/models/workspace.ts'
+        export { connectionKindForTypes } from './src/shared/types.ts'
+      `,
+      resolveDir: ROOT,
+      loader: 'ts'
+    },
     bundle: true,
     format: 'esm',
     platform: 'node',
@@ -53,7 +63,7 @@ function test(name, fn) {
 }
 
 const { mod, cleanup } = await loadCodec()
-const { decodeWorkspaceDocument, encodeWorkspaceDocument } = mod
+const { decodeWorkspaceDocument, encodeWorkspaceDocument, connectionKindForTypes } = mod
 
 const raw = JSON.parse(readFileSync(join(ROOT, 'fixtures/full-workspace.json'), 'utf8'))
 const { payload } = decodeWorkspaceDocument(raw)
@@ -452,6 +462,64 @@ test('nó image faz round-trip no formato Maestri { image: { _0: … } }', () =>
   assert.ok(out.image && '_0' in out.image, 'perdeu o embrulho da variante')
   assert.equal(out.image._0.title, 'Gráfico de vendas')
   assert.match(out.image._0.addedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+})
+
+// ─── Editor de código ligado a um agente (cabo `data`, sem subir schema) ─────
+// A asserção que importa aqui é a do schemaVersion: o par novo REUSA o cabo de
+// dados justamente para não virar migração, e um `kind` próprio criado por
+// descuido apareceria primeiro como este número mudando.
+
+test('connectionKindForTypes reconhece terminal↔codeEditor nos dois sentidos', () => {
+  assert.equal(connectionKindForTypes('terminal', 'codeEditor'), 'data')
+  assert.equal(connectionKindForTypes('codeEditor', 'terminal'), 'data')
+})
+
+test('editor↔editor e editor↔portal continuam recusados', () => {
+  assert.equal(connectionKindForTypes('codeEditor', 'codeEditor'), null)
+  assert.equal(connectionKindForTypes('codeEditor', 'portal'), null)
+  assert.equal(connectionKindForTypes('codeEditor', 'secretVault'), null)
+})
+
+test('conexão terminal↔codeEditor faz round-trip por dataConnections', () => {
+  const doc = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      dataConnections: [
+        {
+          id: 'CCCCCCCC-0000-0000-0000-0000000000EE',
+          terminalId: 'DDDDDDDD-0000-0000-0000-0000000000EE',
+          dataNodeId: 'EEEEEEEE-0000-0000-0000-0000000000EE',
+          createdAt: '2026-08-28T00:00:00Z',
+          ropePoints: []
+        }
+      ]
+    }
+  })
+  const conn = doc.payload.connections.find((c) => c.kind === 'data')
+  assert.ok(conn, 'conexão data não foi decodificada')
+  const back = encodeWorkspaceDocument(doc.payload)
+  assert.equal(back.payload.dataConnections.length, 1)
+  assert.equal(back.payload.dataConnections[0].dataNodeId, 'EEEEEEEE-0000-0000-0000-0000000000EE')
+})
+
+test('o cabo editor↔terminal não sobe o schemaVersion', () => {
+  const doc = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      dataConnections: [
+        {
+          id: 'CCCCCCCC-0000-0000-0000-0000000000EF',
+          terminalId: 'DDDDDDDD-0000-0000-0000-0000000000EE',
+          dataNodeId: 'EEEEEEEE-0000-0000-0000-0000000000EE',
+          createdAt: '2026-08-28T00:00:00Z',
+          ropePoints: []
+        }
+      ]
+    }
+  })
+  assert.equal(encodeWorkspaceDocument(doc.payload).schemaVersion, 7)
 })
 
 test('conexão terminal↔image vira kind "data" e volta para dataConnections', () => {

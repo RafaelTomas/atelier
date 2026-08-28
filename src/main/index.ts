@@ -37,6 +37,23 @@ import { createMainWindow } from './window'
 app.setName('Atelier')
 
 /**
+ * O UA que o Chromium do Electron manda de fábrica carrega dois tokens que
+ * navegador nenhum tem: o nome/versão do app (`Atelier/0.1.0`) e
+ * `Electron/31.7.7`. Sites que fazem sniffing de browser — WhatsApp Web é o
+ * caso que apareceu — não reconhecem essa string e mandam "atualize para o
+ * Chrome 100 ou posterior", mesmo rodando sobre um Chromium bem mais novo que
+ * isso. Tirar os dois tokens deixa um UA de Chrome legítimo, com a versão real
+ * do Chromium embutido.
+ *
+ * `userAgentFallback` vale para TODAS as sessões, inclusive as partitions dos
+ * <webview> dos Portais, que é onde isso importa. Precisa ser setado antes de
+ * qualquer webContents nascer.
+ */
+app.userAgentFallback = app.userAgentFallback
+  .replace(/ Electron\/[\d.]+/, '')
+  .replace(new RegExp(` ${app.getName()}\\/[\\d.]+`, 'i'), '')
+
+/**
  * Dev e produção lado a lado: o lock de instância única do Electron é indexado
  * pelo diretório `userData`, então sem separá-lo a instância de `npm run dev`
  * (que roda sobre um `ATELIER_HOME`) bate de frente com a produção e uma das

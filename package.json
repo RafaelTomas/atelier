@@ -15,6 +15,7 @@
     "postinstall": "electron-builder install-app-deps && node scripts/fix-native-deps.mjs",
     "pack:mac": "npm run build && electron-builder --mac",
     "pack:win": "npm run build && electron-builder --win",
+    "pack:win:docker": "npm run build && node scripts/pack-win-docker.mjs",
     "pack:linux": "npm run build && electron-builder --linux",
     "icon": "node scripts/make-icon.cjs",
     "test:codec": "node scripts/test-codec.mjs",

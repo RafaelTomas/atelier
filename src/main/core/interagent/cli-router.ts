@@ -9,6 +9,7 @@ import { handleAsk } from './handlers/ask'
 import { handleCheck } from './handlers/check'
 import { handleImage } from './handlers/image'
 import { handleEditor } from './handlers/editor'
+import { handleRecruit } from './handlers/recruit'
 import { handleList } from './handlers/list'
 import { handleNote } from './handlers/note'
 import { handlePortal } from './handlers/portal'
@@ -18,7 +19,7 @@ import { handleTable } from './handlers/table'
 import { handleVault } from './handlers/vault'
 import { interAgentServer } from './server'
 
-const COMMANDS = 'list ask check note portal editor table image vault role projects debug'
+const COMMANDS = 'list ask check recruit note portal editor table image vault role projects debug'
 
 export async function routeCLI(args: string[], terminalId: UUID | null): Promise<string> {
   const command = args[0]
@@ -31,6 +32,8 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
       return handleAsk(args, terminalId)
     case 'check':
       return handleCheck(args, terminalId)
+    case 'recruit':
+      return handleRecruit(args, terminalId)
     case 'note':
       return handleNote(args, terminalId)
     case 'portal':
@@ -51,7 +54,6 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
       return buildDebugInfo(terminalId)
 
     // Ainda não portados — respondem com mensagem honesta em vez de falhar mudo
-    case 'recruit':
     case 'dismiss':
     case 'connect':
     case 'preset':

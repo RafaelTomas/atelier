@@ -52,6 +52,8 @@ export const Constants = {
   /** Colagens de imagem no terminal com mais que isto (ms) são apagadas no boot. */
   imageTmpMaxAgeMs: 24 * 60 * 60 * 1000,
   agentIdleTimeoutMs: 2000,
+  /** Teto de terminais por canvas para o `atelier recruit` — ver handlers/recruit.ts. */
+  recruitMaxTerminals: 12,
   askResponseTimeoutMs: 30_000
 } as const
 

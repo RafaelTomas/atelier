@@ -27,7 +27,7 @@ const OWNER_MARKER = '<!-- installed-by: atelier -->'
 
 const SKILL_MD = `---
 name: atelier
-description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), read the file the user has open in a connected code editor node (including unsaved changes and the lines they selected), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, read secrets from a connected vault (including logging into a page without ever seeing the password), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', 'what file am I looking at', 'explain/refactor this selection', 'show this query result on the canvas', 'put this image on the canvas', or 'describe the projects'.
+description: Send messages to connected AI agents on the Atelier canvas and get their responses, or recruit a new agent as a terminal node already cabled to you. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), read the file the user has open in a connected code editor node (including unsaved changes and the lines they selected), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, read secrets from a connected vault (including logging into a page without ever seeing the password), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'open/recruit another agent', 'create/update a note', 'open/read a page in a portal', 'what file am I looking at', 'explain/refactor this selection', 'show this query result on the canvas', 'put this image on the canvas', or 'describe the projects'.
 ---
 
 ${OWNER_MARKER}
@@ -55,6 +55,22 @@ atelier check "Agent Name" 40
 \`ask\` blocks until the other agent goes idle. If it times out, do NOT re-send
 the prompt — run \`check\` to see progress and wait again. Never interrupt an
 agent that is still working, and do not edit files another agent is modifying.
+
+## Recruit another agent
+
+\`\`\`
+atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd /path] [--role "Role"] [--account "Account"]
+\`\`\`
+
+Creates a terminal node already cabled to you, so you can hand work to it with
+\`ask\`. Default preset is \`claude\`; without \`--cwd\` it starts in YOUR working
+directory.
+A recruited agent boots only when its node is on screen: run \`atelier list\` and
+wait for it to leave \`[not started]\` before asking it anything.
+
+Recruit when the work is genuinely parallel or belongs to a different
+responsibility — not to split a task you can finish yourself. The canvas refuses
+to go past a dozen terminals.
 
 ## Your own responsibility
 

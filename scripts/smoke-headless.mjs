@@ -502,8 +502,48 @@ await test('comando desconhecido não derruba o servidor', async () => {
 })
 
 await test('comando não portado responde de forma honesta', async () => {
-  const out = await cli(['recruit', 'x'], terminalId)
+  const out = await cli(['dismiss', 'x'], terminalId)
   assert.match(out, /ainda não implementado/)
+})
+
+// ─── Recrutar agente pelo CLI ─────────────────────────────────────────────────
+
+await test('atelier recruit cria terminal já conectado ao chamador', async () => {
+  const out = await cli(['recruit', 'Ajudante'], terminalId)
+  assert.match(out, /Recruited 'Ajudante'/)
+  // Aparece na lista do chamador: o cabo é o que dá o `ask` de graça
+  assert.match(await cli(['list'], terminalId), /Ajudante/)
+})
+
+await test('recruit herda o diretório do chamador e aceita --cwd', async () => {
+  const out = await cli(['recruit', 'Com CWD', '--cwd', home], terminalId)
+  assert.match(out, new RegExp(`in ${home}`))
+})
+
+await test('recruit recusa preset desconhecido sem criar nó', async () => {
+  const out = await cli(['recruit', 'Fantasma', '--preset', 'naoexiste'], terminalId)
+  assert.match(out, /unknown preset/)
+  assert.doesNotMatch(await cli(['list'], terminalId), /Fantasma/)
+})
+
+await test('recruit recusa papel inexistente sem criar nó', async () => {
+  const out = await cli(['recruit', 'Sem Papel', '--role', 'papel que não existe'], terminalId)
+  assert.match(out, /role .* not found/)
+  assert.doesNotMatch(await cli(['list'], terminalId), /Sem Papel/)
+})
+
+await test('recruit sem nome devolve o uso', async () => {
+  assert.match(await cli(['recruit'], terminalId), /usage: atelier recruit/)
+})
+
+await test('recruit para no teto de terminais do canvas', async () => {
+  let last = ''
+  // O teto é 12 e o canvas já tem alguns; o laço para no primeiro erro.
+  for (let i = 0; i < 20; i++) {
+    last = await cli(['recruit', `Excesso ${i}`], terminalId)
+    if (last.startsWith('error:')) break
+  }
+  assert.match(last, /limit for 'recruit'/)
 })
 
 // ─── Portais pelo CLI ─────────────────────────────────────────────────────────

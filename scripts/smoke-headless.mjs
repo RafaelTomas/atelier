@@ -206,6 +206,106 @@ await test('workspace relê do disco preservando nós e conexões', async () => 
   assert.equal(reloaded.connections[0].kind, 'note')
 })
 
+// ─── Grupos ───────────────────────────────────────────────────────────────────
+// As regras que o renderer NÃO pode garantir sozinho: um nó pertence a no
+// máximo um grupo, e apagar um nó não pode deixar a moldura contando fantasmas.
+
+let grupoWs
+let grupoNo
+let grupoA
+
+await test('criar grupo adota só nós que existem, sem repetir', async () => {
+  const criado = await appState.createWorkspace('Com Grupos', '')
+  const a = makeCanvasNode({ x: 0, y: 0, width: 100, height: 100 }, {
+    type: 'text',
+    value: { text: 'a', fontSize: 14, fontWeight: 'regular', color: '#000', alignment: 'left', fontFamily: 'sans', isItalic: false, isUnderlined: false, isStrikethrough: false, backgroundColor: null, lineHeight: 1.3, letterSpacing: 0 }
+  })
+  criado.addNode(a)
+
+  const g = criado.createGroup('Infra', { x: -50, y: -50, width: 400, height: 400 }, [
+    a.id,
+    a.id,
+    'DEADBEEF-0000-0000-0000-000000000000'
+  ])
+  assert.deepEqual(g.nodeIds, [a.id])
+  grupoWs = criado
+  grupoNo = a
+  grupoA = g
+})
+
+await test('entrar num grupo tira do outro — um dono por nó', async () => {
+  const b = grupoWs.createGroup('Apps', { x: 500, y: 0, width: 300, height: 300 }, [grupoNo.id])
+  assert.deepEqual(b.nodeIds, [grupoNo.id])
+  assert.deepEqual(grupoWs.group(grupoA.id).nodeIds, [], 'o nó ficou nos dois grupos')
+
+  // E o caminho de UM nó (o gesto de arrastar) segue a mesma regra.
+  grupoWs.setNodeGroup(grupoNo.id, grupoA.id)
+  assert.deepEqual(grupoWs.group(grupoA.id).nodeIds, [grupoNo.id])
+  assert.deepEqual(grupoWs.group(b.id).nodeIds, [])
+
+  // null solta de todos.
+  grupoWs.setNodeGroup(grupoNo.id, null)
+  assert.deepEqual(grupoWs.group(grupoA.id).nodeIds, [])
+  grupoWs.setNodeGroup(grupoNo.id, grupoA.id)
+})
+
+await test('apagar o nó tira o membro, mas a moldura fica', async () => {
+  grupoWs.removeNode(grupoNo.id)
+  const g = grupoWs.group(grupoA.id)
+  assert.ok(g, 'a moldura sumiu junto com o nó')
+  assert.deepEqual(g.nodeIds, [], 'o grupo ficou contando um nó que não existe')
+})
+
+await test('desagrupar tira a moldura e nada mais', async () => {
+  const n = makeCanvasNode({ x: 0, y: 0, width: 10, height: 10 }, {
+    type: 'text',
+    value: { text: 'b', fontSize: 14, fontWeight: 'regular', color: '#000', alignment: 'left', fontFamily: 'sans', isItalic: false, isUnderlined: false, isStrikethrough: false, backgroundColor: null, lineHeight: 1.3, letterSpacing: 0 }
+  })
+  grupoWs.addNode(n)
+  const g = grupoWs.createGroup('Temp', { x: 0, y: 0, width: 100, height: 100 }, [n.id])
+  grupoWs.removeGroup(g.id)
+  assert.equal(grupoWs.group(g.id), undefined)
+  assert.ok(grupoWs.node(n.id), 'desagrupar apagou o nó')
+})
+
+await test('updateFrames move a seleção inteira numa marcação só', async () => {
+  const mk = (x) =>
+    makeCanvasNode({ x, y: 0, width: 50, height: 50 }, {
+      type: 'text',
+      value: { text: 'c', fontSize: 14, fontWeight: 'regular', color: '#000', alignment: 'left', fontFamily: 'sans', isItalic: false, isUnderlined: false, isStrikethrough: false, backgroundColor: null, lineHeight: 1.3, letterSpacing: 0 }
+    })
+  const n1 = mk(0)
+  const n2 = mk(100)
+  grupoWs.addNode(n1)
+  grupoWs.addNode(n2)
+  grupoWs.isDirty = false
+
+  grupoWs.updateFrames([
+    { nodeId: n1.id, frame: { x: 10, y: 20, width: 50, height: 50 } },
+    { nodeId: n2.id, frame: { x: 110, y: 20, width: 50, height: 50 } },
+    { nodeId: 'DEADBEEF-0000-0000-0000-000000000000', frame: { x: 0, y: 0, width: 1, height: 1 } }
+  ])
+  assert.equal(grupoWs.node(n1.id).frame.x, 10)
+  assert.equal(grupoWs.node(n2.id).frame.y, 20)
+  assert.equal(grupoWs.isDirty, true)
+
+  // Lista vazia não suja o workspace: um arrasto que não moveu nada não é uma
+  // alteração, e sujar por isso faria o autosave regravar o arquivo à toa.
+  grupoWs.isDirty = false
+  grupoWs.updateFrames([])
+  assert.equal(grupoWs.isDirty, false)
+})
+
+await test('grupos sobrevivem ao round-trip em disco', async () => {
+  const g = grupoWs.group(grupoA.id)
+  await persistence.saveWorkspace(grupoWs.snapshot(), grupoWs.fileSchemaVersion)
+  const reloaded = await persistence.loadWorkspace(grupoWs.id)
+  const back = reloaded.groups.find((x) => x.id === g.id)
+  assert.ok(back, 'a moldura não voltou do disco')
+  assert.equal(back.title, 'Infra')
+  assert.deepEqual(back.frame, g.frame)
+})
+
 // ─── Reparo de notas que dividiam o mesmo .md ─────────────────────────────────
 
 await test('abrir separa notas gravadas com o mesmo arquivo', async () => {

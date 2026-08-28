@@ -17,6 +17,7 @@ import type {
   FsEntry,
   GitCommitEntry,
   GitStatus,
+  NodeGroup,
   Point,
   Project,
   Preferences,
@@ -91,6 +92,9 @@ const api = {
       ipcRenderer.invoke('node:remove', workspaceId, nodeId),
     setFrame: (workspaceId: UUID, nodeId: UUID, frame: Rect): Promise<void> =>
       ipcRenderer.invoke('node:set-frame', workspaceId, nodeId, frame),
+    /** Commit de um arrasto de seleção múltipla: um IPC em vez de N. */
+    setFrames: (workspaceId: UUID, entries: { nodeId: UUID; frame: Rect }[]): Promise<void> =>
+      ipcRenderer.invoke('node:set-frames', workspaceId, entries),
     bringToFront: (workspaceId: UUID, nodeId: UUID): Promise<void> =>
       ipcRenderer.invoke('node:bring-to-front', workspaceId, nodeId),
     patchContent: (
@@ -169,6 +173,33 @@ const api = {
     remove: (workspaceId: UUID, drawingId: UUID): Promise<void> =>
       ipcRenderer.invoke('drawing:remove', workspaceId, drawingId),
     clear: (workspaceId: UUID): Promise<void> => ipcRenderer.invoke('drawing:clear', workspaceId)
+  },
+
+  /**
+   * Molduras de grupo. Vivem ao lado dos desenhos no payload, não no array de
+   * nós — ver NodeGroup em @shared/types.
+   */
+  group: {
+    create: (
+      workspaceId: UUID,
+      title: string,
+      frame: Rect,
+      nodeIds: UUID[]
+    ): Promise<NodeGroup | null> =>
+      ipcRenderer.invoke('group:create', workspaceId, title, frame, nodeIds),
+    /** Patch raso: title, frame, color, isCollapsed — ou nodeIds inteiro. */
+    update: (
+      workspaceId: UUID,
+      groupId: UUID,
+      patch: Partial<Pick<NodeGroup, 'title' | 'frame' | 'color' | 'isCollapsed' | 'nodeIds'>>
+    ): Promise<NodeGroup | null> =>
+      ipcRenderer.invoke('group:update', workspaceId, groupId, patch),
+    /** Desagrupa: some a moldura, ficam os nós. */
+    remove: (workspaceId: UUID, groupId: UUID): Promise<void> =>
+      ipcRenderer.invoke('group:delete', workspaceId, groupId),
+    /** Muda o dono de UM nó. null = solta de qualquer grupo. */
+    setNode: (workspaceId: UUID, nodeId: UUID, groupId: UUID | null): Promise<void> =>
+      ipcRenderer.invoke('group:set-node', workspaceId, nodeId, groupId)
   },
 
   portal: {

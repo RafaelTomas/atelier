@@ -15,6 +15,7 @@ import type {
   Connection,
   DiscoveredProject,
   Drawing,
+  NodeGroup,
   Preferences,
   Project,
   Rect,
@@ -24,6 +25,7 @@ import type {
   WorkspacePayload
 } from '@shared/types'
 import { viewport } from '../canvas/viewport'
+import { boundsForNodes, groupOf } from '../canvas/group-geometry'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { quoteForShell } from '../paths'
 import { PDF_NODE_SIZE, isPdf } from '../pdf-viewer'
@@ -100,6 +102,18 @@ export interface AppSnapshot {
   activeId: UUID | null
   workspace: WorkspacePayload | null
   selection: UUID[]
+  /**
+   * Moldura de grupo selecionada. Fora de `selection`, e não dentro dela: um
+   * array com ids de dois tipos obrigaria toda leitura ("o que está
+   * selecionado?") a desambiguar antes de responder. Os dois são exclusivos —
+   * escolher um limpa o outro.
+   */
+  selectedGroupId: UUID | null
+  /**
+   * Grupo em foco: ele fica opaco e o resto do canvas apaga. Só em memória, não
+   * vai para o disco — é modo de leitura, não propriedade do grupo. `Esc` sai.
+   */
+  isolatedGroupId: UUID | null
   /** Nó de origem enquanto o usuário arrasta uma conexão nova. */
   connectingFrom: UUID | null
   /** Componente esperando o usuário desenhar a área onde vai nascer. */
@@ -183,6 +197,8 @@ const initial: AppSnapshot = {
   activeId: null,
   workspace: null,
   selection: [],
+  selectedGroupId: null,
+  isolatedGroupId: null,
   connectingFrom: null,
   placing: null,
   railRequest: null,
@@ -271,7 +287,14 @@ class Store {
   async openWorkspace(id: UUID): Promise<void> {
     const workspace = await window.atelier.workspace.open(id)
     const integrity = await window.atelier.workspace.integrity(id)
-    this.set({ workspace, integrity, activeId: id, selection: [] })
+    this.set({
+      workspace,
+      integrity,
+      activeId: id,
+      selection: [],
+      selectedGroupId: null,
+      isolatedGroupId: null
+    })
   }
 
   /**
@@ -315,7 +338,15 @@ class Store {
   async deleteWorkspace(id: UUID): Promise<void> {
     const entries = await window.atelier.workspace.remove(id)
     if (id === this.state.activeId) {
-      this.set({ entries, workspace: null, activeId: null, selection: [], integrity: null })
+      this.set({
+        entries,
+        workspace: null,
+        activeId: null,
+        selection: [],
+        selectedGroupId: null,
+        isolatedGroupId: null,
+        integrity: null
+      })
       return
     }
     this.set({ entries })
@@ -334,7 +365,8 @@ class Store {
       ...ws,
       nodes: [...ws.nodes],
       connections: [...ws.connections],
-      drawings: [...ws.drawings]
+      drawings: [...ws.drawings],
+      groups: [...ws.groups]
     }
     fn(next)
     this.set({ workspace: next })
@@ -388,6 +420,11 @@ class Store {
     this.mutateWorkspace((ws) => {
       ws.nodes = ws.nodes.filter((n) => n.id !== nodeId)
       ws.connections = ws.connections.filter((c) => c.nodeIdA !== nodeId && c.nodeIdB !== nodeId)
+      // A moldura fica, só perde o membro — espelha o WorkspaceManager. Sem
+      // isto o contador da faixa continuaria contando um nó que já não existe.
+      ws.groups = ws.groups.map((g) =>
+        g.nodeIds.includes(nodeId) ? { ...g, nodeIds: g.nodeIds.filter((n) => n !== nodeId) } : g
+      )
     })
     this.set({ selection: this.state.selection.filter((s) => s !== nodeId) })
   }
@@ -638,6 +675,27 @@ class Store {
       ws.nodes = ws.nodes.map((n) => (n.id === nodeId ? { ...n, frame } : n))
     })
     await window.atelier.node.setFrame(id, nodeId, frame)
+  }
+
+  /**
+   * Commit de VÁRIOS frames — o fim de um arrasto de seleção múltipla, e o de
+   * mover um grupo pela faixa do título.
+   *
+   * Um `set()` e um IPC, não N de cada: a store notifica todo assinante a cada
+   * `set()`, então N commits seriam N re-renders da árvore inteira com o
+   * usuário ainda com o dedo no botão do mouse.
+   */
+  async commitFrames(entries: { nodeId: UUID; frame: Rect }[]): Promise<void> {
+    const id = this.workspaceId
+    if (!id || entries.length === 0) return
+    const byId = new Map(entries.map((e) => [e.nodeId, e.frame]))
+    this.mutateWorkspace((ws) => {
+      ws.nodes = ws.nodes.map((n) => {
+        const frame = byId.get(n.id)
+        return frame ? { ...n, frame } : n
+      })
+    })
+    await window.atelier.node.setFrames(id, entries)
   }
 
   async patchContent(nodeId: UUID, patch: Record<string, unknown>): Promise<void> {
@@ -999,10 +1057,155 @@ class Store {
     })
   }
 
+  // ─── Grupos ─────────────────────────────────────────────────────────────────
+  // A moldura com título. A verdade é a lista de membros (`nodeIds`); a
+  // contenção geométrica é só o gesto que a edita — ver canvas/group-geometry.ts.
+
+  get groups(): NodeGroup[] {
+    return this.state.workspace?.groups ?? []
+  }
+
+  group(id: UUID): NodeGroup | null {
+    return this.groups.find((g) => g.id === id) ?? null
+  }
+
+  /** Seleciona a moldura. Grupo e nós são exclusivos: escolher um limpa o outro. */
+  selectGroup(id: UUID | null): void {
+    this.set({ selectedGroupId: id, selection: id ? [] : this.state.selection })
+  }
+
+  async createGroup(title: string, frame: Rect, nodeIds: UUID[]): Promise<NodeGroup | null> {
+    const id = this.workspaceId
+    if (!id) return null
+    const group = await window.atelier.group.create(id, title, frame, nodeIds)
+    if (!group) return null
+    // Substitui a lista inteira em vez de só empurrar o novo: o main pode ter
+    // tirado membros de outros grupos para honrar a regra de um dono por nó, e
+    // a cópia daqui ficaria mostrando o nó nos dois lugares.
+    await this.reload()
+    this.set({ selection: [], selectedGroupId: group.id })
+    return group
+  }
+
+  /**
+   * Ctrl/Cmd+G: envolve o que está selecionado. O frame é a união dos membros
+   * com folga em volta e o espaço da faixa no topo (ver boundsForNodes).
+   */
+  async groupSelection(): Promise<NodeGroup | null> {
+    const ids = this.state.selection
+    if (ids.length === 0) return null
+    const nodes = (this.state.workspace?.nodes ?? []).filter((n) => ids.includes(n.id))
+    const frame = boundsForNodes(nodes.map((n) => n.frame))
+    if (!frame) return null
+    return this.createGroup('Grupo', frame, ids)
+  }
+
+  private async patchGroup(
+    groupId: UUID,
+    patch: Partial<Pick<NodeGroup, 'title' | 'frame' | 'color' | 'isCollapsed' | 'nodeIds'>>
+  ): Promise<void> {
+    const id = this.workspaceId
+    if (!id) return
+    // Otimista: a moldura acompanha o gesto na hora, e o main confirma depois.
+    // O que volta de lá é a mesma coisa — a única regra que ele pode mudar
+    // (dono único) só vale para `nodeIds`, e esse caminho recarrega.
+    this.mutateWorkspace((ws) => {
+      ws.groups = ws.groups.map((g) => (g.id === groupId ? { ...g, ...patch } : g))
+    })
+    const updated = await window.atelier.group.update(id, groupId, patch)
+    if (updated) {
+      this.mutateWorkspace((ws) => {
+        ws.groups = ws.groups.map((g) => (g.id === groupId ? updated : g))
+      })
+    }
+  }
+
+  renameGroup(groupId: UUID, title: string): Promise<void> {
+    return this.patchGroup(groupId, { title: title.trim() || 'Grupo' })
+  }
+
+  setGroupFrame(groupId: UUID, frame: Rect): Promise<void> {
+    return this.patchGroup(groupId, { frame })
+  }
+
+  setGroupColor(groupId: UUID, color: string): Promise<void> {
+    return this.patchGroup(groupId, { color })
+  }
+
+  /**
+   * Colapsa/expande. Os membros saem do RENDER, nunca do estado: o PTY de um
+   * terminal vive no processo principal e continua rodando, e um portal
+   * colapsado continua na exceção do portalWake — senão a leitura pelo agente
+   * pararia de funcionar por causa de um retângulo dobrado na tela.
+   */
+  setGroupCollapsed(groupId: UUID, isCollapsed: boolean): Promise<void> {
+    return this.patchGroup(groupId, { isCollapsed })
+  }
+
+  /** "Ajustar ao conteúdo": a moldura encolhe até os membros, com a folga. */
+  async fitGroupToContent(groupId: UUID): Promise<void> {
+    const group = this.group(groupId)
+    if (!group) return
+    const nodes = (this.state.workspace?.nodes ?? []).filter((n) => group.nodeIds.includes(n.id))
+    const frame = boundsForNodes(nodes.map((n) => n.frame))
+    if (!frame) return
+    await this.setGroupFrame(groupId, frame)
+  }
+
+  /**
+   * Desagrupar: some a moldura, ficam os nós. Com `withNodes`, os membros vão
+   * junto — caminho separado e com confirmação, porque é o único destrutivo.
+   */
+  async removeGroup(groupId: UUID, opts: { withNodes?: boolean } = {}): Promise<void> {
+    const id = this.workspaceId
+    if (!id) return
+    if (opts.withNodes) {
+      const group = this.group(groupId)
+      for (const nodeId of group?.nodeIds ?? []) await this.removeNode(nodeId, { force: true })
+    }
+    await window.atelier.group.remove(id, groupId)
+    this.mutateWorkspace((ws) => {
+      ws.groups = ws.groups.filter((g) => g.id !== groupId)
+    })
+    this.set({
+      selectedGroupId: this.state.selectedGroupId === groupId ? null : this.state.selectedGroupId,
+      isolatedGroupId: this.state.isolatedGroupId === groupId ? null : this.state.isolatedGroupId
+    })
+  }
+
+  /**
+   * Muda o dono de um nó — o que o fim de um arrasto decide. `null` solta.
+   *
+   * Não faz nada quando o dono já é esse: é chamado a cada `mouseup` de arrasto
+   * de nó, e sem a saída rápida todo movimento dentro do mesmo grupo custaria
+   * um IPC e um re-render.
+   */
+  async setNodeGroup(nodeId: UUID, groupId: UUID | null): Promise<void> {
+    const id = this.workspaceId
+    if (!id) return
+    const current = groupOf(this.groups, nodeId)
+    if ((current?.id ?? null) === groupId) return
+    this.mutateWorkspace((ws) => {
+      ws.groups = ws.groups.map((g) => {
+        if (g.id === groupId) return { ...g, nodeIds: [...g.nodeIds, nodeId] }
+        if (g.nodeIds.includes(nodeId)) return { ...g, nodeIds: g.nodeIds.filter((n) => n !== nodeId) }
+        return g
+      })
+    })
+    await window.atelier.group.setNode(id, nodeId, groupId)
+  }
+
+  /** Foco: o grupo fica opaco e o resto do canvas apaga. Só em memória. */
+  isolateGroup(id: UUID | null): void {
+    this.set({ isolatedGroupId: id })
+  }
+
   // ─── Seleção e interação ────────────────────────────────────────────────────
 
   select(ids: UUID[]): void {
-    this.set({ selection: ids })
+    // Selecionar nó tira a seleção da moldura: são o mesmo "o que está
+    // selecionado", e o Delete precisa de uma resposta só.
+    this.set({ selection: ids, selectedGroupId: ids.length > 0 ? null : this.state.selectedGroupId })
   }
 
   toggleSelect(id: UUID): void {

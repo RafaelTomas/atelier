@@ -19,11 +19,15 @@ import {
   IconDraw,
   IconFolder,
   IconGlobe,
+  IconGroup,
   IconHand,
+  IconLock,
   IconNote,
   IconTerminal,
   IconText
 } from './icons'
+import { GROUP_MIN_HEIGHT, GROUP_MIN_WIDTH, rectContains } from './canvas/group-geometry'
+import { rectCenter } from './canvas/viewport'
 import { HOME_URL } from './nodes/portal-node'
 import { truncateStart } from './paths'
 import { store, useStore } from './state/store'
@@ -370,6 +374,25 @@ export function Dock(): JSX.Element {
         <IconText />
       </DockMenuButton>
 
+      {/* Grupo não passa por `add`: ele não cria nó nenhum. Desenha a moldura
+          e ADOTA quem já estava dentro dela — o gesto de organizar o que existe,
+          não o de acrescentar mais uma coisa ao canvas. */}
+      <DockButton
+        label="Grupo"
+        hint="desenhe a moldura em volta do que quer agrupar"
+        onClick={() => {
+          setOpenMenu(null)
+          store.startPlacing({
+            label: 'grupo',
+            defaultSize: [520, 380],
+            minSize: [GROUP_MIN_WIDTH, GROUP_MIN_HEIGHT],
+            finish: (frame) => void createGroupIn(frame)
+          })
+        }}
+      >
+        <IconGroup />
+      </DockButton>
+
       <span className="dock-sep" />
 
       <DockButton
@@ -388,6 +411,18 @@ export function Dock(): JSX.Element {
       </DockButton>
     </div>
   )
+}
+
+/**
+ * A moldura desenhada adota quem estiver DENTRO dela — pelo centro do nó, a
+ * mesma regra do arrasto (ver groupAt). Nós já pertencentes a outro grupo
+ * trocam de dono: o main faz valer a regra de um dono por nó.
+ */
+async function createGroupIn(frame: Rect): Promise<void> {
+  const inside = store
+    .getSnapshot()
+    .workspace?.nodes.filter((n) => rectContains(frame, rectCenter(n.frame)))
+  await store.createGroup('Grupo', frame, (inside ?? []).map((n) => n.id))
 }
 
 /**

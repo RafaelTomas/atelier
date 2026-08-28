@@ -23,6 +23,15 @@ import { Dock } from '../dock'
 import { CanvasBackground } from './background'
 import { DrawingsLayer, type LiveStroke } from './drawings-layer'
 import { DrawMenu, type DrawMenuState } from './draw-menu'
+import { GroupsLayer } from './groups-layer'
+import { GroupMenu } from './group-menu'
+import {
+  GROUP_MIN_HEIGHT,
+  GROUP_MIN_WIDTH,
+  collapsedMembers,
+  groupAt,
+  groupOf
+} from './group-geometry'
 import { Minimap } from './minimap'
 import { ConnectionsLayer } from './connections-layer'
 import { ConnectionPreview, canLink } from './connection-preview'
@@ -41,12 +50,30 @@ function widgetProjectName(node: CanvasNode, projects: Project[]): string | null
   return projects.find((p) => p.id === projectId)?.name ?? null
 }
 
+/**
+ * Um arrasto move a SELEÇÃO INTEIRA, não o nó clicado.
+ *
+ * `frames` guarda a geometria de cada nó no início do gesto: durante o
+ * movimento só se soma o deslocamento a ela, e o commit no fim é um só, em
+ * lote. Ler a posição atual a cada frame acumularia erro de arredondamento.
+ *
+ * `group` presente = o gesto começou na faixa do título: a moldura anda junto
+ * com os membros. É o mesmo caminho, com um retângulo a mais para mover.
+ */
+interface DragTargets {
+  ids: UUID[]
+  start: Point
+  frames: Map<UUID, Rect>
+  group: { id: UUID; frame: Rect } | null
+}
+
 type Interaction =
   | { kind: 'idle' }
   | { kind: 'panning'; last: Point }
-  | { kind: 'mayDrag'; id: UUID; start: Point; frame: Rect }
-  | { kind: 'dragging'; id: UUID; start: Point; frame: Rect }
+  | ({ kind: 'mayDrag' } & DragTargets)
+  | ({ kind: 'dragging' } & DragTargets)
   | { kind: 'resizing'; id: UUID; start: Point; frame: Rect; edge: ResizeEdge }
+  | { kind: 'groupResizing'; id: UUID; start: Point; frame: Rect; edge: ResizeEdge }
   | { kind: 'marquee'; start: Point; current: Point }
   | { kind: 'placing'; start: Point }
   | { kind: 'drawing' }
@@ -68,18 +95,28 @@ const MIN_NODE_HEIGHT = 60
  * move. Por isso puxar pela esquerda muda `x` e `width` juntos — e o clamp do
  * mínimo entra na largura ANTES de recalcular `x`, senão a borda direita
  * escorregaria ao encostar no piso.
+ *
+ * Os pisos vêm por parâmetro porque a moldura de grupo usa o mesmo gesto com
+ * medidas próprias — ela precisa caber o título, não um cabeçalho de nó.
  */
-function resizeFrame(frame: Rect, edge: ResizeEdge, dx: number, dy: number): Rect {
+function resizeFrame(
+  frame: Rect,
+  edge: ResizeEdge,
+  dx: number,
+  dy: number,
+  minWidth = MIN_NODE_WIDTH,
+  minHeight = MIN_NODE_HEIGHT
+): Rect {
   let { x, y, width, height } = frame
 
-  if (edge.includes('e')) width = Math.max(MIN_NODE_WIDTH, frame.width + dx)
-  if (edge.includes('s')) height = Math.max(MIN_NODE_HEIGHT, frame.height + dy)
+  if (edge.includes('e')) width = Math.max(minWidth, frame.width + dx)
+  if (edge.includes('s')) height = Math.max(minHeight, frame.height + dy)
   if (edge.includes('w')) {
-    width = Math.max(MIN_NODE_WIDTH, frame.width - dx)
+    width = Math.max(minWidth, frame.width - dx)
     x = frame.x + frame.width - width
   }
   if (edge.includes('n')) {
-    height = Math.max(MIN_NODE_HEIGHT, frame.height - dy)
+    height = Math.max(minHeight, frame.height - dy)
     y = frame.y + frame.height - height
   }
   return { x, y, width, height }
@@ -99,8 +136,20 @@ const DRAG_THRESHOLD = 3 // px de tela antes de virar arrasto de verdade
 const CLICK_SLOP = 12 // px de tela: abaixo disso o gesto de área é só um clique
 
 export function CanvasView(): JSX.Element {
-  const { workspace, selection, connectingFrom, placing, tool, pen, roles, prefs, terminalStatus, projects } =
-    useStore()
+  const {
+    workspace,
+    selection,
+    selectedGroupId,
+    isolatedGroupId,
+    connectingFrom,
+    placing,
+    tool,
+    pen,
+    roles,
+    prefs,
+    terminalStatus,
+    projects
+  } = useStore()
   const hostRef = useRef<HTMLDivElement>(null)
   const nodesRef = useRef<HTMLDivElement>(null)
   const interaction = useRef<Interaction>({ kind: 'idle' })
@@ -133,6 +182,16 @@ export function CanvasView(): JSX.Element {
   const [placeBox, setPlaceBox] = useState<Rect | null>(null)
   /** Menu do modo desenho, ancorado no ponto clicado. null = fechado. */
   const [drawMenu, setDrawMenu] = useState<DrawMenuState | null>(null)
+  /** Grupo com o título em edição. null = ninguém renomeando. */
+  const [editingGroup, setEditingGroup] = useState<UUID | null>(null)
+  /** Menu de contexto da faixa do título, ancorado no ponto clicado. */
+  const [groupMenu, setGroupMenu] = useState<{ id: UUID; screen: Point } | null>(null)
+  /**
+   * Moldura realçada durante o arrasto: quem vai adotar o nó ao soltar. Mora
+   * num ref porque a marcação é uma classe escrita no DOM a 60fps — em estado
+   * do React ela re-renderizaria o canvas a cada pixel do gesto.
+   */
+  const candidateGroup = useRef<UUID | null>(null)
   /** Espaço segurado: o canvas vira mão e qualquer arrasto é pan. */
   const [spacePan, setSpacePan] = useState(false)
   /** Espaço solto no meio do arrasto — a mão fica até o mouseup. */
@@ -141,17 +200,28 @@ export function CanvasView(): JSX.Element {
   const nodes = workspace?.nodes ?? []
   const connections = workspace?.connections ?? []
   const drawings = workspace?.drawings ?? []
+  const groups = workspace?.groups ?? []
   const isDrawingTool = tool === 'pen' || tool === 'highlighter'
   const customThemes = prefs?.terminalThemes ?? []
 
   /** id → responsabilidade, para o header do nó não varrer a lista por nó. */
   const rolesById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles])
 
+  /**
+   * Membros de grupos colapsados. Saem do RENDER e do hit test — nunca do
+   * estado: o PTY de um terminal vive no processo principal e continua rodando
+   * dobrado, e é isso que faz colapsar ser barato.
+   */
+  const hiddenNodes = useMemo(() => collapsedMembers(groups), [groups])
+
   /** Cache de z-index: ascendente para render, descendente para hit testing. */
   const { renderOrder, hitOrder } = useMemo(() => {
     const asc = [...nodes].sort((a, b) => a.zIndex - b.zIndex)
-    return { renderOrder: asc, hitOrder: [...asc].reverse() }
-  }, [nodes])
+    // Nó dobrado não é alvo: clicar no lugar onde ele estaria selecionaria algo
+    // invisível, e o usuário arrastaria o nada.
+    const visible = asc.filter((n) => !hiddenNodes.has(n.id))
+    return { renderOrder: asc, hitOrder: [...visible].reverse() }
+  }, [nodes, hiddenNodes])
 
   // ─── Tamanho do viewport ────────────────────────────────────────────────────
 
@@ -514,6 +584,42 @@ export function CanvasView(): JSX.Element {
     // Cliques dentro do conteúdo do nó (terminal, editor) são do nó, não do canvas
     if (target.closest('[data-node-interactive]')) return
 
+    // ─── Molduras de grupo ───────────────────────────────────────────────────
+    // Antes do hit test de nó: a faixa e as alças são as ÚNICAS partes
+    // clicáveis da moldura (o corpo é `pointer-events: none`), então chegar
+    // aqui já significa que o gesto é do grupo. Perguntar ao hitTest antes
+    // devolveria o nó cujo frame por acaso passa por baixo da faixa.
+    const groupHandleEl = target.closest('[data-group-handle]') as HTMLElement | null
+    const groupTitleEl = target.closest('[data-group-title]') as HTMLElement | null
+    const groupEl = target.closest('[data-group-id]') as HTMLElement | null
+    const groupId = groupEl?.dataset.groupId as UUID | undefined
+    const group = groupId ? groups.find((g) => g.id === groupId) : undefined
+
+    if (group && (groupHandleEl || groupTitleEl)) {
+      store.selectGroup(group.id)
+      if (groupHandleEl) {
+        interaction.current = {
+          kind: 'groupResizing',
+          id: group.id,
+          start: cp,
+          frame: { ...group.frame },
+          edge: (groupHandleEl.dataset.groupHandle as ResizeEdge) || 'se'
+        }
+        return
+      }
+      // Arrastar a faixa move a moldura E os membros — é o mesmo caminho do
+      // arrasto de seleção múltipla, com a lista de membros no lugar da seleção.
+      const members = nodes.filter((n) => group.nodeIds.includes(n.id))
+      interaction.current = {
+        kind: 'mayDrag',
+        ids: members.map((n) => n.id),
+        start: cp,
+        frames: new Map(members.map((n) => [n.id, { ...n.frame }])),
+        group: { id: group.id, frame: { ...group.frame } }
+      }
+      return
+    }
+
     const handle = target.closest('[data-resize-handle]') as HTMLElement | null
     const nodeEl = target.closest('[data-node-id]') as HTMLElement | null
     const nodeId = nodeEl?.dataset.nodeId as UUID | undefined
@@ -535,27 +641,83 @@ export function CanvasView(): JSX.Element {
     }
 
     if (node) {
-      if (!selection.includes(node.id)) store.select(e.shiftKey ? [...selection, node.id] : [node.id])
-      void store.bringToFront(node.id)
-      interaction.current = handle
-        ? {
-            kind: 'resizing',
-            id: node.id,
-            start: cp,
-            frame: { ...node.frame },
-            // Sem valor no atributo vale a quina de sempre — assim uma alça
-            // antiga no DOM continua funcionando durante um hot reload.
-            edge: (handle.dataset.resizeHandle as ResizeEdge) || 'se'
-          }
-        : { kind: 'mayDrag', id: node.id, start: cp, frame: { ...node.frame } }
+      // A seleção que vai se mover é a de DEPOIS deste clique: clicar num nó
+      // fora da seleção troca a seleção, e o arrasto seguinte é dele só.
+      let dragIds = selection
+      if (!selection.includes(node.id)) {
+        dragIds = e.shiftKey ? [...selection, node.id] : [node.id]
+        store.select(dragIds)
+      }
+
+      // Com vários nós, subir todos ao topo embaralharia a ordem relativa que
+      // o usuário montou — o z passa a ser o da última iteração do laço, não o
+      // que ele via. Com um só, subir é o comportamento de sempre.
+      if (dragIds.length === 1) void store.bringToFront(node.id)
+
+      if (handle) {
+        interaction.current = {
+          kind: 'resizing',
+          id: node.id,
+          start: cp,
+          frame: { ...node.frame },
+          // Sem valor no atributo vale a quina de sempre — assim uma alça
+          // antiga no DOM continua funcionando durante um hot reload.
+          edge: (handle.dataset.resizeHandle as ResizeEdge) || 'se'
+        }
+        return
+      }
+
+      const dragged = nodes.filter((n) => dragIds.includes(n.id) && !hiddenNodes.has(n.id))
+      interaction.current = {
+        kind: 'mayDrag',
+        ids: dragged.map((n) => n.id),
+        start: cp,
+        frames: new Map(dragged.map((n) => [n.id, { ...n.frame }])),
+        group: null
+      }
       return
     }
 
     store.select([])
+    store.selectGroup(null)
     interaction.current = { kind: 'marquee', start: cp, current: cp }
   }
 
   useEffect(() => {
+    /**
+     * Realça a moldura que vai adotar o nó ao soltar.
+     *
+     * Sem isto o gesto de entrar num grupo seria adivinhação: o usuário só
+     * descobriria o dono depois de largar o botão. Toca só na classe do
+     * elemento, e só quando o candidato MUDA — a 60fps, reescrever a mesma
+     * classe já seria trabalho à toa.
+     */
+    const clearCandidate = (): void => {
+      if (!candidateGroup.current) return
+      hostRef.current
+        ?.querySelector(`[data-group-id="${candidateGroup.current}"]`)
+        ?.classList.remove('is-candidate')
+      candidateGroup.current = null
+    }
+
+    const highlightCandidate = (state: DragTargets, dx: number, dy: number): void => {
+      // O primeiro nó do arrasto manda: com vários selecionados, deixar cada um
+      // cair num grupo diferente espalharia a seleção por várias molduras num
+      // gesto só, e o realce não teria como mostrar isso.
+      const frame = state.ids.length > 0 ? state.frames.get(state.ids[0]) : undefined
+      const next = frame
+        ? groupAt(groups, { ...frame, x: frame.x + dx, y: frame.y + dy })?.id ?? null
+        : null
+      if (next === candidateGroup.current) return
+      clearCandidate()
+      if (next) {
+        hostRef.current
+          ?.querySelector(`[data-group-id="${next}"]`)
+          ?.classList.add('is-candidate')
+        candidateGroup.current = next
+      }
+    }
+
     const onMove = (e: MouseEvent): void => {
       const state = interaction.current
       if (state.kind === 'idle') return
@@ -577,13 +739,48 @@ export function CanvasView(): JSX.Element {
         case 'dragging': {
           const dx = cp.x - state.start.x
           const dy = cp.y - state.start.y
-          // Escreve direto no DOM: nada de setState no caminho do mousemove
-          const el = nodesRef.current?.querySelector<HTMLElement>(`[data-node-id="${state.id}"]`)
-          if (el) el.style.transform = `translate(${dx}px, ${dy}px)`
-          liveFrames.current.set(state.id, {
-            x: state.frame.x + dx + state.frame.width / 2,
-            y: state.frame.y + dy + state.frame.height / 2
-          })
+          const shift = `translate(${dx}px, ${dy}px)`
+          // Escreve direto no DOM: nada de setState no caminho do mousemove.
+          // Um laço sobre a seleção inteira, não um nó — e ainda assim é uma
+          // escrita de `transform` por elemento, que a GPU compõe sozinha.
+          for (const id of state.ids) {
+            const el = nodesRef.current?.querySelector<HTMLElement>(`[data-node-id="${id}"]`)
+            if (el) el.style.transform = shift
+            const frame = state.frames.get(id)
+            // liveFrames é o que mantém os cabos colados durante o arrasto.
+            if (frame) {
+              liveFrames.current.set(id, {
+                x: frame.x + dx + frame.width / 2,
+                y: frame.y + dy + frame.height / 2
+              })
+            }
+          }
+          if (state.group) {
+            const el = hostRef.current?.querySelector<HTMLElement>(
+              `[data-group-id="${state.group.id}"]`
+            )
+            if (el) el.style.transform = shift
+          } else {
+            highlightCandidate(state, dx, dy)
+          }
+          break
+        }
+        case 'groupResizing': {
+          const el = hostRef.current?.querySelector<HTMLElement>(`[data-group-id="${state.id}"]`)
+          if (el) {
+            const next = resizeFrame(
+              state.frame,
+              state.edge,
+              cp.x - state.start.x,
+              cp.y - state.start.y,
+              GROUP_MIN_WIDTH,
+              GROUP_MIN_HEIGHT
+            )
+            el.style.left = `${next.x}px`
+            el.style.top = `${next.y}px`
+            el.style.width = `${next.width}px`
+            el.style.height = `${next.height}px`
+          }
           break
         }
         case 'resizing': {
@@ -642,14 +839,40 @@ export function CanvasView(): JSX.Element {
         case 'dragging': {
           const dx = cp.x - state.start.x
           const dy = cp.y - state.start.y
-          const el = nodesRef.current?.querySelector<HTMLElement>(`[data-node-id="${state.id}"]`)
-          if (el) el.style.transform = ''
-          liveFrames.current.delete(state.id)
-          void store.commitFrame(state.id, {
-            ...state.frame,
-            x: state.frame.x + dx,
-            y: state.frame.y + dy
-          })
+
+          const entries: { nodeId: UUID; frame: Rect }[] = []
+          for (const id of state.ids) {
+            const el = nodesRef.current?.querySelector<HTMLElement>(`[data-node-id="${id}"]`)
+            if (el) el.style.transform = ''
+            liveFrames.current.delete(id)
+            const frame = state.frames.get(id)
+            if (frame) entries.push({ nodeId: id, frame: { ...frame, x: frame.x + dx, y: frame.y + dy } })
+          }
+          // UM commit para a seleção inteira: N chamadas seriam N idas ao main
+          // e N notificações da store, com o usuário já parado.
+          void store.commitFrames(entries)
+
+          if (state.group) {
+            const el = hostRef.current?.querySelector<HTMLElement>(
+              `[data-group-id="${state.group.id}"]`
+            )
+            if (el) el.style.transform = ''
+            void store.setGroupFrame(state.group.id, {
+              ...state.group.frame,
+              x: state.group.frame.x + dx,
+              y: state.group.frame.y + dy
+            })
+            // Mover o grupo NÃO recruta nem solta ninguém: os membros andaram
+            // junto com a moldura, e a relação entre eles não mudou.
+            break
+          }
+
+          // Arrastar um nó é o que edita a lista de membros: quem parou com o
+          // centro dentro de uma moldura passa a ser dela; quem saiu, some dela.
+          clearCandidate()
+          for (const entry of entries) {
+            void store.setNodeGroup(entry.nodeId, groupAt(groups, entry.frame)?.id ?? null)
+          }
           break
         }
         case 'resizing': {
@@ -659,9 +882,30 @@ export function CanvasView(): JSX.Element {
           )
           break
         }
+        case 'groupResizing': {
+          // Redimensionar a moldura mexe SÓ no retângulo: encolher não expulsa
+          // membro nenhum. Só o arrasto de um nó muda quem pertence a quê —
+          // senão a moldura expulsaria nós que ninguém tocou.
+          void store.setGroupFrame(
+            state.id,
+            resizeFrame(
+              state.frame,
+              state.edge,
+              cp.x - state.start.x,
+              cp.y - state.start.y,
+              GROUP_MIN_WIDTH,
+              GROUP_MIN_HEIGHT
+            )
+          )
+          break
+        }
         case 'marquee': {
           const box = normalizeRect(state.start, cp)
-          const hits = nodes.filter((n) => rectsIntersect(n.frame, box)).map((n) => n.id)
+          // Nó dobrado não entra: ele não está na tela, e selecioná-lo faria o
+          // Delete seguinte apagar algo que o usuário não vê.
+          const hits = nodes
+            .filter((n) => !hiddenNodes.has(n.id) && rectsIntersect(n.frame, box))
+            .map((n) => n.id)
           store.select(hits)
           setMarquee(null)
           break
@@ -709,8 +953,9 @@ export function CanvasView(): JSX.Element {
       window.removeEventListener('mouseup', onUp)
     }
     // tool/hitDrawing entram aqui: sem eles a borracha apagaria contra uma
-    // lista de traços velha (closure obsoleta).
-  }, [nodes, tool, hitDrawing])
+    // lista de traços velha (closure obsoleta). `groups` e `hiddenNodes` pelo
+    // mesmo motivo — quem decide o dono de um nó ao soltar é esta closure.
+  }, [nodes, tool, hitDrawing, groups, hiddenNodes])
 
   // ─── Roda: pan por padrão, zoom com ⌘/Ctrl (convenção de trackpad) ──────────
 
@@ -766,12 +1011,33 @@ export function CanvasView(): JSX.Element {
         e.preventDefault()
         for (const id of selection) void store.removeNode(id)
       }
+      // Delete com a moldura selecionada DESAGRUPA: some o retângulo, ficam os
+      // nós. Apagar os membros junto existe, mas só pelo menu de contexto e com
+      // confirmação — é o único caminho destrutivo do grupo, e uma tecla é
+      // barata demais para ele.
+      if ((e.key === 'Backspace' || e.key === 'Delete') && selectedGroupId) {
+        e.preventDefault()
+        void store.removeGroup(selectedGroupId)
+      }
       if (e.key === 'Escape') {
         store.cancelPlacing()
         setPlaceBox(null)
         store.startConnecting(null)
         setDrawMenu(null)
+        setGroupMenu(null)
+        setEditingGroup(null)
+        store.isolateGroup(null)
         store.setTool('select')
+      }
+
+      // Agrupar e desagrupar, no atalho que todo editor de canvas usa.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          if (selectedGroupId) void store.removeGroup(selectedGroupId)
+        } else if (selection.length > 0) {
+          void store.groupSelection()
+        }
       }
 
       // Atalhos das ferramentas, no padrão de editor de canvas
@@ -831,7 +1097,7 @@ export function CanvasView(): JSX.Element {
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [selection])
+  }, [selection, selectedGroupId])
 
   /**
    * Botão direito no canvas não CRIA nada.
@@ -846,11 +1112,59 @@ export function CanvasView(): JSX.Element {
    */
   const onContextMenu = (e: React.MouseEvent): void => {
     e.preventDefault()
+    // A faixa do título é a exceção: ali o botão direito é o caminho para tudo
+    // que o grupo faz e que não cabe num atalho.
+    const band = (e.target as HTMLElement).closest('[data-group-title]') as HTMLElement | null
+    const id = band?.dataset.groupTitle as UUID | undefined
+    if (!id) return
+    store.selectGroup(id)
+    setGroupMenu({ id, screen: { x: e.clientX, y: e.clientY } })
+  }
+
+  /**
+   * Duplo-clique na faixa. Dois gestos no mesmo lugar, separados pelo alvo:
+   * no RÓTULO ele renomeia (é o texto que se quer trocar); no resto da faixa
+   * ele enquadra o grupo, que é o "focar" do pedido. Sem essa divisão, o gesto
+   * mais frequente — enquadrar — abriria um campo de texto por engano toda vez.
+   */
+  const onDoubleClick = (e: React.MouseEvent): void => {
+    const target = e.target as HTMLElement
+    const band = target.closest('[data-group-title]') as HTMLElement | null
+    const id = band?.dataset.groupTitle as UUID | undefined
+    if (!id) return
+    if (target.closest('.group-title-text')) {
+      setEditingGroup(id)
+      return
+    }
+    const group = groups.find((g) => g.id === id)
+    if (group) viewport.fit(group.frame)
   }
 
   // Um portal acordado pelo agente renderiza mesmo fora da viewport: sem isso a
   // leitura só funcionaria com o nó na tela, que é o mesmo que não funcionar.
-  const visibleNodes = renderOrder.filter((n) => visibleIds.has(n.id) || portalWake.has(n.id))
+  //
+  // A mesma exceção vale para o colapso, e é deliberada: um portal dentro de um
+  // grupo dobrado continua MONTADO enquanto o agente estiver lendo dele. Um
+  // retângulo fechado na tela não pode desligar uma leitura em curso.
+  //
+  // Montado, não visível: quem está dobrado sai da tela pelo `hidden` abaixo.
+  // Sem essa separação o portal acordado — e o controle ligado renova o
+  // despertar de 10 em 10 segundos, indefinidamente — continuava desenhado por
+  // cima do grupo fechado, enquanto os outros nós sumiam.
+  const visibleNodes = renderOrder.filter(
+    (n) => portalWake.has(n.id) || (visibleIds.has(n.id) && !hiddenNodes.has(n.id))
+  )
+
+  /**
+   * Modo foco: os nós de FORA do grupo apagam. Só em memória — não vai para o
+   * disco, porque é como se está lendo o canvas agora, não uma propriedade do
+   * grupo.
+   */
+  const isolatedMembers = isolatedGroupId
+    ? new Set(groups.find((g) => g.id === isolatedGroupId)?.nodeIds ?? [])
+    : null
+
+  const menuGroup = groupMenu ? groups.find((g) => g.id === groupMenu.id) ?? null : null
 
   /**
    * Nó formatável selecionado — só com seleção única: com vários nós a barra
@@ -887,6 +1201,7 @@ export function CanvasView(): JSX.Element {
         .join(' ')}
       data-tool={tool}
       onMouseDown={onMouseDown}
+      onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -895,7 +1210,25 @@ export function CanvasView(): JSX.Element {
 
       <DrawingsLayer drawings={drawings} live={liveStroke} tick={strokeTick} />
 
-      <ConnectionsLayer nodes={nodes} connections={connections} liveFrames={liveFrames} />
+      {/* ANTES da .nodes-layer: a moldura é o fundo em que os nós estão. */}
+      <GroupsLayer
+        groups={groups}
+        selectedId={selectedGroupId}
+        isolatedId={isolatedGroupId}
+        editingId={editingGroup}
+        onEditDone={(id, title) => {
+          setEditingGroup(null)
+          void store.renameGroup(id, title)
+        }}
+        onEditCancel={() => setEditingGroup(null)}
+      />
+
+      <ConnectionsLayer
+        nodes={nodes}
+        connections={connections}
+        liveFrames={liveFrames}
+        hiddenNodes={hiddenNodes}
+      />
 
       {connectingFrom && (
         <ConnectionPreview
@@ -922,6 +1255,8 @@ export function CanvasView(): JSX.Element {
             customThemes={customThemes}
             status={terminalStatus[node.id] ?? null}
             projectName={widgetProjectName(node, projects)}
+            dimmed={isolatedMembers !== null && !isolatedMembers.has(node.id)}
+            hidden={hiddenNodes.has(node.id)}
           />
         ))}
       </div>
@@ -961,6 +1296,18 @@ export function CanvasView(): JSX.Element {
       {formatTarget && <FormatBar key={formatTarget.id} node={formatTarget} />}
 
       {actionTarget && <NodeActionBar key={actionTarget.id} node={actionTarget} />}
+
+      {groupMenu && menuGroup && (
+        <GroupMenu
+          group={menuGroup}
+          screen={groupMenu.screen}
+          onClose={() => setGroupMenu(null)}
+          onRename={() => {
+            setGroupMenu(null)
+            setEditingGroup(menuGroup.id)
+          }}
+        />
+      )}
 
       {drawMenu && (
         <DrawMenu

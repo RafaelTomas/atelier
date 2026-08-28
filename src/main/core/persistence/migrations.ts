@@ -22,6 +22,12 @@
  * DENTRO do payload —, justamente para que painel novo não peça versão nova.
  * Nenhum dado transformado: todo documento v5 já é um v6 válido.
  *
+ * As molduras de grupo NÃO subiram a versão, e é o ponto inteiro do desenho
+ * delas: `groups` é uma chave a mais no topo do payload, não um caso a mais no
+ * enum de conteúdo. Um leitor mais velho — daqui ou o app nativo — ignora a
+ * chave e abre o arquivo normalmente. Se ele salvar, as molduras se perdem;
+ * os nós, não. Ver NodeGroup em shared/types.ts.
+ *
  * O que migração nenhuma resolve é o sentido CONTRÁRIO — um v3 aberto por um
  * leitor mais velho:
  *
@@ -67,7 +73,10 @@ function migrateV1toV2(doc: Record<string, unknown>): Record<string, unknown> {
     'noteToNoteConnections',
     'crossFloorConnections',
     'floors',
-    'drawings'
+    'drawings',
+    // Molduras de grupo. Mesmo motivo dos outros: o resto do código conta com
+    // um array, e `undefined` obrigaria cada leitor a se defender sozinho.
+    'groups'
   ]
   const patched: Record<string, unknown> = { ...payload }
   for (const key of arrays) {

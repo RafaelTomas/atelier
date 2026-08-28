@@ -11,6 +11,7 @@ import type {
   ConnectionKind,
   Drawing,
   FloorEntry,
+  NodeGroup,
   Point,
   Rect,
   UUID,
@@ -224,6 +225,83 @@ function decodeDrawings(value: unknown): Drawing[] {
   })
 }
 
+// ─── Grupos ───────────────────────────────────────────────────────────────────
+
+/** Cor padrão da moldura — o azul do sistema, o mesmo accent do resto da UI. */
+export const GROUP_DEFAULT_COLOR = '#007AFF'
+
+/**
+ * Molduras de grupo. Ao lado de `drawings`, e não dentro dos nós: ver NodeGroup.
+ *
+ * `known` é o conjunto de ids que SOBREVIVERAM à decodificação dos nós. Um id
+ * que não está lá é lixo (o nó foi apagado por fora, ou o decoder o descartou),
+ * e um grupo apontando para o nada mostraria "5 nós" com três na tela. Como a
+ * lista é filtrada aqui, um grupo pode acabar vazio — e vazio ele continua
+ * sendo uma moldura legítima, só à espera de conteúdo.
+ *
+ * `claimed` faz valer a regra de um dono por nó: um arquivo editado à mão pode
+ * ter o mesmo id em dois grupos, e resolver isso na LEITURA (fica no primeiro)
+ * é mais barato do que carregar a ambiguidade por todo o resto do código.
+ */
+function decodeGroups(value: unknown, known: Set<UUID>): NodeGroup[] {
+  if (!Array.isArray(value)) return []
+  const claimed = new Set<UUID>()
+  const out: NodeGroup[] = []
+  for (const item of value) {
+    const o = asRecord(item)
+    const frame = decodeRect(o.frame)
+    if (!frame) continue // sem geometria não há moldura para desenhar
+    const nodeIds: UUID[] = []
+    if (Array.isArray(o.nodeIds)) {
+      for (const raw of o.nodeIds) {
+        if (typeof raw !== 'string') continue
+        const id = raw.toUpperCase()
+        if (!known.has(id) || claimed.has(id)) continue
+        claimed.add(id)
+        nodeIds.push(id)
+      }
+    }
+    out.push({
+      id: normalizeUUID(o.id),
+      title: str(o.title, 'Grupo'),
+      frame,
+      nodeIds,
+      color: str(o.color, GROUP_DEFAULT_COLOR),
+      isCollapsed: bool(o.isCollapsed),
+      createdAt: decodeDate(o.createdAt),
+      lastModifiedAt: decodeDate(o.lastModifiedAt)
+    })
+  }
+  return out
+}
+
+function encodeGroups(groups: NodeGroup[]): unknown[] {
+  return groups.map((g) => ({
+    id: g.id,
+    title: g.title,
+    frame: encodeRect(g.frame),
+    nodeIds: g.nodeIds,
+    color: g.color,
+    isCollapsed: g.isCollapsed,
+    createdAt: g.createdAt,
+    lastModifiedAt: g.lastModifiedAt
+  }))
+}
+
+export function makeNodeGroup(title: string, frame: Rect, nodeIds: UUID[] = []): NodeGroup {
+  const ts = nowISO()
+  return {
+    id: uuid(),
+    title,
+    frame,
+    nodeIds: [...nodeIds],
+    color: GROUP_DEFAULT_COLOR,
+    isCollapsed: false,
+    createdAt: ts,
+    lastModifiedAt: ts
+  }
+}
+
 // ─── WorkspacePayload ─────────────────────────────────────────────────────────
 
 /**
@@ -238,6 +316,9 @@ export interface DecodeDiagnostics {
   /** Nós lidos do arquivo que não sobreviveram à decodificação. */
   droppedNodes: number
 }
+// Grupo descartado NÃO entra aqui, de propósito: a moldura não é conteúdo. Um
+// grupo perdido custa um retângulo que se redesenha em segundos; travar o
+// autosave por causa dele seria cobrar o preço do modo seguro por nada.
 
 export function decodeWorkspacePayload(
   value: unknown,
@@ -263,6 +344,7 @@ export function decodeWorkspacePayload(
     connections: decodeConnections(raw),
     floors: decodeFloors(raw.floors),
     drawings: decodeDrawings(raw.drawings),
+    groups: decodeGroups(raw.groups, new Set(nodes.map((n) => n.id))),
     createdAt: decodeDate(raw.createdAt),
     lastOpenedAt: decodeOptionalDate(raw.lastOpenedAt),
     lastModifiedAt: decodeDate(raw.lastModifiedAt)
@@ -285,6 +367,7 @@ export function encodeWorkspacePayload(payload: WorkspacePayload): Record<string
     ...encodeConnections(payload.connections),
     floors: payload.floors.map((f) => ({ ...f })),
     drawings: payload.drawings.map((d) => ({ ...d })),
+    groups: encodeGroups(payload.groups),
     createdAt: payload.createdAt,
     lastOpenedAt: payload.lastOpenedAt,
     lastModifiedAt: payload.lastModifiedAt
@@ -308,6 +391,7 @@ export function makeWorkspacePayload(name: string, workingDirectory: string): Wo
     connections: [],
     floors: [],
     drawings: [],
+    groups: [],
     createdAt: ts,
     lastOpenedAt: null,
     lastModifiedAt: ts

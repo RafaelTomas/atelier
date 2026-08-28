@@ -443,6 +443,20 @@ export function registerIPC(): void {
     appState.workspaces.get(workspaceId)?.updateFrame(nodeId, frame)
   })
 
+  /**
+   * Commit de um arrasto de SELEÇÃO MÚLTIPLA: um IPC para N nós.
+   *
+   * O caminho de um nó só continua existindo — `node:set-frame` é o que a
+   * esmagadora maioria dos gestos usa. Este é o que impede que mover um grupo
+   * de vinte nós vire vinte travessias do processo principal.
+   */
+  ipcMain.handle(
+    'node:set-frames',
+    (_e, workspaceId: UUID, entries: { nodeId: UUID; frame: Rect }[]) => {
+      appState.workspaces.get(workspaceId)?.updateFrames(entries ?? [])
+    }
+  )
+
   ipcMain.handle('node:bring-to-front', (_e, workspaceId: UUID, nodeId: UUID) => {
     appState.workspaces.get(workspaceId)?.bringToFront(nodeId)
   })
@@ -857,6 +871,51 @@ export function registerIPC(): void {
   ipcMain.handle('drawing:clear', (_e, workspaceId: UUID) => {
     appState.workspaces.get(workspaceId)?.clearDrawings()
   })
+
+  // ─── Grupos ─────────────────────────────────────────────────────────────────
+  // Moldura com título em volta de um conjunto de nós. Devolvem o grupo já
+  // resolvido pelo manager (com a lista de membros filtrada) em vez de confiar
+  // no que o renderer mandou: é lá que a regra de um dono por nó é aplicada.
+
+  ipcMain.handle(
+    'group:create',
+    (_e, workspaceId: UUID, title: string, frame: Rect, nodeIds: UUID[]) => {
+      const ws = appState.workspaces.get(workspaceId)
+      if (!ws) return null
+      return ws.createGroup(title || 'Grupo', frame, Array.isArray(nodeIds) ? nodeIds : [])
+    }
+  )
+
+  ipcMain.handle(
+    'group:update',
+    (_e, workspaceId: UUID, groupId: UUID, patch: Record<string, unknown>) => {
+      const ws = appState.workspaces.get(workspaceId)
+      if (!ws) return null
+      // `nodeIds` não é campo de patch raso: mexer na lista de membros passa
+      // pelo filtro de dono único, que os outros campos não precisam.
+      if (Array.isArray(patch.nodeIds)) {
+        return ws.setGroupNodes(groupId, patch.nodeIds as UUID[])
+      }
+      return ws.updateGroup(groupId, {
+        title: typeof patch.title === 'string' ? patch.title : undefined,
+        frame: (patch.frame as Rect | undefined) ?? undefined,
+        color: typeof patch.color === 'string' ? patch.color : undefined,
+        isCollapsed: typeof patch.isCollapsed === 'boolean' ? patch.isCollapsed : undefined
+      })
+    }
+  )
+
+  ipcMain.handle('group:delete', (_e, workspaceId: UUID, groupId: UUID) => {
+    appState.workspaces.get(workspaceId)?.removeGroup(groupId)
+  })
+
+  /** O nó muda de dono (ou fica sem nenhum) — o gesto de entrar/sair da moldura. */
+  ipcMain.handle(
+    'group:set-node',
+    (_e, workspaceId: UUID, nodeId: UUID, groupId: UUID | null) => {
+      appState.workspaces.get(workspaceId)?.setNodeGroup(nodeId, groupId)
+    }
+  )
 
   // ─── Portais ────────────────────────────────────────────────────────────────
 

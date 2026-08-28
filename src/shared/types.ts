@@ -402,6 +402,36 @@ export interface Connection {
 
 // ─── Workspace ────────────────────────────────────────────────────────────────
 
+/**
+ * Uma moldura que agrupa nós — o que a UI chama de "grupo".
+ *
+ * NÃO é um caso de `NodeContent`, e a diferença é o que decide se o app nativo
+ * Swift abre o arquivo. Um caso desconhecido no enum de conteúdo faz o
+ * `JSONDecoder` de lá LANÇAR: o workspace não abre. Uma chave desconhecida no
+ * TOPO do payload, ao contrário, ele ignora em silêncio — abre normalmente, só
+ * sem as molduras. O custo é que um save vindo de lá apaga `groups`: perde-se a
+ * moldura, nunca os nós. Por isso `groups` nunca subiu o `schemaVersion`.
+ *
+ * A verdade é `nodeIds`; a contenção geométrica é só o GESTO que edita essa
+ * lista (soltar um nó dentro adota, arrastar para fora solta). Duas restrições
+ * que cabem numa checagem cada e eliminam a maior parte dos casos ruins: um nó
+ * pertence a no máximo um grupo, e grupos não aninham.
+ *
+ * Sem `zIndex`: grupos vivem numa camada própria, sempre atrás dos nós, e a
+ * ordem do array é o empilhamento entre eles.
+ */
+export interface NodeGroup {
+  id: UUID
+  title: string
+  frame: Rect // serializa como [[x,y],[w,h]], igual ao nó
+  nodeIds: UUID[]
+  /** Accent da moldura e da faixa do título. */
+  color: string
+  isCollapsed: boolean
+  createdAt: string
+  lastModifiedAt: string
+}
+
 export interface WorkspacePayload {
   id: UUID
   name: string
@@ -417,6 +447,7 @@ export interface WorkspacePayload {
   connections: Connection[]
   floors: FloorEntry[]
   drawings: Drawing[]
+  groups: NodeGroup[]
   createdAt: string
   lastOpenedAt: string | null
   lastModifiedAt: string

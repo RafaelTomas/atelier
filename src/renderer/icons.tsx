@@ -161,6 +161,21 @@ export function IconText({ size = 18 }: IconProps): JSX.Element {
 }
 
 /** Modo desenho: círculo com um traço atravessando, como na referência. */
+/**
+ * Grupo: uma moldura tracejada com dois blocos dentro — a leitura que a
+ * ferramenta produz no canvas, e não um ícone de "pasta", que já é a árvore de
+ * arquivos.
+ */
+export function IconGroup(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <rect x="3" y="4" width="18" height="16" rx="2" strokeDasharray="3 2.5" />
+      <rect x="6.5" y="8" width="4.5" height="8" rx="1" />
+      <rect x="13" y="8" width="4.5" height="5" rx="1" />
+    </Svg>
+  )
+}
+
 export function IconDraw(p: IconProps): JSX.Element {
   return (
     <Svg {...p}>

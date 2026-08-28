@@ -540,8 +540,96 @@ test('view descarta o que não é string — o Swift lê [String: String]', () =
   assert.equal('linhas' in view, false, 'um número foi gravado num mapa de strings')
 })
 
+// ─── Grupos (sem subir a versão) ─────────────────────────────────────────────
+// A moldura é uma chave a mais no TOPO do payload, não um caso a mais no enum
+// de conteúdo — é o que faz o app nativo Swift continuar abrindo o arquivo. O
+// que estes testes protegem é a leitura defensiva: a lista de membros vem de um
+// arquivo que outra ferramenta pode ter escrito.
+
+const NODE_A = raw.payload.nodes[0].id.toUpperCase()
+
+function groupsDoc(groups) {
+  return { ...raw, payload: { ...raw.payload, groups } }
+}
+
+function aGroup(patch = {}) {
+  return {
+    id: 'CCCCCCCC-0000-0000-0000-0000000000G1',
+    title: 'Infra',
+    frame: [[10, 20], [400, 300]],
+    nodeIds: [NODE_A],
+    color: '#E6F0FF',
+    isCollapsed: false,
+    createdAt: '2026-08-27T00:00:00Z',
+    lastModifiedAt: '2026-08-27T00:00:00Z',
+    ...patch
+  }
+}
+
+test('grupo faz round-trip sem perda', () => {
+  const doc = decodeWorkspaceDocument(groupsDoc([aGroup()]))
+  const g = doc.payload.groups[0]
+  assert.equal(g.title, 'Infra')
+  assert.deepEqual(g.frame, { x: 10, y: 20, width: 400, height: 300 })
+  assert.deepEqual(g.nodeIds, [NODE_A])
+  assert.equal(g.color, '#E6F0FF')
+
+  const back = encodeWorkspaceDocument(doc.payload)
+  const encoded = back.payload.groups[0]
+  assert.deepEqual(encoded.frame, [[10, 20], [400, 300]], 'frame não saiu como [[x,y],[w,h]]')
+  assert.deepEqual(encoded.nodeIds, [NODE_A])
+  assert.equal(encoded.isCollapsed, false)
+})
+
+test('grupo não sobe o schemaVersion — o app nativo continua abrindo', () => {
+  // O número é o da versão CORRENTE: o ponto do teste é que a moldura de grupo
+  // não o move, e ele muda quando o enum de conteúdo ganha um caso.
+  const doc = decodeWorkspaceDocument(groupsDoc([aGroup()]))
+  assert.equal(encodeWorkspaceDocument(doc.payload).schemaVersion, 7)
+})
+
+test('id órfão em nodeIds é filtrado, e o grupo sobrevive', () => {
+  const doc = decodeWorkspaceDocument(
+    groupsDoc([aGroup({ nodeIds: [NODE_A, 'DEADBEEF-0000-0000-0000-000000000000'] })])
+  )
+  assert.deepEqual(doc.payload.groups[0].nodeIds, [NODE_A])
+  assert.equal(doc.droppedNodes, 0, 'grupo com id órfão não é perda de conteúdo')
+})
+
+test('membro repetido em dois grupos fica no primeiro', () => {
+  const doc = decodeWorkspaceDocument(
+    groupsDoc([
+      aGroup(),
+      aGroup({ id: 'CCCCCCCC-0000-0000-0000-0000000000G2', title: 'Outro' })
+    ])
+  )
+  assert.deepEqual(doc.payload.groups[0].nodeIds, [NODE_A])
+  assert.deepEqual(doc.payload.groups[1].nodeIds, [], 'o mesmo nó ficou em dois grupos')
+})
+
+test('membro repetido DENTRO do mesmo grupo entra uma vez só', () => {
+  const doc = decodeWorkspaceDocument(groupsDoc([aGroup({ nodeIds: [NODE_A, NODE_A] })]))
+  assert.deepEqual(doc.payload.groups[0].nodeIds, [NODE_A])
+})
+
+test('frame inválido descarta o grupo — sem moldura não há o que desenhar', () => {
+  const doc = decodeWorkspaceDocument(groupsDoc([aGroup({ frame: 'nada' }), aGroup({ id: 'CCCCCCCC-0000-0000-0000-0000000000G3' })]))
+  assert.equal(doc.payload.groups.length, 1)
+})
+
+test('payload sem a chave groups decodifica como lista vazia', () => {
+  const doc = decodeWorkspaceDocument(raw)
+  assert.deepEqual(doc.payload.groups, [], 'arquivo antigo virou grupos indefinidos')
+  assert.deepEqual(encodeWorkspaceDocument(doc.payload).payload.groups, [])
+})
+
+test('nodeIds chega em minúsculo e sai maiúsculo, como todo UUID do formato', () => {
+  const doc = decodeWorkspaceDocument(groupsDoc([aGroup({ nodeIds: [NODE_A.toLowerCase()] })]))
+  assert.deepEqual(doc.payload.groups[0].nodeIds, [NODE_A])
+})
+
 test('schemaVersion e type ficam corretos na raiz', () => {
-  assert.equal(reencoded.schemaVersion, 6)
+  assert.equal(reencoded.schemaVersion, 7)
   assert.equal(reencoded.type, 'workspace')
 })
 

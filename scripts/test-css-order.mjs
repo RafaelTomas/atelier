@@ -101,7 +101,11 @@ const CONHECIDOS = new Map(([
    'elementos distintos: menus diferentes'],
   ['.git-feedback.is-error|.git-popover-feedback.is-error', 'elementos distintos'],
   ['.node.is-connect-target|.node.is-chromeless',
-   'PODEM coexistir — é o par que fixa a ordem canvas→nodes (ver ESPERADA)']
+   'PODEM coexistir — é o par que fixa a ordem canvas→nodes (ver ESPERADA)'],
+  ['.group.is-selected|.node.is-selected',
+   'elementos distintos: uma moldura de grupo nunca é um nó — mas o par é INTENCIONAL, é o mesmo anel tracejado de seleção nas duas coisas'],
+  ['.group.is-dimmed|.node-frame.is-dimmed',
+   'elementos distintos: moldura e nó — mas a opacidade tem de ser a MESMA, senão a moldura de um grupo apagado continuaria chamando atenção']
 ]).map(([par, motivo]) => [par.split('|').sort().join('|'), motivo]))
 
 let falhas = 0

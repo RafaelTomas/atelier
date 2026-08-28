@@ -31,6 +31,20 @@ interface Props {
   status?: AgentStatus | null
   /** Nome do projeto de um widget FIXADO — resolvido pelo canvas (ver lá). */
   projectName?: string | null
+  /**
+   * Fora do grupo em foco: o nó apaga para o grupo isolado sobressair. Não
+   * desmonta nem desabilita nada — é opacidade, e um terminal apagado continua
+   * rodando e recebendo o que se digita nele.
+   */
+  dimmed?: boolean
+  /**
+   * Dentro de um grupo colapsado. O nó só chega aqui quando algo o mantém
+   * MONTADO apesar do colapso — hoje só o portal acordado, que não pode perder
+   * o processo no meio de uma leitura do agente. Sai da tela por
+   * `visibility`, e não por `display: none`: um `<webview>` sem caixa de
+   * layout para de renderizar, e o agente leria uma página congelada.
+   */
+  hidden?: boolean
 }
 
 function title(node: CanvasNode, projectName: string | null): string {
@@ -77,7 +91,9 @@ export function NodeShell({
   role = null,
   customThemes = [],
   status = null,
-  projectName = null
+  projectName = null,
+  dimmed = false,
+  hidden = false
 }: Props): JSX.Element {
   const { frame } = node
   const terminal = node.content.type === 'terminal' ? node.content.value : null
@@ -124,7 +140,9 @@ export function NodeShell({
      */
     <div
       data-node-id={node.id}
-      className="node-frame"
+      className={['node-frame', dimmed ? 'is-dimmed' : '', hidden ? 'is-hidden' : '']
+        .filter(Boolean)
+        .join(' ')}
       style={{
         left: frame.x,
         top: frame.y,

@@ -108,8 +108,25 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .canvas-hint.is-notice {
-  background: var(--rope-error); border: 0; cursor: pointer; font-family: inherit;
+  background: var(--rope-error); border: 0; cursor: default; font-family: inherit;
+  display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 12px;
 }
+/* Os dois alvos do aviso herdam a cor e a fonte da pílula: são texto que
+   responde ao clique, não botões desenhados por cima do aviso. */
+.canvas-hint.is-notice button {
+  background: none; border: 0; padding: 0; color: inherit;
+  font: inherit; cursor: pointer;
+}
+.canvas-hint.is-notice .notice-text {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* A ação é o único elemento com peso: ela precisa se distinguir do relato do
+   que aconteceu, que é o resto da pílula. */
+.canvas-hint.is-notice .notice-action {
+  flex: none; font-weight: 600; text-decoration: underline;
+  padding: 2px 8px; border-radius: var(--r-pill);
+}
+.canvas-hint.is-notice .notice-action:hover { background: rgba(255, 255, 255, 0.18); }
 
 /* ─── Canvas ───────────────────────────────────────────────────────────────── */
 

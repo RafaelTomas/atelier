@@ -29,6 +29,8 @@ import type {
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
+import type { RemovedNodeSnapshot } from '@shared/node-undo'
+import { UNDO_STACK_LIMIT, UNDO_WINDOW_MS, captureRemoval, restoreRemoval } from '@shared/node-undo'
 import {
   DEFAULT_CLAUDE_ACCOUNT_ID,
   DOCK_PLACEMENT_DEFAULT,
@@ -230,7 +232,7 @@ export interface AppSnapshot {
   /** Espelho de preferences.json — hoje lido para os temas de terminal. */
   prefs: Preferences | null
   /** Aviso passageiro na barra — some sozinho. */
-  notice: string | null
+  notice: Notice | null
   /**
    * Integridade do arquivo do workspace aberto. `safeMode` significa que o
    * decoder descartou nós que não entendeu: o autosave está desligado e salvar
@@ -257,6 +259,25 @@ export interface AppSnapshot {
   platform: string
   loading: boolean
   bootError: string | null
+}
+
+/**
+ * O aviso da barra, com uma ação OPCIONAL.
+ *
+ * O aviso nasceu só com texto, para dar destino a uma falha de IPC que o
+ * renderer engoliria. A ação entrou com o desfazer: "apaguei sem querer" é um
+ * arrependimento de um segundo, e mandar a pessoa caçar um atalho enquanto o
+ * aviso do que ela fez está na tela é perder o único momento em que a correção
+ * é óbvia. O botão é o mesmo gesto do ⌘Z, no lugar em que o olho já está.
+ */
+export interface Notice {
+  text: string
+  action?: { label: string; run: () => void }
+}
+
+/** "1 nó apagado" / "4 nós apagados" — o aviso diz o tamanho do estrago. */
+function noticeForRemoval(snapshots: RemovedNodeSnapshot[]): string {
+  return snapshots.length === 1 ? 'nó apagado' : `${snapshots.length} nós apagados`
 }
 
 const initial: AppSnapshot = {
@@ -498,25 +519,115 @@ class Store {
     return node
   }
 
-  async removeNode(nodeId: UUID, opts?: { force?: boolean }): Promise<void> {
+  removeNode(nodeId: UUID, opts?: { force?: boolean }): Promise<void> {
+    return this.removeNodes([nodeId], opts)
+  }
+
+  /**
+   * Apaga N nós COMO UM GESTO SÓ — é o que a tecla Delete faz com uma seleção.
+   *
+   * O laço de fora (um `removeNode` por id) foi para dentro por causa do undo:
+   * apagar cinco nós e ter de desfazer cinco vezes não é desfazer o que se fez,
+   * é desfazer cinco coisas que aconteceram juntas. Um retrato, um ⌘Z.
+   */
+  async removeNodes(nodeIds: UUID[], opts?: { force?: boolean }): Promise<void> {
     const id = this.workspaceId
-    if (!id) return
-    // Editor com alteração pendente não fecha calado: pergunta primeiro.
-    if (!opts?.force && this.dirtyEditors.has(nodeId)) {
-      this.set({ closingEditor: nodeId })
-      return
+    const ws = this.state.workspace
+    if (!id || !ws) return
+
+    const existing = nodeIds.filter((n) => ws.nodes.some((node) => node.id === n))
+    // Editor com alteração pendente não fecha calado: pergunta primeiro — e um
+    // por vez, na fila, porque a resposta é sobre ESTE arquivo. Os outros nós da
+    // seleção não esperam pela pergunta: eles não têm nada a perder.
+    const asking = opts?.force ? [] : existing.filter((n) => this.dirtyEditors.has(n))
+    const targets = existing.filter((n) => !asking.includes(n))
+    if (asking.length > 0) {
+      this.closingQueue = asking.slice(1)
+      this.set({ closingEditor: asking[0] })
     }
-    await window.atelier.node.remove(id, nodeId)
-    this.mutateWorkspace((ws) => {
-      ws.nodes = ws.nodes.filter((n) => n.id !== nodeId)
-      ws.connections = ws.connections.filter((c) => c.nodeIdA !== nodeId && c.nodeIdB !== nodeId)
+    if (targets.length === 0) return
+
+    // O retrato vem ANTES da poda: depois dela os cabos e a moldura já não
+    // sabem que o nó existiu.
+    const snapshots = captureRemoval(ws, targets)
+    await Promise.all(targets.map((nodeId) => window.atelier.node.remove(id, nodeId)))
+    const dead = new Set(targets)
+    this.mutateWorkspace((w) => {
+      w.nodes = w.nodes.filter((n) => !dead.has(n.id))
+      w.connections = w.connections.filter((c) => !dead.has(c.nodeIdA) && !dead.has(c.nodeIdB))
       // A moldura fica, só perde o membro — espelha o WorkspaceManager. Sem
       // isto o contador da faixa continuaria contando um nó que já não existe.
-      ws.groups = ws.groups.map((g) =>
-        g.nodeIds.includes(nodeId) ? { ...g, nodeIds: g.nodeIds.filter((n) => n !== nodeId) } : g
+      w.groups = w.groups.map((g) =>
+        g.nodeIds.some((n) => dead.has(n))
+          ? { ...g, nodeIds: g.nodeIds.filter((n) => !dead.has(n)) }
+          : g
       )
     })
-    this.set({ selection: this.state.selection.filter((s) => s !== nodeId) })
+    this.set({ selection: this.state.selection.filter((sel) => !dead.has(sel)) })
+    this.pushUndo({ workspaceId: id, snapshots, at: Date.now() })
+    this.showNotice(noticeForRemoval(snapshots), {
+      label: 'Desfazer',
+      run: () => void this.undoLastRemoval()
+    })
+  }
+
+  // ─── Desfazer o delete ──────────────────────────────────────────────────────
+  // Pilha em MEMÓRIA, fora do snapshot do React: ela muda junto com o workspace
+  // e nada na tela depende dela a não ser o aviso, que já é estado. Fora do
+  // workspace.json também — um histórico de undo persistido seria um campo que
+  // o app nativo Swift descartaria no primeiro save, e ressuscitar um nó de uma
+  // sessão anterior não é o que ⌘Z promete.
+
+  private undoStack: { workspaceId: UUID; snapshots: RemovedNodeSnapshot[]; at: number }[] = []
+  /** Editores com alteração pendente ainda por perguntar, na ordem. */
+  private closingQueue: UUID[] = []
+
+  private pushUndo(entry: { workspaceId: UUID; snapshots: RemovedNodeSnapshot[]; at: number }): void {
+    this.undoStack.push(entry)
+    if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift()
+  }
+
+  /**
+   * Desfaz o último delete que ainda está dentro da janela.
+   *
+   * A janela não é decoração: passada ela, o main já apagou os bytes da imagem
+   * (ver core/persistence/pending-image-delete.ts), e um nó de imagem que
+   * voltasse depois disso voltaria vazio. Melhor dizer que não dá do que
+   * devolver uma moldura em branco.
+   *
+   * Entradas de OUTRO workspace são descartadas na mesma passada: o canvas
+   * mudou, e o nó que voltasse não estaria na tela de ninguém.
+   */
+  async undoLastRemoval(): Promise<void> {
+    const id = this.workspaceId
+    if (!id) return
+    const now = Date.now()
+    while (this.undoStack.length > 0) {
+      const top = this.undoStack[this.undoStack.length - 1]
+      if (top.workspaceId === id && now - top.at <= UNDO_WINDOW_MS) break
+      this.undoStack.pop()
+    }
+    const entry = this.undoStack.pop()
+    if (!entry) {
+      this.showNotice('nada para desfazer')
+      return
+    }
+    const restored = await window.atelier.node.restore(id, entry.snapshots)
+    if (restored.length === 0) {
+      this.showNotice('nada para desfazer')
+      return
+    }
+    this.mutateWorkspace((w) => {
+      const next = restoreRemoval(w, entry.snapshots)
+      w.nodes = next.nodes
+      w.connections = next.connections
+      w.groups = next.groups
+    })
+    // Selecionar o que voltou responde "onde ele foi parar" sem procurar. O
+    // terminal volta PARADO: o `.session.json` sobreviveu à remoção, então quem
+    // quiser a conversa de volta liga o nó e o boot retoma pelo id gravado.
+    this.set({ selection: restored })
+    this.dismissNotice()
   }
 
   // ─── Editor de código ───────────────────────────────────────────────────────
@@ -564,17 +675,24 @@ class Store {
     return this.dirtyEditors.has(nodeId)
   }
 
-  /** Fechar com alteração pendente pergunta; o diálogo mora no App. */
+  /**
+   * Fechar com alteração pendente pergunta; o diálogo mora no App.
+   *
+   * Cancelar cancela a FILA inteira: quem desistiu de perder um arquivo não
+   * quer responder a mesma pergunta mais três vezes.
+   */
   cancelCloseEditor(): void {
+    this.closingQueue = []
     this.set({ closingEditor: null })
   }
 
   async confirmCloseEditor(): Promise<void> {
     const id = this.state.closingEditor
     if (!id) return
-    this.set({ closingEditor: null })
+    const next = this.closingQueue.shift() ?? null
+    this.set({ closingEditor: next })
     this.dirtyEditors.delete(id)
-    await this.removeNode(id, { force: true })
+    await this.removeNodes([id], { force: true })
   }
 
   /**
@@ -1324,8 +1442,8 @@ class Store {
    * chamada que rejeita vira `void` engolido e o usuário fica achando que o
    * clique não fez nada.
    */
-  showNotice(text: string): void {
-    this.set({ notice: text })
+  showNotice(text: string, action?: Notice['action']): void {
+    this.set({ notice: { text, action } })
     if (this.noticeTimer) clearTimeout(this.noticeTimer)
     this.noticeTimer = setTimeout(() => this.set({ notice: null }), 7000)
   }
@@ -1553,8 +1671,10 @@ class Store {
     const id = this.workspaceId
     if (!id) return
     if (opts.withNodes) {
+      // Um retrato só para os N membros: desfazer devolve os nós (SOLTOS — a
+      // moldura foi embora no mesmo gesto e não faz parte do retrato).
       const group = this.group(groupId)
-      for (const nodeId of group?.nodeIds ?? []) await this.removeNode(nodeId, { force: true })
+      await this.removeNodes(group?.nodeIds ?? [], { force: true })
     }
     await window.atelier.group.remove(id, groupId)
     this.mutateWorkspace((ws) => {

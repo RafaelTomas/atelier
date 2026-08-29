@@ -78,6 +78,11 @@ import {
 import { interAgentServer } from '../core/interagent/server'
 import { onConnectionCreated, restoreConnections } from '../core/connection/connection-manager'
 import { forgetTerminal } from '../core/connection/skill-injector'
+import {
+  cancelImageDelete,
+  scheduleImageDelete
+} from '../core/persistence/pending-image-delete'
+import type { RemovedNodeSnapshot } from '@shared/node-undo'
 import { registerGuest, unregisterGuest } from '../core/portal/portal-registry'
 import { closeSession, openSession } from '../core/portal/portal-cdp'
 import { notifyRenderer } from './notify'
@@ -441,13 +446,40 @@ export function registerIPC(): void {
     if (!ws) return
     terminals.kill(nodeId)
     forgetTerminal(nodeId)
+    // O `.session.json` NÃO é apagado aqui, e isso é o que faz o undo de um
+    // terminal valer a pena: o nó volta parado, e o boot seguinte retoma a
+    // conversa pelo id gravado. Só `clearSession` (o "sessão nova" do ↻) apaga.
+    //
     // Imagem carrega um arquivo de bytes (pode ser grande): apaga junto, ao
-    // contrário da nota/tabela, cujos arquivos-texto são leves e ficam.
+    // contrário da nota/tabela, cujos arquivos-texto são leves e ficam. Mas
+    // só DEPOIS da janela de undo — ver pending-image-delete.
     const node = ws.node(nodeId)
     if (node?.content.type === 'image' && node.content.value.fileName) {
-      void persistence.deleteImage(ws.id, node.content.value.fileName).catch(() => undefined)
+      scheduleImageDelete(nodeId, ws.id, node.content.value.fileName, (id, file) =>
+        persistence.deleteImage(id, file)
+      )
     }
     ws.removeNode(nodeId)
+  })
+
+  /**
+   * Desfazer o remove: os nós voltam com o MESMO id, com os cabos que morreram
+   * junto e para dentro da moldura de onde saíram.
+   *
+   * Não é `node:add` com outro nome — `node:add` cria um id novo, e os arquivos
+   * que vivem por nodeId (scrollback, `.session.json`, o `.md` da nota, a
+   * tabela, a imagem) ficariam órfãos ao lado de um nó vazio.
+   *
+   * O PTY não sobe junto: um terminal restaurado volta parado, de propósito.
+   * Ressuscitar processo sem o usuário pedir é decisão demais para um ⌘Z, e a
+   * conversa não se perde — o `--resume` do próximo boot a recupera.
+   */
+  ipcMain.handle('node:restore', (_e, workspaceId: UUID, snapshots: RemovedNodeSnapshot[]) => {
+    const ws = appState.workspaces.get(workspaceId)
+    if (!ws) return []
+    const restored = ws.restoreNodes(snapshots ?? [])
+    for (const nodeId of restored) cancelImageDelete(nodeId)
+    return restored
   })
 
   ipcMain.handle('node:set-frame', (_e, workspaceId: UUID, nodeId: UUID, frame: Rect) => {

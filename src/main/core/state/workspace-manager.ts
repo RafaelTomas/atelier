@@ -15,6 +15,8 @@ import type {
   WorkspacePayload
 } from '@shared/types'
 import { connectionKindForTypes } from '@shared/types'
+import type { RemovedNodeSnapshot } from '@shared/node-undo'
+import { restoreRemoval } from '@shared/node-undo'
 import { nowISO } from '../coding'
 import { Constants } from '../constants'
 import { makeConnection, makeNodeGroup } from '../models/workspace'
@@ -110,6 +112,29 @@ export class WorkspaceManager {
       if (i >= 0) group.nodeIds.splice(i, 1)
     }
     this.markDirty()
+  }
+
+  /**
+   * O inverso de `removeNode`: o nó volta COM O MESMO id, com os cabos que
+   * morreram junto e para dentro da moldura de onde saiu.
+   *
+   * O id igual não é detalhe de elegância — é o que faz o undo devolver o nó
+   * inteiro. Scrollback, `.session.json`, o `.md` da nota e a tabela vivem em
+   * arquivos nomeados por nodeId; um id novo (o que `addNode` daria) restauraria
+   * só a casca, com o conteúdo órfão ao lado no disco.
+   *
+   * A regra de "o que ainda cabe" é a de `shared/node-undo.ts`, a mesma que o
+   * renderer aplica no seu espelho.
+   */
+  restoreNodes(snapshots: RemovedNodeSnapshot[]): UUID[] {
+    const restored = snapshots.filter((s) => !this.node(s.node.id)).map((s) => s.node.id)
+    if (restored.length === 0) return []
+    const next = restoreRemoval(this.payload, snapshots)
+    this.payload.nodes = next.nodes
+    this.payload.connections = next.connections
+    this.payload.groups = next.groups
+    this.markDirty()
+    return restored
   }
 
   updateFrame(id: UUID, frame: Rect): void {

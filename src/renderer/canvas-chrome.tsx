@@ -68,10 +68,27 @@ export function CanvasChrome(): JSX.Element {
         </div>
       )}
 
+      {/* Aviso com ação: o texto continua sendo o botão de dispensar, e a ação
+          (hoje o "Desfazer" do delete) é um alvo SEPARADO ao lado — senão o
+          clique de tirar o aviso da frente e o de corrigir o erro seriam o
+          mesmo gesto, e um deles aconteceria sem querer. */}
       {notice && (
-        <button type="button" className="canvas-hint is-notice" onClick={() => store.dismissNotice()}>
-          {notice}
-        </button>
+        <div className="canvas-hint is-notice">
+          <button type="button" className="notice-text" onClick={() => store.dismissNotice()}>
+            {notice.text}
+          </button>
+          {notice.action && (
+            <button
+              type="button"
+              className="notice-action"
+              onClick={() => {
+                notice.action?.run()
+              }}
+            >
+              {notice.action.label}
+            </button>
+          )}
+        </div>
       )}
     </>
   )

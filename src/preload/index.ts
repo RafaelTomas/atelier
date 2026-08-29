@@ -35,6 +35,7 @@ import type {
   WorkspacePayload
 } from '@shared/types'
 import type { DataTablePayload } from '@shared/data-table'
+import type { RemovedNodeSnapshot } from '@shared/node-undo'
 
 /** O que a UI manda ao gravar uma chave. `value` sobe; nunca desce de volta. */
 interface VaultEntryInput {
@@ -126,6 +127,9 @@ const api = {
       ipcRenderer.invoke('node:add', workspaceId, kind, position, opts ?? {}, size),
     remove: (workspaceId: UUID, nodeId: UUID): Promise<void> =>
       ipcRenderer.invoke('node:remove', workspaceId, nodeId),
+    /** Desfazer o remove: os nós voltam com o mesmo id. Devolve os que voltaram. */
+    restore: (workspaceId: UUID, snapshots: RemovedNodeSnapshot[]): Promise<UUID[]> =>
+      ipcRenderer.invoke('node:restore', workspaceId, snapshots),
     setFrame: (workspaceId: UUID, nodeId: UUID, frame: Rect): Promise<void> =>
       ipcRenderer.invoke('node:set-frame', workspaceId, nodeId, frame),
     /** Commit de um arrasto de seleção múltipla: um IPC em vez de N. */

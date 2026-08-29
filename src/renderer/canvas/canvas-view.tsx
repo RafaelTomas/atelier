@@ -148,7 +148,8 @@ export function CanvasView(): JSX.Element {
     roles,
     prefs,
     terminalStatus,
-    projects
+    projects,
+    platform
   } = useStore()
   const hostRef = useRef<HTMLDivElement>(null)
   const nodesRef = useRef<HTMLDivElement>(null)
@@ -1007,15 +1008,23 @@ export function CanvasView(): JSX.Element {
       const el = document.activeElement as HTMLElement | null
       if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA'].includes(el.tagName))) return
 
-      if ((e.key === 'Backspace' || e.key === 'Delete') && selection.length > 0) {
+      // Backspace NÃO apaga — a tecla é grande demais e fica no caminho de quem
+      // só queria corrigir o que digitou. A exceção é o macOS: num MacBook não
+      // existe `Delete` dedicado (é fn+delete), e sem ela o atalho ficaria sem
+      // gesto naquele teclado. Ver `platform`, que vem do bootInfo.
+      const apaga = e.key === 'Delete' || (platform === 'darwin' && e.key === 'Backspace')
+
+      if (apaga && selection.length > 0) {
         e.preventDefault()
-        for (const id of selection) void store.removeNode(id)
+        // Um IPC e UM retrato de undo para a seleção inteira: apagar cinco nós
+        // e ter de desfazer cinco vezes não é desfazer o que se fez.
+        void store.removeNodes(selection)
       }
       // Delete com a moldura selecionada DESAGRUPA: some o retângulo, ficam os
       // nós. Apagar os membros junto existe, mas só pelo menu de contexto e com
       // confirmação — é o único caminho destrutivo do grupo, e uma tecla é
       // barata demais para ele.
-      if ((e.key === 'Backspace' || e.key === 'Delete') && selectedGroupId) {
+      if (apaga && selectedGroupId) {
         e.preventDefault()
         void store.removeGroup(selectedGroupId)
       }
@@ -1038,6 +1047,16 @@ export function CanvasView(): JSX.Element {
         } else if (selection.length > 0) {
           void store.groupSelection()
         }
+      }
+
+      // Desfazer o último delete, no atalho universal. Não há Shift+⌘Z: o que
+      // se desfaz aqui é uma REMOÇÃO, e "refazer" seria apagar de novo — gesto
+      // destrutivo demais para ficar atrás de um atalho de correção. A guarda
+      // lá de cima já protege quem está digitando: dentro de uma nota ou do
+      // editor o ⌘Z é do texto, e nem chega aqui.
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        void store.undoLastRemoval()
       }
 
       // Atalhos das ferramentas, no padrão de editor de canvas
@@ -1097,7 +1116,7 @@ export function CanvasView(): JSX.Element {
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [selection, selectedGroupId])
+  }, [selection, selectedGroupId, platform])
 
   /**
    * Botão direito no canvas não CRIA nada.

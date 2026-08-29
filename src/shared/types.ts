@@ -67,6 +67,13 @@ export interface TerminalContent {
    * agente apagar o trabalho em andamento de outro — inclusive o do usuário.
    */
   recruitedBy: UUID | null
+  /**
+   * Sessão anterior do Claude Code a retomar no PRÓXIMO boot deste nó, escolhida
+   * no diálogo. `null` no caso normal. É consumido uma vez: assim que o boot a
+   * usa, ela vira a sessão gravada do nó (`session.json`) e este campo volta a
+   * `null`, para o "Sessão nova" poder zerar tudo depois.
+   */
+  resumeSessionId: UUID | null
 }
 
 export type StorageMode = { kind: 'managed' } | { kind: 'custom'; path: string }
@@ -1094,6 +1101,22 @@ export interface AgentRole {
   lastModifiedAt: string
 }
 
+/**
+ * Uma sessão anterior do Claude Code num diretório, candidata a `--resume`.
+ * Alimenta o select "Retomar sessão" do diálogo de novo terminal.
+ */
+export interface ClaudeSessionSummary {
+  /** Id da sessão (nome do `.jsonl` sem extensão) — vai direto no `--resume`. */
+  sessionId: UUID
+  /** `mtime` do arquivo, em ISO. É o critério de ordenação da lista. */
+  modifiedAt: string
+  /**
+   * A primeira mensagem do usuário na transcrição, encurtada. Vazio quando não
+   * há nenhuma ainda ou nada legível saiu do arquivo — a UI cai na data.
+   */
+  label: string
+}
+
 /** O que o diálogo de novo terminal entrega ao main. */
 export interface TerminalDraft {
   name: string
@@ -1110,6 +1133,12 @@ export interface TerminalDraft {
   assignedRoleId: UUID | null
   /** Conta do Claude escolhida no diálogo. null = padrão (~/.claude). */
   claudeAccountId: string | null
+  /**
+   * Sessão anterior do Claude Code escolhida no select "Retomar sessão". `null`
+   * = sessão nova. Vale UMA vez: o primeiro boot a grava como a sessão do nó e
+   * o campo é zerado — daí em diante manda o `session.json`.
+   */
+  resumeSessionId: UUID | null
 }
 
 // ─── Ponte renderer ⇄ main ────────────────────────────────────────────────────
@@ -1151,6 +1180,13 @@ export interface TerminalSpawnOptions {
    *  - `resume` — retoma explicitamente, pedido pelo menu do nó.
    */
   sessionMode?: 'auto' | 'clean' | 'resume'
+  /**
+   * Sessão anterior escolhida no diálogo de terminal. Só é honrada quando não há
+   * `session.json` utilizável para o nó: uma escolha feita na criação nunca
+   * ganha da sessão que o próprio nó já acumulou. Usada, ela é gravada como a
+   * sessão do nó e o `bridge` limpa o campo do conteúdo.
+   */
+  resumeSessionId?: UUID
 }
 
 export interface BootInfo {

@@ -138,7 +138,8 @@ export function App(): JSX.Element {
           fontFamily: editing.content.value.fontFamily,
           fontSize: editing.content.value.fontSize,
           assignedRoleId: editing.content.value.assignedRoleId,
-          claudeAccountId: editing.content.value.claudeAccountId
+          claudeAccountId: editing.content.value.claudeAccountId,
+          resumeSessionId: editing.content.value.resumeSessionId
         }
       : null
 

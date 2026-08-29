@@ -6,7 +6,7 @@
  */
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, sep } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { extForImageMime, isSupportedImageName, mimeForImageName, pngDimensions } from '@shared/image'
@@ -61,6 +61,7 @@ import { projectIndex } from '../core/state/project-store'
 import { roles } from '../core/state/role-store'
 import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manager'
 import { supportsResume } from '../core/terminal/agent-resume'
+import { listClaudeSessions } from '../core/terminal/claude-sessions'
 import { apply as applyTodo, create as createTodo, read as readTodo } from '../core/todo/todo-store'
 import type { TodoOp } from '../core/todo/todo-store'
 import { clearSession, readSession } from '../core/terminal/session-store'
@@ -852,6 +853,10 @@ export function registerIPC(): void {
         // e a decisão tem que acontecer antes de o comando ser digitado — por
         // isso ele vem aqui, e não só no `setAgentInfo` logo abaixo.
         agentType: tc.agentType,
+        // Sessão anterior escolhida no diálogo. O manager só a honra se o nó
+        // ainda não tem sessão gravada utilizável; usada ou não, o campo é
+        // limpo logo abaixo, para valer uma única vez.
+        ...(tc.resumeSessionId ? { resumeSessionId: tc.resumeSessionId } : {}),
         extraEnv: vaultEnv.env,
         ...(claudeConfigDir ? { claudeConfigDir } : {}),
         workingDirectory: tc.workingDirectory || ws.payload.workingDirectory,
@@ -860,6 +865,17 @@ export function registerIPC(): void {
         role: role ? { id: role.id, name: role.name } : null
       })
       if (!session) return { error: ptyUnavailableReason() ?? 'não foi possível abrir o PTY' }
+
+      // A escolha do diálogo vale uma vez: o PTY subiu, então ou ela virou a
+      // sessão gravada do nó (retomada), ou não servia (id sem transcrição) —
+      // nos dois casos o campo tem que sumir, senão todo boot seguinte tentaria
+      // retomá-la de novo e o "Sessão nova" nunca zeraria nada.
+      if (tc.resumeSessionId) {
+        ws.updateContent(nodeId, (n) => {
+          if (n.content.type === 'terminal') n.content.value.resumeSessionId = null
+        })
+        notifyRenderer('workspace:changed', { workspaceId })
+      }
 
       terminals.setAgentInfo(nodeId, { agentType: tc.agentType, agentName: tc.name })
       // O status volta junto para a UI reabrir já com os números certos — o
@@ -888,6 +904,23 @@ export function registerIPC(): void {
   })
 
   /**
+   * As sessões anteriores do Claude Code num diretório — alimenta o select
+   * "Retomar sessão" do diálogo de terminal.
+   *
+   * O `configDir` vem da conta escolhida, como no spawn: `configDirFor` devolve
+   * `null` para a conta padrão, e aí é `~/.claude`. Sempre devolve uma lista,
+   * nunca lança — a leitura é de um diretório de outro app.
+   */
+  ipcMain.handle(
+    'claude:sessions',
+    async (_e, cwd: string, claudeAccountId: string | null) => {
+      if (typeof cwd !== 'string' || !cwd.trim()) return []
+      const configDir =
+        claudeAccounts.configDirFor(claudeAccountId ?? null) ?? join(homedir(), '.claude')
+      return listClaudeSessions(configDir, cwd)
+    }
+  )
+
   /**
    * Esquece a sessão deste nó — é o que faz "Sessão nova" começar limpo.
    *

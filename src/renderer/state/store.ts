@@ -1031,7 +1031,8 @@ class Store {
         fontFamily: null,
         fontSize: null,
         assignedRoleId: null,
-        claudeAccountId: null
+        claudeAccountId: null,
+        resumeSessionId: null
       },
       at,
       { width: 560, height: 360 }

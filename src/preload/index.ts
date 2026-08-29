@@ -14,6 +14,7 @@ import type {
   CanvasNode,
   ClaudeAccount,
   ClaudeAccountInfo,
+  ClaudeSessionSummary,
   DiscoveredProject,
   Connection,
   Drawing,
@@ -236,6 +237,15 @@ const api = {
     /** "Sessão nova": apaga o id antes de o nó remontar. */
     forgetSession: (workspaceId: UUID, nodeId: UUID): Promise<void> =>
       ipcRenderer.invoke('terminal:forget-session', workspaceId, nodeId),
+    /**
+     * As sessões anteriores do Claude Code num diretório, para o select
+     * "Retomar sessão" do diálogo. Lista vazia = não oferecer a opção.
+     */
+    resumableSessions: (
+      cwd: string,
+      claudeAccountId: string | null
+    ): Promise<ClaudeSessionSummary[]> =>
+      ipcRenderer.invoke('claude:sessions', cwd, claudeAccountId),
     onStatus: (cb: (p: { id: UUID; status: AgentStatus }) => void): Unsubscribe =>
       on('terminal:status', cb)
   },

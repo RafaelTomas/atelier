@@ -363,6 +363,7 @@ class TerminalManager extends EventEmitter {
     mode: 'none' | 'new' | 'resume'
     startedAt: string
     /** Gravar este id como a sessão do nó? Sim para sessão nova e para a
+     *  retomada escolhida no diálogo; não para a retomada da sessão que já
      *  estava gravada — reescrevê-la só perderia o `startedAt` original. */
     persist: boolean
   }> {
@@ -386,6 +387,31 @@ class TerminalManager extends EventEmitter {
 
     const saved =
       mode === 'clean' ? null : await readSession(opts.workspaceId, opts.nodeId)
+
+    // Uma sessão escolhida à mão no diálogo ("Retomar sessão"). Vem ANTES da
+    // sessão gravada do nó: quem acabou de escolher uma no diálogo de edição
+    // quer aquela, não a que o `--resume` automático pegaria. Vale uma vez —
+    // `spawn` a grava como a sessão do nó e o `bridge` zera o campo do conteúdo.
+    const escolhida = opts.resumeSessionId
+    if (mode !== 'clean' && escolhida && escolhida !== saved?.sessionId) {
+      const loc = RESUME_SUPPORT[agentType].transcript(
+        opts.claudeConfigDir || join(homedir(), '.claude'),
+        cwd,
+        escolhida
+      )
+      // 'no' — pasta do projeto existe e o arquivo não — é a única resposta que
+      // descarta. 'unknown' (regra de nome de outro app) retoma, como no resto
+      // do módulo: a queda, se vier, é apanhada na tela pelo guarda de recusa.
+      if ((await transcriptState(loc)) !== 'no') {
+        return {
+          command: withSession(command, agentType, escolhida, 'resume', RESUME_SUPPORT),
+          sessionId: escolhida,
+          mode: 'resume',
+          startedAt: '',
+          persist: true
+        }
+      }
+    }
 
     const utilizavel =
       sessionIsUsable(saved, agentType, cwd, supportsResume) &&

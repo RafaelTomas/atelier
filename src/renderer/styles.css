@@ -28,6 +28,10 @@
 @import './styles/primitives.css' layer(primitives);
 
 @import './styles/panels.css';
+/* ANTES de rail e canvas: `.pill` é a casca comum das duas pílulas flutuantes, e
+   cada uma ajusta o que é próprio dela escrevendo só a diferença — a mesma
+   lógica de `nodes.css` vir antes de `nodes/*`. */
+@import './styles/floating.css';
 @import './styles/rail.css';
 @import './styles/canvas.css';
 

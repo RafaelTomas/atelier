@@ -708,6 +708,122 @@ export interface Preferences {
   terminalThemes: TerminalTheme[]
   /** O que fazer com um popup aberto de dentro de um portal. */
   portalPopups: PortalPopupMode
+  /**
+   * Onde ficam as duas pílulas flutuantes — `"bottom/center"`, `"left/center"`.
+   *
+   * STRINGS, e não um objeto, pela mesma razão do `view` do widget: um objeto
+   * aninhado é o que o decoder do app nativo tem mais chance de REJEITAR em vez
+   * de ignorar.
+   *
+   * Chaves DESTE binário: o app nativo Swift não as conhece, e um save de lá as
+   * apaga. Aceito com os olhos abertos — perder isto devolve o padrão, que é a
+   * posição histórica, e o prejuízo é ínfimo comparado ao de perder a
+   * configuração de um botão do usuário. Valor inválido ou ausente cai no
+   * padrão SEMPRE: ver `parsePlacement`.
+   */
+  dockPlacement: string
+  railPlacement: string
+}
+
+// ─── Posição das pílulas flutuantes ───────────────────────────────────────────
+
+/**
+ * Ancoragem em BORDA, com posição LIVRE ao longo dela.
+ *
+ * A borda não é negociável: uma pílula em `x/y` livre pode ser largada em cima
+ * de um nó (e aí rouba cliques do canvas para sempre) ou ficar fora da janela
+ * num redimensionamento, sem como voltar sem editar as preferências à mão.
+ *
+ * Ao LONGO da borda, porém, não havia razão para só três paradas: quem arrasta
+ * a dock para um ponto qualquer da base espera que ela fique ali, e não que
+ * salte para o terço mais próximo. `offset` é a fração desse percurso — 0 é o
+ * começo da borda, 1 é o fim, 0.5 é o centro —, e é fração e não pixels para
+ * sobreviver ao redimensionamento da janela: a pílula guarda a POSIÇÃO
+ * relativa, não uma coordenada que a janela pode deixar para trás.
+ */
+export type PlacementEdge = 'top' | 'bottom' | 'left' | 'right'
+
+/** As três paradas nomeadas — o que o menu de contexto oferece. */
+export type PlacementAlign = 'start' | 'center' | 'end'
+
+export interface Placement {
+  edge: PlacementEdge
+  /** 0 = início da borda, 0.5 = centro, 1 = fim. Sempre dentro de [0, 1]. */
+  offset: number
+}
+
+export const PLACEMENT_EDGES: PlacementEdge[] = ['top', 'bottom', 'left', 'right']
+export const PLACEMENT_ALIGNS: PlacementAlign[] = ['start', 'center', 'end']
+
+/** A fração de cada parada nomeada. É a ponte entre o menu e o `offset`. */
+export const ALIGN_OFFSET: Record<PlacementAlign, number> = {
+  start: 0,
+  center: 0.5,
+  end: 1
+}
+
+/** As doze posições NOMEADAS, na ordem em que o menu de contexto as oferece. */
+export const PLACEMENTS: Placement[] = PLACEMENT_EDGES.flatMap((edge) =>
+  PLACEMENT_ALIGNS.map((align) => ({ edge, offset: ALIGN_OFFSET[align] }))
+)
+
+export const DOCK_PLACEMENT_DEFAULT: Placement = { edge: 'bottom', offset: 0.5 }
+export const RAIL_PLACEMENT_DEFAULT: Placement = { edge: 'left', offset: 0.5 }
+
+/** Borda esquerda/direita → pílula vertical; topo/base → horizontal. */
+export function isVerticalEdge(edge: PlacementEdge): boolean {
+  return edge === 'left' || edge === 'right'
+}
+
+export function clampOffset(n: number): number {
+  return Math.min(1, Math.max(0, n))
+}
+
+/**
+ * `{ edge, offset }` → `"bottom/center"` ou `"bottom/0.317"`.
+ *
+ * As três frações nomeadas voltam a ser PALAVRAS. Não é cosmético: o formato em
+ * disco é lido por versões mais velhas deste binário, e as posições que elas
+ * conhecem continuam sendo exatamente as strings que elas sabem ler. Só uma
+ * posição de fato nova — que nenhuma versão anterior saberia representar —
+ * grava um número, e lá a versão velha cai no padrão em vez de quebrar.
+ */
+export function formatPlacement(p: Placement): string {
+  const offset = clampOffset(p.offset)
+  for (const align of PLACEMENT_ALIGNS) {
+    if (ALIGN_OFFSET[align] === offset) return `${p.edge}/${align}`
+  }
+  // Três casas: sub-pixel em qualquer janela real, e o arquivo continua legível.
+  return `${p.edge}/${offset.toFixed(3)}`
+}
+
+/**
+ * `"bottom/center"` → `{ edge, offset }`. NUNCA lança.
+ *
+ * Um valor gravado que não faça sentido — lixo, uma versão mais nova, um save do
+ * app nativo que passou por cima — cai no padrão. É a garantia de que a dock
+ * continua alcançável: nenhum estado em disco pode escondê-la.
+ */
+export function parsePlacement(raw: unknown, fallback: Placement): Placement {
+  if (typeof raw !== 'string') return fallback
+  const parts = raw.split('/')
+  if (parts.length !== 2) return fallback
+  const [edge, at] = parts
+  if (!PLACEMENT_EDGES.includes(edge as PlacementEdge)) return fallback
+
+  if (PLACEMENT_ALIGNS.includes(at as PlacementAlign)) {
+    return { edge: edge as PlacementEdge, offset: ALIGN_OFFSET[at as PlacementAlign] }
+  }
+  // Fração explícita. `Number('')` é 0 e `Number(' ')` também: sem o teste de
+  // formato, `"bottom/"` viraria uma posição válida em vez de cair no padrão.
+  if (!/^\d+(\.\d+)?$/.test(at)) return fallback
+  const offset = Number(at)
+  if (!Number.isFinite(offset) || offset > 1) return fallback
+  return { edge: edge as PlacementEdge, offset }
+}
+
+export function samePlacement(a: Placement, b: Placement): boolean {
+  return a.edge === b.edge && a.offset === b.offset
 }
 
 /**

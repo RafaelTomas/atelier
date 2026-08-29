@@ -23,7 +23,8 @@ const dir = join(root, 'src/renderer/styles')
 // A ordem, e por que é esta.
 const ESPERADA = [
   ['panels',  'ANTES de rail: a rail ajusta a densidade dos painéis que hospeda, e ajuste vem depois do que ele ajusta.'],
-  ['rail',    'DEPOIS de panels (ver acima). Só a casca da rail — o conteúdo das colunas é panels.'],
+  ['floating','ANTES de rail e canvas: `.pill` é a casca comum das duas pílulas flutuantes (dock e rail), e cada uma ajusta o que é próprio dela escrevendo só a diferença — a mesma lógica de nodes.css vir antes de nodes/*.'],
+  ['rail',    'DEPOIS de panels e de floating. Só a casca da rail — o conteúdo das colunas é panels.'],
   ['canvas',  'ANTES de nodes: .node.is-connect-target (canvas) e .node.is-chromeless (nodes) têm a mesma especificidade e caem no mesmo elemento — um nó sem moldura que é alvo de conexão. Hoje o is-chromeless vence, e é o esperado.'],
   ['nodes',   'DEPOIS de canvas (ver acima) e ANTES de todo nodes/*: a casca comum vem primeiro para um tipo de nó poder ajustá-la escrevendo só a diferença.'],
   ['nodes/terminal-node',    'depois da casca'],

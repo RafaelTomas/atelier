@@ -18,6 +18,7 @@ import type {
   DiscoveredProject,
   Drawing,
   NodeGroup,
+  Placement as PillPlacement,
   Preferences,
   Project,
   Rect,
@@ -26,7 +27,15 @@ import type {
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
-import { DEFAULT_CLAUDE_ACCOUNT_ID, readButtonConfig, writeButtonConfig } from '@shared/types'
+import {
+  DEFAULT_CLAUDE_ACCOUNT_ID,
+  DOCK_PLACEMENT_DEFAULT,
+  RAIL_PLACEMENT_DEFAULT,
+  formatPlacement,
+  parsePlacement,
+  readButtonConfig,
+  writeButtonConfig
+} from '@shared/types'
 import { normalizeURL } from '@shared/portal-url'
 import { viewport } from '../canvas/viewport'
 import { boundsForNodes, groupOf } from '../canvas/group-geometry'
@@ -206,6 +215,17 @@ export interface AppSnapshot {
   /** Nó de editor com alteração pendente, esperando resposta antes de fechar. */
   closingEditor: UUID | null
   /**
+   * Onde ficam a dock e a rail. DERIVADO de `prefs`, e guardado aqui já
+   * parseado porque as duas pílulas o leem a cada render — reparsear a string
+   * em cada um seria trabalho repetido por um valor que muda uma vez por gesto.
+   *
+   * Um valor inválido no disco (um save do app nativo, que não conhece estas
+   * chaves, as apaga) cai no padrão dentro de `parsePlacement`: nenhum estado
+   * gravado pode esconder a dock.
+   */
+  dockPlacement: PillPlacement
+  railPlacement: PillPlacement
+  /**
    * Plataforma, vinda do bootInfo. O renderer não tem `process`, e quem cola um
    * caminho no terminal precisa saber com que aspas o shell de lá se entende.
    */
@@ -248,6 +268,8 @@ const initial: AppSnapshot = {
   notice: null,
   integrity: null,
   closingEditor: null,
+  dockPlacement: DOCK_PLACEMENT_DEFAULT,
+  railPlacement: RAIL_PLACEMENT_DEFAULT,
   platform: 'linux',
   loading: true,
   bootError: null
@@ -307,6 +329,10 @@ class Store {
         prefs,
         projects,
         theme,
+        // A posição das pílulas é derivada de `prefs`, e sai da string uma vez
+        // aqui em vez de a cada render das duas peças.
+        dockPlacement: parsePlacement(prefs.dockPlacement, DOCK_PLACEMENT_DEFAULT),
+        railPlacement: parsePlacement(prefs.railPlacement, RAIL_PLACEMENT_DEFAULT),
         loading: false
       })
     } catch (err) {
@@ -1494,6 +1520,20 @@ class Store {
   async setRailWidth(sidebarWidth: number): Promise<void> {
     const prefs = await window.atelier.prefs.set({ sidebarWidth })
     this.set({ prefs })
+  }
+
+  /**
+   * Move uma pílula flutuante e grava a posição.
+   *
+   * UMA gravação, no fim do gesto — como `setRailWidth`, e pelo mesmo motivo:
+   * gravar durante o arrasto escreveria `preferences.json` sessenta vezes por
+   * segundo por uma posição da qual só a última importa.
+   */
+  async setPillPlacement(id: 'dock' | 'rail', placement: PillPlacement): Promise<void> {
+    const key = id === 'dock' ? 'dockPlacement' : 'railPlacement'
+    this.set({ [key]: placement } as Partial<AppSnapshot>)
+    this.mirrorPrefs({ [key]: formatPlacement(placement) })
+    await window.atelier.prefs.set({ [key]: formatPlacement(placement) })
   }
 
   setTheme(theme: ThemeMode): void {

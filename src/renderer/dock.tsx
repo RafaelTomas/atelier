@@ -11,7 +11,7 @@
  * no ponto clicado dentro do canvas (ver canvas/draw-menu.tsx).
  */
 import { useEffect, useRef, useState } from 'react'
-import type { Rect } from '@shared/types'
+import type { PlacementEdge, Rect } from '@shared/types'
 import {
   IconChevronDown,
   IconClip,
@@ -31,6 +31,9 @@ import { GROUP_MIN_HEIGHT, GROUP_MIN_WIDTH, rectContains } from './canvas/group-
 import { rectCenter } from './canvas/viewport'
 import { HOME_URL } from './nodes/portal-node'
 import { truncateStart } from './paths'
+import { PlacementTargets } from './floating/placement-targets'
+import { PillMenu } from './floating/pill-menu'
+import { usePill } from './floating/use-pill'
 import { store, useStore } from './state/store'
 import { PDF_NODE_SIZE } from './pdf-viewer'
 
@@ -59,6 +62,9 @@ interface MenuItem {
 
 export function Dock(): JSX.Element {
   const { tool, workspace } = useStore()
+  // Arrastar, menu de contexto e troca de borda: o mesmo comportamento da rail,
+  // e por isso num hook compartilhado em vez de duplicado nas duas.
+  const pill = usePill('dock')
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const dockRef = useRef<HTMLDivElement>(null)
 
@@ -292,7 +298,21 @@ export function Dock(): JSX.Element {
   ]
 
   return (
-    <div className="floating dock" ref={dockRef} onMouseDown={(e) => e.stopPropagation()}>
+    <>
+    {/* Os alvos só existem durante o gesto: fora dele são quatro retângulos
+        pintados sobre o canvas sem motivo. */}
+    {pill.dragging && <PlacementTargets hot={pill.hot} />}
+    <div
+      className={pill.dragging ? 'floating pill dock is-dragging' : 'floating pill dock'}
+      data-edge={pill.placement.edge}
+      // A posição AO LONGO da borda é contínua: vai por CSS var, não por um
+      // atributo de três valores (ver styles/floating.css).
+      style={{ '--pill-offset': String(pill.placement.offset) } as React.CSSProperties}
+      ref={dockRef}
+      onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={pill.onPointerDown}
+      onContextMenu={pill.onContextMenu}
+    >
       {/* Um botão, dois modos: ponteiro seleciona, mão move o quadro. Clicar
           de novo volta ao ponteiro — o ícone é o que diz em qual dos dois se
           está, então ele troca junto. */}
@@ -331,6 +351,7 @@ export function Dock(): JSX.Element {
         items={NOTE_MENU}
         open={openMenu === 'note'}
         onToggle={() => setOpenMenu((v) => (v === 'note' ? null : 'note'))}
+        edge={pill.placement.edge}
       >
         <IconNote />
       </DockMenuButton>
@@ -356,6 +377,7 @@ export function Dock(): JSX.Element {
         items={FILE_MENU}
         open={openMenu === 'files'}
         onToggle={() => setOpenMenu((v) => (v === 'files' ? null : 'files'))}
+        edge={pill.placement.edge}
       >
         <IconFolder />
       </DockMenuButton>
@@ -402,6 +424,7 @@ export function Dock(): JSX.Element {
         items={TEXT_MENU}
         open={openMenu === 'text'}
         onToggle={() => setOpenMenu((v) => (v === 'text' ? null : 'text'))}
+        edge={pill.placement.edge}
       >
         <IconText />
       </DockMenuButton>
@@ -442,6 +465,18 @@ export function Dock(): JSX.Element {
         <IconDraw />
       </DockButton>
     </div>
+
+    {pill.menu && (
+      <PillMenu
+        x={pill.menu.x}
+        y={pill.menu.y}
+        current={pill.placement}
+        fallback={pill.fallback}
+        onPick={pill.apply}
+        onClose={pill.closeMenu}
+      />
+    )}
+    </>
   )
 }
 
@@ -521,10 +556,23 @@ interface DockMenuButtonProps {
   items: MenuItem[]
   open: boolean
   onToggle: () => void
+  /**
+   * Borda em que a dock está. O menu abre para o lado do CANVAS — com a dock na
+   * base ele sobe, no topo desce, e nas verticais sai de lado. A regra é uma por
+   * borda e mora no CSS (`.dock-menu[data-edge]`); o componente só a informa.
+   */
+  edge: PlacementEdge
   children: React.ReactNode
 }
 
-function DockMenuButton({ label, items, open, onToggle, children }: DockMenuButtonProps): JSX.Element {
+function DockMenuButton({
+  label,
+  items,
+  open,
+  onToggle,
+  edge,
+  children
+}: DockMenuButtonProps): JSX.Element {
   return (
     <div className="dock-item">
       <button
@@ -543,7 +591,7 @@ function DockMenuButton({ label, items, open, onToggle, children }: DockMenuButt
       </button>
 
       {open && (
-        <div className="dock-menu" role="menu">
+        <div className="dock-menu" role="menu" data-edge={edge}>
           <div className="dock-menu-title">{label}</div>
           {items.map((item) => (
             <button key={item.id} type="button" role="menuitem" onClick={item.run}>

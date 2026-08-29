@@ -32,6 +32,11 @@ async function loadCodec() {
       contents: `
         export * from './src/main/core/models/workspace.ts'
         export { connectionKindForTypes } from './src/shared/types.ts'
+        // As preferências entram aqui porque a posição das pílulas é gravada num
+        // arquivo COMPARTILHADO com o app nativo Swift, que não conhece as
+        // chaves novas e as apaga no save dele. O que este teste protege é que
+        // essa perda devolva o padrão em vez de esconder a dock.
+        export { decodePreferences, makePreferences } from './src/main/core/models/app-state.ts'
       `,
       resolveDir: ROOT,
       loader: 'ts'
@@ -64,6 +69,7 @@ function test(name, fn) {
 
 const { mod, cleanup } = await loadCodec()
 const { decodeWorkspaceDocument, encodeWorkspaceDocument, connectionKindForTypes } = mod
+const { decodePreferences, makePreferences } = mod
 
 const raw = JSON.parse(readFileSync(join(ROOT, 'fixtures/full-workspace.json'), 'utf8'))
 const { payload } = decodeWorkspaceDocument(raw)
@@ -542,6 +548,45 @@ test('conexão terminal↔image vira kind "data" e volta para dataConnections', 
   assert.ok(conn, 'conexão data não foi decodificada')
   const back = encodeWorkspaceDocument(doc.payload)
   assert.equal(back.payload.dataConnections.length, 1)
+})
+
+// ─── preferences.json: a posição das pílulas ─────────────────────────────────
+//
+// O arquivo é compartilhado com o app nativo Swift, cujo decoder IGNORA chave
+// desconhecida — então o save dele apaga `dockPlacement` e `railPlacement`. A
+// decisão foi gravar ali mesmo, de olhos abertos: perder isto devolve o padrão,
+// que é a posição histórica, e o prejuízo é ínfimo. O que NÃO pode acontecer é
+// a perda deixar a dock inalcançável.
+
+test('preferences.json SEM as chaves novas carrega no padrão', () => {
+  // É o arquivo de uma versão anterior — e também o que sobra depois de um save
+  // do app nativo.
+  const prefs = decodePreferences({ theme: 'dark', fontSize: 14 })
+  assert.equal(prefs.dockPlacement, 'bottom/center')
+  assert.equal(prefs.railPlacement, 'left/center')
+  // E o resto do arquivo continua sendo lido normalmente.
+  assert.equal(prefs.theme, 'dark')
+  assert.equal(prefs.fontSize, 14)
+})
+
+test('com as chaves, carrega e regrava o que estava lá', () => {
+  const prefs = decodePreferences({ dockPlacement: 'right/end', railPlacement: 'top/start' })
+  assert.equal(prefs.dockPlacement, 'right/end')
+  assert.equal(prefs.railPlacement, 'top/start')
+})
+
+test('valor inválido em disco NÃO esconde a dock', () => {
+  // Um arquivo editado à mão, ou escrito por uma versão que não existe.
+  for (const lixo of ['', 'cima/meio', 'bottom', null, 42, { edge: 'top' }]) {
+    const prefs = decodePreferences({ dockPlacement: lixo })
+    assert.equal(prefs.dockPlacement, 'bottom/center', `${JSON.stringify(lixo)} passou`)
+  }
+})
+
+test('makePreferences nasce com a posição histórica das duas peças', () => {
+  const base = makePreferences()
+  assert.equal(base.dockPlacement, 'bottom/center')
+  assert.equal(base.railPlacement, 'left/center')
 })
 
 // ─── Widget (v6) ─────────────────────────────────────────────────────────────

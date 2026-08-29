@@ -604,6 +604,133 @@ await test('recruit para no teto de terminais do canvas', async () => {
   assert.match(last, /limit for 'recruit'/)
 })
 
+await test('recruit --model entra no comando do recrutado', async () => {
+  const out = await cli(['recruit', 'Barato', '--model', 'haiku'], terminalId)
+  assert.match(out, /model 'haiku'/)
+  const no = ws.nodes.find(
+    (n) => n.content.type === 'terminal' && n.content.value.name === 'Barato'
+  )
+  assert.equal(no.content.value.command, 'claude --model haiku')
+})
+
+await test('recruit recusa modelo com metacaractere sem criar nó', async () => {
+  // O comando é escrito no PTY do recrutado: um `;` aqui viraria execução.
+  const out = await cli(['recruit', 'Injetado', '--model', 'opus; rm -rf /'], terminalId)
+  assert.match(out, /invalid model/)
+  assert.doesNotMatch(await cli(['list'], terminalId), /Injetado/)
+})
+
+await test('recruit recusa --model em preset que não é claude', async () => {
+  const out = await cli(['recruit', 'Sem Model', '--preset', 'codex', '--model', 'haiku'], terminalId)
+  assert.match(out, /--model only applies/)
+  assert.doesNotMatch(await cli(['list'], terminalId), /Sem Model/)
+})
+
+await test('recruit sem nome devolve o uso', async () => {
+  assert.match(await cli(['recruit'], terminalId), /usage: atelier recruit/)
+})
+
+// ─── recruit --command ────────────────────────────────────────────────────────
+//
+// A flag existe para um caso que nenhum preset expressa: recriar um agente
+// RETOMANDO a sessão dele. Ela não é privilégio novo (quem chama já tem um shell
+// no próprio PTY), mas tira um guarda-corpo — a lista fixa de cinco presets — e
+// o que fica no lugar é a visibilidade do nó no canvas.
+
+await test('recruit --command cria o nó com o comando dado', async () => {
+  const out = await cli(
+    ['recruit', 'Retomado', '--command', 'claude --resume 42977e34-aaaa-bbbb-cccc-000000000001'],
+    terminalId
+  )
+  assert.match(out, /Recruited 'Retomado'/)
+  assert.match(out, /--resume/)
+
+  // `ws` é o workspace do terminal chamador (o do topo do arquivo): outros
+  // testes abrem workspaces diferentes, então `activeWorkspace` não serve aqui.
+  const node = ws.nodes.find(
+    (n) => n.content.type === 'terminal' && n.content.value.name === 'Retomado'
+  )
+  assert.ok(node, 'o nó não foi criado')
+  assert.equal(node.content.value.command, 'claude --resume 42977e34-aaaa-bbbb-cccc-000000000001')
+  // Aparência de shell, e não de Claude: o que roda ali não é um dos cinco
+  // presets, e vesti-lo de Claude seria mentir sobre o processo.
+  assert.equal(node.content.value.agentType, 'generic_shell')
+  // Cabeado ao chamador, como todo recruit — é o cabo que dá o `ask` de graça.
+  assert.match(await cli(['list'], terminalId), /Retomado/)
+})
+
+await test('--command junto de --preset é recusado', async () => {
+  const out = await cli(['recruit', 'X', '--command', 'ls', '--preset', 'claude'], terminalId)
+  assert.match(out, /mutually exclusive/)
+})
+
+await test('--command vazio é recusado', async () => {
+  const out = await cli(['recruit', 'X', '--command', '   '], terminalId)
+  assert.match(out, /needs a command/)
+})
+
+await test('--model não se aplica a --command, e a recusa explica onde pôr a flag', async () => {
+  // Aceitar em silêncio faria quem pediu haiku achar que economizou.
+  const out = await cli(['recruit', 'X', '--command', 'claude', '--model', 'haiku'], terminalId)
+  assert.match(out, /does not apply/)
+})
+
+
+await test('dismiss remove o agente que o chamador recrutou', async () => {
+  await cli(['recruit', 'Dispensavel'], terminalId)
+  const antes = ws.nodes.length
+  const out = await cli(['dismiss', 'Dispensavel'], terminalId)
+  assert.match(out, /Dismissed 'Dispensavel'/)
+  assert.equal(ws.nodes.length, antes - 1, 'o nó continuou no canvas')
+  assert.doesNotMatch(await cli(['list'], terminalId), /Dispensavel/)
+})
+
+await test('dismiss recusa terminal que o chamador não recrutou', async () => {
+  await cli(['recruit', 'Do Usuario'], terminalId)
+  const alvo = ws.nodes.find(
+    (n) => n.content.type === 'terminal' && n.content.value.name === 'Do Usuario'
+  )
+  // Simula o terminal criado à mão pelo usuário: sem registro de quem recrutou.
+  alvo.content.value.recruitedBy = null
+
+  const out = await cli(['dismiss', 'Do Usuario'], terminalId)
+  assert.match(out, /was not recruited by you/)
+  assert.ok(ws.node(alvo.id), 'o nó foi removido apesar da recusa')
+})
+
+await test('dismiss recusa o próprio chamador e nome inexistente', async () => {
+  const eu = ws.node(terminalId).content.value.name
+  assert.match(await cli(['dismiss', eu], terminalId), /cannot dismiss itself/)
+  assert.match(await cli(['dismiss', 'ninguem'], terminalId), /not found/)
+  assert.match(await cli(['dismiss'], terminalId), /usage: atelier dismiss/)
+})
+
+await test('dismiss não mata agente ocupado sem --force', () => {
+  const eu = '11111111-1111-4111-8111-111111111111'
+  const outro = '22222222-2222-4222-8222-222222222222'
+  const base = { name: 'Ocupado', callerId: eu, targetId: outro, recruitedBy: eu }
+
+  assert.match(dismissRefusal({ ...base, busy: true, force: false }), /still working/)
+  assert.equal(dismissRefusal({ ...base, busy: true, force: true }), null)
+  assert.equal(dismissRefusal({ ...base, busy: false, force: false }), null)
+  // A permissão vem ANTES do --force: forçar não vira licença para matar o
+  // terminal de outro.
+  assert.match(
+    dismissRefusal({ ...base, recruitedBy: outro, busy: false, force: true }),
+    /was not recruited by you/
+  )
+})
+
+await test('recruit para no teto de terminais do canvas', async () => {
+  let last = ''
+  // O teto é 12 e o canvas já tem alguns; o laço para no primeiro erro.
+  for (let i = 0; i < 20; i++) {
+    last = await cli(['recruit', `Excesso ${i}`], terminalId)
+    if (last.startsWith('error:')) break
+  }
+  assert.match(last, /limit for 'recruit'/)
+})
+
 // ─── Portais pelo CLI ─────────────────────────────────────────────────────────
 
 let portalId

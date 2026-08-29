@@ -269,6 +269,8 @@ automaticamente. É por ele que os agentes se falam.
 atelier list                              # o que estou conectado?
 atelier ask "Codex" "revisa o diff"       # manda e espera a resposta
 atelier check "Codex" 40                  # últimas 40 linhas da saída dele
+atelier recruit "Ajudante" --model haiku  # abre outro agente já cabeado a mim
+atelier dismiss "Ajudante"                # fecha o que EU recrutei
 atelier note read "Spec"                  # lê uma nota conectada
 atelier note write "Spec" "conteúdo"      # reescreve
 atelier note create "rascunho"            # cria já conectada a mim
@@ -294,9 +296,14 @@ descrever o projeto errado em silêncio.
 `check` em vez de reenviar o prompt** — reenviar interrompe quem ainda está
 trabalhando.
 
-Comandos do app nativo que ainda não foram portados (`recruit`, `dismiss`,
-`connect`, `preset`) respondem com uma mensagem explícita de "não
-implementado" em vez de falhar em silêncio.
+`recruit` aceita `--model opus|sonnet|haiku` (só no preset `claude`): o modelo
+entra no comando do nó criado. A skill instruí o agente a escolher o mais barato
+que dê conta — trabalho mecânico em `haiku`, implementação com escopo dado em
+`sonnet`, julgamento de arquitetura no modelo padrão da conta.
+
+Comandos do app nativo que ainda não foram portados (`connect`, `preset`)
+respondem com uma mensagem explícita de "não implementado" em vez de falhar em
+silêncio.
 
 ### Como isso funciona por baixo
 

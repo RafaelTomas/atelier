@@ -8,6 +8,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AgentRole,
   AgentStatus,
+  AgentUsage,
   BootInfo,
   FileOpError,
   CanvasNode,
@@ -25,6 +26,8 @@ import type {
   Preferences,
   Rect,
   SecretVaultKeyRef,
+  StoredAccountUsage,
+  SystemStats,
   UUID,
   WorkspaceEntry,
   WorkspacePayload
@@ -143,6 +146,11 @@ const api = {
    */
   claudeAccount: {
     list: (): Promise<ClaudeAccountInfo[]> => ipcRenderer.invoke('claude-account:list'),
+    /**
+     * A última leitura de limite de cada conta, viva ou guardada em disco. Quem
+     * decide se ainda vale é a UI (`activeWindows`, em shared/agent-usage).
+     */
+    usage: (): Promise<StoredAccountUsage[]> => ipcRenderer.invoke('claude-account:usage'),
     /** `warnings` traz o que não deu para herdar do ~/.claude (símlink recusado). */
     create: (
       label: string
@@ -208,6 +216,13 @@ const api = {
     onData: (cb: (p: { id: UUID; data: string }) => void): Unsubscribe => on('terminal:data', cb),
     onExit: (cb: (p: { id: UUID; code: number }) => void): Unsubscribe => on('terminal:exit', cb),
     /** Linha de status do agente (tokens, contexto, limites); muda pouco. */
+    /**
+      * A leitura que o próprio agente publica pela `statusLine`. Canal separado
+      * do `onStatus` de propósito: são fontes diferentes, com qualidade
+      * diferente, e o painel precisa saber de qual delas veio o número.
+      */
+    onUsage: (cb: (p: { id: UUID; usage: AgentUsage }) => void): Unsubscribe =>
+      on('terminal:usage', cb),
     onStatus: (cb: (p: { id: UUID; status: AgentStatus }) => void): Unsubscribe =>
       on('terminal:status', cb)
   },
@@ -440,6 +455,25 @@ const api = {
   editor: {
     push: (nodeId: UUID, state: EditorPush | null): void =>
       ipcRenderer.send('editor:state', nodeId, state)
+  },
+
+  /**
+   * Monitor de recursos. Assinatura ref-contada do lado do main: cada nó de
+   * monitor montado chama `subscribe`, cada desmonte chama `unsubscribe`, e o
+   * timer só existe enquanto houver pelo menos um.
+   *
+   * `send`, não `invoke`: são notificações, e a resposta chega pelo push
+   * `onStats`. As amostras NÃO entram na store — ver use-system-stats.ts.
+   */
+  system: {
+    subscribe: (diskPath?: string, intervalMs?: number): void =>
+      ipcRenderer.send('system:subscribe', diskPath ?? '', intervalMs),
+    /** O mesmo `intervalMs` da assinatura: é ele que diz qual entrada sai. */
+    unsubscribe: (intervalMs?: number): void =>
+      ipcRenderer.send('system:unsubscribe', intervalMs),
+    /** Recarga da janela: os desmontes não chegam, e o timer ficaria órfão. */
+    reset: (): void => ipcRenderer.send('system:reset'),
+    onStats: (cb: (stats: SystemStats) => void): Unsubscribe => on('system:stats', cb)
   },
 
   events: {

@@ -11,6 +11,7 @@ import { useSyncExternalStore } from 'react'
 import type {
   AgentRole,
   AgentStatus,
+  AgentUsage,
   ButtonConfig,
   CanvasNode,
   ClaudeAccountInfo,
@@ -22,6 +23,7 @@ import type {
   Preferences,
   Project,
   Rect,
+  StoredAccountUsage,
   TerminalDraft,
   UUID,
   WorkspaceEntry,
@@ -142,6 +144,20 @@ export interface AppSnapshot {
   roles: AgentRole[]
   /** Contas do Claude, com a padrão (~/.claude) sempre na primeira posição. */
   claudeAccounts: ClaudeAccountInfo[]
+  /**
+   * A última leitura de limite (5h/7d) de cada conta, vinda do disco.
+   *
+   * É o FUNDO do bloco de perfis, não a leitura corrente: quando há terminal
+   * aberto naquela conta, quem vale é o `terminalUsage` dele, que é de agora
+   * (ver `groupByAccount`). Isto responde pelas contas que estão paradas — sem
+   * ele, a conta sem terminal aberto apareceria vazia, que é justamente a conta
+   * sobre a qual o usuário está decidindo.
+   *
+   * Só é relido no boot e no botão de recarregar do painel: o ledger em disco
+   * muda quando um agente publica, e nesse instante a leitura viva dele já está
+   * na store por outro caminho.
+   */
+  claudeAccountUsage: StoredAccountUsage[]
   /** Diálogo "Novo Terminal" aberto — a dock dispara, o App renderiza. */
   newTerminalOpen: boolean
   /** Área desenhada antes do diálogo abrir — o terminal nasce nela. */
@@ -171,6 +187,15 @@ export interface AppSnapshot {
   terminalEpoch: Record<UUID, number>
   /** Linha de status lida da tela de cada agente — o que o rodapé do nó mostra. */
   terminalStatus: Record<UUID, AgentStatus>
+  /**
+   * A leitura que o próprio agente PUBLICA (statusLine do Claude Code): modelo,
+   * contexto com o tamanho da janela, custo em dólares e os limites com hora de
+   * reset. Separado do `terminalStatus` de propósito — são fontes distintas, e
+   * o painel mostra de qual delas o número veio (ver shared/agent-usage.ts).
+   *
+   * Como o status raspado, é estado de SESSÃO: nunca vai para o workspace.
+   */
+  terminalUsage: Record<UUID, AgentUsage>
   /**
    * Diretório com que o próximo "Novo Terminal" nasce. É assim que um projeto
    * passa o cwd para o agente: no momento da criação, não por cabo — o formato
@@ -249,6 +274,7 @@ const initial: AppSnapshot = {
   pen: { color: '#e0245e', lineWidth: 3 },
   roles: [],
   claudeAccounts: [],
+  claudeAccountUsage: [],
   newTerminalOpen: false,
   newTerminalFrame: null,
   editTerminalId: null,
@@ -256,6 +282,7 @@ const initial: AppSnapshot = {
   buttonRuns: {},
   terminalEpoch: {},
   terminalStatus: {},
+  terminalUsage: {},
   newTerminalCwd: null,
   projects: [],
   projectQuery: '',
@@ -298,22 +325,27 @@ class Store {
 
   async load(): Promise<void> {
     try {
-      const [{ entries, activeId }, prefs, roles, claudeAccounts, projects] = await Promise.all([
-        window.atelier.workspace.list(),
-        window.atelier.prefs.get(),
-        window.atelier.role.list(),
-        // As contas entram no boot pelo mesmo motivo das responsabilidades: o
-        // nó de terminal mostra em qual conta está antes de qualquer diálogo
-        // abrir, e o seletor da barra de ações não pode piscar vazio.
-        window.atelier.claudeAccount.list(),
-        // O índice entra no BOOT, e não só quando o painel de projetos monta.
-        // Um widget de git fixado num projeto precisa resolver esse id para
-        // saber de que repositório ele é — e ele pode estar na tela sem que a
-        // cascata da rail tenha sido aberta uma única vez. Enquanto o índice
-        // dependia da montagem do painel, o widget reabria dizendo "nenhum
-        // projeto selecionado" para um projeto que estava lá.
-        window.atelier.project.list()
-      ])
+      const [{ entries, activeId }, prefs, roles, claudeAccounts, claudeAccountUsage, projects] =
+        await Promise.all([
+          window.atelier.workspace.list(),
+          window.atelier.prefs.get(),
+          window.atelier.role.list(),
+          // As contas entram no boot pelo mesmo motivo das responsabilidades: o
+          // nó de terminal mostra em qual conta está antes de qualquer diálogo
+          // abrir, e o seletor da barra de ações não pode piscar vazio.
+          window.atelier.claudeAccount.list(),
+          // E o quanto cada uma já consumiu na janela corrente. Vem do disco: a
+          // leitura é da conta, não da sessão, e sobrevive ao app fechado até a
+          // hora do reset dela.
+          window.atelier.claudeAccount.usage(),
+          // O índice entra no BOOT, e não só quando o painel de projetos monta.
+          // Um widget de git fixado num projeto precisa resolver esse id para
+          // saber de que repositório ele é — e ele pode estar na tela sem que a
+          // cascata da rail tenha sido aberta uma única vez. Enquanto o índice
+          // dependia da montagem do painel, o widget reabria dizendo "nenhum
+          // projeto selecionado" para um projeto que estava lá.
+          window.atelier.project.list()
+        ])
       const id = activeId ?? entries[0]?.id ?? null
       const workspace = id ? await window.atelier.workspace.open(id) : null
       const integrity = id ? await window.atelier.workspace.integrity(id) : null
@@ -326,6 +358,7 @@ class Store {
         integrity,
         roles,
         claudeAccounts,
+        claudeAccountUsage,
         prefs,
         projects,
         theme,
@@ -1259,11 +1292,28 @@ class Store {
     this.set({ terminalStatus: { ...this.state.terminalStatus, [nodeId]: status } })
   }
 
+  setTerminalUsage(nodeId: UUID, usage: AgentUsage): void {
+    this.set({ terminalUsage: { ...this.state.terminalUsage, [nodeId]: usage } })
+  }
+
   // ─── Contas do Claude ───────────────────────────────────────────────────────
 
+  /**
+   * Relê a lista de contas E o consumo guardado de cada uma — é o botão de
+   * recarregar do bloco de perfis. As duas coisas juntas porque a pergunta do
+   * clique é uma só ("como estão minhas contas agora"), e o login feito num
+   * terminal muda as duas: aparece o e-mail e começa a aparecer o limite.
+   *
+   * Não vai buscar uso NOVO na API: o percentual só existe quando um agente o
+   * publica, e sondar a Anthropic para preencher a tela gastaria da mesma
+   * janela que este painel está medindo.
+   */
   async refreshClaudeAccounts(): Promise<ClaudeAccountInfo[]> {
-    const claudeAccounts = await window.atelier.claudeAccount.list()
-    this.set({ claudeAccounts })
+    const [claudeAccounts, claudeAccountUsage] = await Promise.all([
+      window.atelier.claudeAccount.list(),
+      window.atelier.claudeAccount.usage()
+    ])
+    this.set({ claudeAccounts, claudeAccountUsage })
     return claudeAccounts
   }
 

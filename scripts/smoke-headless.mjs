@@ -46,6 +46,8 @@ await esbuild.build({
   stdin: {
     contents: `
       export { appState } from './src/main/core/state/app-state.ts'
+      export { SystemStatsMonitor } from './src/main/core/system/system-stats.ts'
+      export { getUsage, resetUsage, withStatusLine } from './src/main/core/terminal/status-line.ts'
       export { interAgentServer } from './src/main/core/interagent/server.ts'
       export { persistence } from './src/main/core/persistence/persistence-manager.ts'
       export { ipcSocketPath, paths } from './src/main/core/persistence/paths.ts'
@@ -93,6 +95,8 @@ await esbuild.build({
 
 const core = await import(pathToFileURL(outfile).href)
 const { appState, interAgentServer, persistence, ipcSocketPath, paths } = core
+const { SystemStatsMonitor } = core
+const { getUsage, resetUsage, withStatusLine } = core
 const { makeCanvasNode, makeTerminalContent, makeStickyNoteContent } = core
 const { roles } = core
 const { importLegacyDataIfNeeded } = core
@@ -1132,6 +1136,141 @@ await test('atelier button remove apaga a própria proposta pendente', async () 
   )
 })
 
+// ─── Monitor de recursos ──────────────────────────────────────────────────────
+
+await test('widget/monitor nasce 340×380, com o PISO de painel do widget', () => {
+  // 380 e não 300: o bloco de perfis acrescentou uma linha por conta do Claude,
+  // e na configuração padrão (PC + IA + contas) o nó nascia já rolando.
+  assert.deepEqual(defaultSize('widget', { kind: 'monitor' }), { width: 340, height: 380 })
+  // O piso NÃO é o do botão: o monitor é um painel, e abaixo de 240×180 as
+  // linhas do bloco IA não cabem.
+  assert.deepEqual(minSize('widget', { kind: 'monitor' }), { width: 240, height: 180 })
+})
+
+await test('o amostrador emite enquanto há assinante e PARA no último desmonte', async () => {
+  const amostras = []
+  const monitor = new SystemStatsMonitor((s) => amostras.push(s), 25)
+
+  assert.equal(monitor.running, false, 'nasceu amostrando sem ninguém pedir')
+  monitor.subscribe()
+  await new Promise((r) => setTimeout(r, 160))
+  assert.ok(amostras.length >= 2, `esperava ao menos 2 amostras, vieram ${amostras.length}`)
+
+  const s = amostras.at(-1)
+  assert.equal(typeof s.memTotal, 'number')
+  assert.ok(s.memTotal > 0, 'memória total zerada')
+  assert.ok(s.at.endsWith('Z'), 'o carimbo não é ISO')
+  // A PRIMEIRA amostra não tem delta de CPU: `null`, e nunca um 0% inventado.
+  assert.equal(amostras[0].cpuPct, null)
+
+  monitor.unsubscribe()
+  assert.equal(monitor.running, false, 'o timer sobreviveu ao último desmonte')
+  const depois = amostras.length
+  await new Promise((r) => setTimeout(r, 120))
+  assert.equal(
+    amostras.length,
+    depois,
+    `o amostrador continuou emitindo para ninguém (${amostras.length - depois} amostras)`
+  )
+})
+
+await test('dois monitores, um timer: o primeiro a sair não desliga o outro', async () => {
+  const monitor = new SystemStatsMonitor(() => {}, 25)
+  monitor.subscribe()
+  monitor.subscribe()
+  monitor.unsubscribe()
+  assert.equal(monitor.running, true, 'desligou com um assinante ainda de pé')
+  assert.equal(monitor.refCount, 1)
+  monitor.unsubscribe()
+  assert.equal(monitor.running, false)
+})
+
+await test('config do botão faz round-trip por um mapa de strings', () => {
+  const config = readButtonConfig(
+    writeButtonConfig({
+      label: 'Subir',
+      icon: 'play',
+      color: '#34C759',
+      action: 'command',
+      command: 'npm run dev',
+      prompt: '',
+      url: '',
+      cwd: '',
+      target: null,
+      confirm: true,
+      pending: false,
+      proposedBy: null
+    })
+  )
+  assert.equal(config.command, 'npm run dev')
+  assert.equal(config.confirm, true)
+  assert.equal(config.pending, false)
+  // Vazio é OMITIDO, não gravado como '' — um `view` enxuto é o que o app
+  // nativo e o diff do workspace mostram.
+  const view = writeButtonConfig({ ...config, cwd: '', confirm: false })
+  assert.equal('cwd' in view, false)
+  assert.equal('confirm' in view, false)
+})
+
+let buttonId
+
+await test('atelier button propose cria o nó PENDENTE', async () => {
+  const out = await cli(
+    ['button', 'propose', 'Subir a app', '--command', 'npm run dev', '--icon', 'play'],
+    terminalId
+  )
+  assert.match(out, /PENDING/)
+  const node = ws.nodes.find(
+    (n) => n.content.type === 'widget' && n.content.value.view.label === 'Subir a app'
+  )
+  assert.ok(node, 'o botão não entrou no canvas')
+  buttonId = node.id
+  const config = readButtonConfig(node.content.value.view)
+  assert.equal(config.pending, true, 'botão de agente nasce armado — é execução arbitrária')
+  assert.equal(config.command, 'npm run dev')
+  assert.equal(config.proposedBy, 'Agent A')
+  // Widget não é conectável: um cabo aqui pediria array novo no payload.
+  assert.ok(!ws.connections.some((c) => c.nodeIdA === node.id || c.nodeIdB === node.id))
+})
+
+await test('atelier button propose sem ação responde uso, e não cria nó inerte', async () => {
+  const antes = ws.nodes.length
+  const out = await cli(['button', 'propose', 'Vazio'], terminalId)
+  assert.match(out, /^error: usage/)
+  assert.equal(ws.nodes.length, antes)
+})
+
+await test('atelier button propose --prompt exige um alvo', async () => {
+  const out = await cli(['button', 'propose', 'Revisar', '--prompt', 'revise o diff'], terminalId)
+  assert.match(out, /--target/)
+})
+
+await test('atelier button list mostra o estado de cada botão', async () => {
+  const out = await cli(['button', 'list'], terminalId)
+  assert.match(out, /Subir a app/)
+  assert.match(out, /pending/)
+})
+
+await test('atelier button remove recusa um botão já aceito pelo usuário', async () => {
+  // O aceite acontece no canvas; aqui ele é simulado no conteúdo do nó.
+  ws.updateContent(buttonId, (n) => {
+    const config = readButtonConfig(n.content.value.view)
+    n.content.value.view = writeButtonConfig({ ...config, pending: false, proposedBy: null })
+  })
+  const out = await cli(['button', 'remove', 'Subir a app'], terminalId)
+  assert.match(out, /only they can remove it/)
+  assert.ok(ws.node(buttonId), 'o botão aceito foi removido pelo agente')
+})
+
+await test('atelier button remove apaga a própria proposta pendente', async () => {
+  await cli(['button', 'propose', 'Testes', '--command', 'npm test'], terminalId)
+  const out = await cli(['button', 'remove', 'Testes'], terminalId)
+  assert.match(out, /Removed pending button/)
+  assert.ok(
+    !ws.nodes.some((n) => n.content.type === 'widget' && n.content.value.view.label === 'Testes')
+  )
+})
+
 // ─── Responsabilidades (agentes) ──────────────────────────────────────────────
 
 let roleId
@@ -1844,6 +1983,70 @@ await test('excluir o último workspace é permitido e leva ao estado vazio', as
   for (const id of antes) await appState.deleteWorkspace(id)
   assert.equal(appState.manifest.workspaces.length, 0)
   assert.equal(appState.data.activeWorkspaceId, null, 'ficou apontando para um id que não existe')
+})
+
+// ─── Telemetria do agente (statusLine) ────────────────────────────────────────
+//
+// O caminho inteiro, pelo socket real: o Claude Code chamaria `atelier
+// statusline` com o payload da sessão no stdin, o CLI o entrega como args[1], e
+// o handler registra a leitura. Se o protocolo mudar de um lado só, é aqui que
+// se descobre.
+
+await test('statusline pelo socket registra a leitura publicada pelo agente', async () => {
+  resetUsage()
+  const payload = JSON.stringify({
+    model: { id: 'claude-opus-5', display_name: 'Opus' },
+    context_window: { total_input_tokens: 15500, context_window_size: 1000000, used_percentage: 8 },
+    cost: { total_cost_usd: 1.25 },
+    rate_limits: { seven_day: { used_percentage: 41.2, resets_at: 1738857600 } }
+  })
+
+  const out = await cli(['statusline', payload], terminalId)
+
+  const usage = getUsage(terminalId)
+  assert.ok(usage, 'a leitura não foi registrada')
+  assert.equal(usage.model, 'Opus')
+  assert.equal(usage.costUsd, 1.25)
+  // O tamanho da janela é o que a raspagem de tela nunca soube: sem ele, "8%"
+  // não diz de quanto.
+  assert.equal(usage.contextWindowSize, 1000000)
+  assert.deepEqual(usage.limits, [{ window: '7d', pct: 41.2, resetsAt: 1738857600 }])
+
+  // A resposta vira a BARRA DE STATUS do agente — é texto para o usuário ler.
+  assert.match(out, /Opus/)
+  assert.match(out, /8% ctx/)
+  assert.match(out, /\$1\.25/)
+})
+
+await test('payload inválido não apaga a leitura boa que já existia', async () => {
+  // A statusLine roda a cada mensagem: um payload estranho num ciclo não pode
+  // zerar o painel até o ciclo seguinte.
+  const antes = getUsage(terminalId)
+  assert.ok(antes)
+  const out = await cli(['statusline', 'nao sou json'], terminalId)
+  assert.equal(getUsage(terminalId).costUsd, antes.costUsd)
+  assert.equal(out.trim(), '', 'um erro foi parar na barra de status do usuário')
+})
+
+await test('o --settings entra só no Claude Code, e some nos outros presets', async () => {
+  const claude = await withStatusLine('claude', terminalId)
+  assert.match(claude.command, /^claude --settings "/)
+  assert.ok(claude.command.includes(terminalId), 'o settings não é deste terminal')
+
+  // Codex e OpenCode não têm statusLine: o comando sai intacto e eles continuam
+  // no raspador de tela.
+  for (const cmd of ['codex', 'opencode --model x', '']) {
+    const r = await withStatusLine(cmd, terminalId)
+    assert.equal(r.command, cmd, `${cmd} foi alterado`)
+  }
+})
+
+await test('um --settings escrito pelo usuário não é sobreposto', async () => {
+  // A configuração que ele digitou vence a nossa: trocá-la em silêncio seria
+  // desfazer o que ele pediu.
+  const meu = 'claude --settings /meu/settings.json'
+  const r = await withStatusLine(meu, terminalId)
+  assert.equal(r.command, meu)
 })
 
 // ─── Shutdown ─────────────────────────────────────────────────────────────────

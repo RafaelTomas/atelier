@@ -13,6 +13,9 @@ export type RendererEvent =
   | 'terminal:data'
   | 'terminal:exit'
   | 'terminal:status'
+  // A leitura que o PRÓPRIO agente publica (statusLine do Claude Code), em vez
+  // da raspada da tela. Ver core/terminal/status-line.ts.
+  | 'terminal:usage'
   | 'project:scan-progress'
   | 'project:scan-done'
   | 'project:changed'
@@ -22,6 +25,9 @@ export type RendererEvent =
   | 'portal:wake'
   | 'portal:zoom-gesture'
   | 'portal:action'
+  // Amostra de recursos da máquina. Alta frequência (a cada 2s) e por isso NÃO
+  // passa pela store do renderer — ver use-system-stats.ts.
+  | 'system:stats'
 
 /**
  * Import dinâmico do electron: fora do app (teste headless, CI) isto vira um

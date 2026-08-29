@@ -46,6 +46,9 @@ export function App(): JSX.Element {
     const offStatus = window.atelier.events.onConnectionStatus(({ id, status }) => {
       store.setConnectionStatus(id, status as 'idle' | 'communicating' | 'error')
     })
+    const offUsage = window.atelier.terminal.onUsage(({ id, usage }) => {
+      store.setTerminalUsage(id, usage)
+    })
     const offStatus2 = window.atelier.terminal.onStatus(({ id, status }) => {
       store.setTerminalStatus(id, status)
     })
@@ -69,6 +72,7 @@ export function App(): JSX.Element {
       offWorkspace()
       offStatus()
       offStatus2()
+      offUsage()
       offCandidates()
       offFile()
       offWake()

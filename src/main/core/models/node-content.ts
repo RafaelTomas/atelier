@@ -622,6 +622,8 @@ export function widgetTitle(kind: string, view: Record<string, string> = {}): st
       return 'Git'
     case 'button':
       return view.label || 'Botão'
+    case 'monitor':
+      return 'Monitor'
     default:
       return kind
   }

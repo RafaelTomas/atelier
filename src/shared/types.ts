@@ -228,13 +228,70 @@ export interface WidgetContent {
  * canvas em que o próprio nó estava. Ele vive no chip do topo, que é global à
  * janela e não pertence a canvas nenhum.
  */
-export type WidgetKind = 'projects' | 'git' | 'button'
+export type WidgetKind = 'projects' | 'git' | 'button' | 'monitor' | 'todo'
 
-export const WIDGET_KINDS: WidgetKind[] = ['projects', 'git', 'button']
+export const WIDGET_KINDS: WidgetKind[] = ['projects', 'git', 'button', 'monitor', 'todo']
 
 export function isKnownWidgetKind(kind: string): kind is WidgetKind {
   return (WIDGET_KINDS as string[]).includes(kind)
 }
+
+/**
+ * Quadro de TODO — o plano de trabalho de um canvas, com status.
+ *
+ * Hoje isso mora numa nota, e nota é texto: ninguém sabe o que está EM ANDAMENTO
+ * sem ler tudo, o agente que marca `[x]` reescreve o arquivo inteiro, e dois
+ * agentes marcando ao mesmo tempo se sobrescrevem. Com status e colunas, o
+ * usuário vê o cartão andar enquanto o agente trabalha.
+ *
+ * O nó é `widget` com `kind: 'todo'` — nenhum caso novo em `NodeContent`. Os
+ * DADOS, porém, não cabem em `WidgetContent.view`: ele é `[String: String]` e o
+ * comentário do campo proíbe alta frequência. Um quadro serializado ali seria um
+ * campo de vários KB reescrito a cada arrasto de cartão, dentro do
+ * `workspace.json` que o app nativo Swift também grava. Então o quadro vive num
+ * arquivo por nó (`workspaces/<ws>/todos/<id>.json`), como a nota, a tabela, a
+ * imagem e o cofre já fazem; `view.file` guarda só o nome.
+ */
+export interface TodoColumn {
+  id: string
+  title: string
+}
+
+export interface TodoItem {
+  id: UUID
+  title: string
+  /** O `id` de uma coluna. Status órfão cai na primeira — ver `readBoard`. */
+  status: string
+  /**
+   * Posição dentro da coluna. Fracionário e ESPARSO (1000, 2000, 3000): mover um
+   * cartão entre dois vizinhos é a média dos dois, sem reescrever a coluna
+   * inteira — que é o que permite dois agentes mexerem no quadro sem se
+   * atropelarem. Reindexa só quando a distância cai abaixo de 1.
+   */
+  order: number
+  /** Nome do terminal responsável, quando há um. É o que `--mine` filtra. */
+  assignee: string
+  notes: string
+  tags: string[]
+  createdAt: string
+  updatedAt: string
+  /** Preenchido ao entrar na última coluna; limpo ao sair dela. */
+  doneAt: string | null
+}
+
+export interface TodoBoard {
+  version: number
+  title: string
+  columns: TodoColumn[]
+  items: TodoItem[]
+}
+
+/** As três colunas de um quadro novo. */
+export const TODO_DEFAULT_COLUMNS: TodoColumn[] = [
+  { id: 'todo', title: 'A fazer' },
+  { id: 'doing', title: 'Fazendo' },
+  { id: 'done', title: 'Feito' }
+]
 
 /**
  * Botão do canvas — um clique que dispara uma ação.
@@ -492,6 +549,82 @@ export interface AgentStatus {
 }
 
 /**
+ * O que o agente publica sobre a PRÓPRIA sessão, em vez do que dá para raspar
+ * da tela dele.
+ *
+ * O Claude Code chama um comando a cada mensagem nova e entrega um JSON no
+ * stdin — é o mecanismo da `statusLine`. `atelier statusline` é esse comando:
+ * ele devolve o payload ao main pelo mesmo socket do resto do CLI, e o que
+ * chega aqui é estruturado, na unidade certa e com o tamanho da janela junto.
+ *
+ * A diferença para `AgentStatus` não é de precisão, é de natureza. O raspador
+ * lê "103 tok" e não sabe se a janela é de 200k ou de 1M; não sabe qual modelo
+ * está rodando; e só enxerga uma janela de limite quando o CLI resolve
+ * imprimi-la. Aqui tudo isso é campo.
+ *
+ * Os dois convivem: `statusLine` é do Claude Code, e o Atelier sobe cinco
+ * presets. Codex, Antigravity, OpenCode e shell continuam no raspador, que por
+ * isso não sai de cena — ver `mergeReading` em shared/agent-usage.ts.
+ */
+export interface AgentUsage {
+  /** `model.display_name` — qual Claude está de fato rodando neste nó. */
+  model: string | null
+  modelId: string | null
+  /** Tokens NA JANELA agora (entrada, incluindo leitura e escrita de cache). */
+  inputTokens: number | null
+  outputTokens: number | null
+  /** 200000, ou 1000000 nos modelos de contexto estendido. */
+  contextWindowSize: number | null
+  /** Já calculado pelo CLI, sobre tokens de entrada. */
+  usedPercentage: number | null
+  /**
+   * Custo estimado da SESSÃO, em dólares. Diferente de tokens, esta unidade é
+   * a mesma para todo agente — é o único número deste tipo que dá para somar
+   * entre nós do canvas.
+   */
+  costUsd: number | null
+  linesAdded: number | null
+  linesRemoved: number | null
+  /**
+   * Janelas de limite de uso, com a hora do reset em segundos de época. O
+   * `resetsAt` é o que o raspador nunca teve: sem ele, "7d 58%" é um número
+   * sem prazo.
+   */
+  limits: { window: string; pct: number; resetsAt: number | null }[]
+  effort: string | null
+  fastMode: boolean | null
+  sessionId: string | null
+  version: string | null
+  /** Quando o agente publicou isto. */
+  at: string
+}
+
+/**
+ * A última leitura de limites de uma CONTA do Claude, guardada entre sessões.
+ *
+ * É o único pedaço da telemetria que sobrevive ao fechamento do app, e a
+ * exceção tem razão: `AgentUsage` é estado de SESSÃO (custo e contexto de um
+ * processo que já morreu não valem nada na próxima abertura), mas as janelas de
+ * limite são da CONTA e trazem a própria validade — `resetsAt` diz até quando
+ * aquele percentual continua sendo verdade. Uma leitura vencida é descartada na
+ * hora de mostrar, não guardada como se ainda valesse.
+ *
+ * Sem isto, a conta em que o usuário não tem terminal aberto AGORA apareceria
+ * sempre vazia no painel de perfis — que é justamente a conta sobre a qual ele
+ * precisa decidir se pode abrir mais um agente.
+ *
+ * Custo NÃO entra aqui: ele é da sessão, e somar dólares de sessões mortas
+ * responderia outra pergunta (o gasto histórico) com a cara desta.
+ */
+export interface StoredAccountUsage {
+  /** `DEFAULT_CLAUDE_ACCOUNT_ID` para a conta padrão (~/.claude). */
+  accountId: string
+  limits: { window: string; pct: number; resetsAt: number | null }[]
+  /** Quando o agente publicou. ISO 8601. */
+  at: string
+}
+
+/**
  * 218000 -> "218.0k", 18500000 -> "18.5M". Fica no módulo compartilhado porque
  * quem lê o número é o main (terminal/agent-status) e quem o mostra é o renderer.
  */
@@ -499,6 +632,57 @@ export function formatTokens(count: number): string {
   if (count >= 1e6) return `${(count / 1e6).toFixed(1)}M`
   if (count >= 1e3) return `${(count / 1e3).toFixed(1)}k`
   return String(count)
+}
+
+/**
+ * Uma amostra do estado da máquina — bloco PC do monitor.
+ *
+ * Exportado do módulo compartilhado porque quem PRODUZ é o main
+ * (core/system/system-stats) e quem FORMATA é o renderer, exatamente como
+ * `AgentStatus` e `formatTokens`.
+ *
+ * Nada disto é persistido: a amostra vive em memória e morre com a janela. Um
+ * monitor que gravasse no workspace sujaria o autosave 60 vezes por minuto com
+ * dado descartável — é a mesma razão pela qual `WidgetContent.view` só guarda a
+ * CONFIGURAÇÃO do painel (blocos, intervalo, volume).
+ */
+export interface SystemStats {
+  /** null enquanto não há DUAS amostras: CPU% é derivada de um delta, não lida. */
+  cpuPct: number | null
+  /** `os.loadavg()[0]`. null no Windows, onde o Node devolve 0 sem significado. */
+  loadAvg: number | null
+  memUsed: number
+  memTotal: number
+  diskUsed: number
+  diskTotal: number
+  /** Volume observado. Vazio quando `statfs` falhou (caminho fora do ar). */
+  diskPath: string
+  /** O "quanto EU custo": processo principal + renderers + PTYs filhos. */
+  appCpuPct: number
+  appMemBytes: number
+  at: string
+}
+
+/**
+ * 999 -> "999 B", 1536 -> "1,5 KB", 1.5e9 -> "1,4 GB".
+ *
+ * Mora aqui pela mesma razão de `formatTokens`: quem produz o número é o main e
+ * quem o mostra é o renderer. Base 1024 (o que os sistemas chamam de GB na
+ * barra de memória) e vírgula decimal, como o resto da interface.
+ */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  let n = bytes
+  let u = 0
+  while (n >= 1024 && u < units.length - 1) {
+    n /= 1024
+    u++
+  }
+  // Bytes não têm casa decimal: "999,0 B" é ruído. A partir de KB, uma casa —
+  // duas fariam a linha dançar a cada amostra sem dizer nada a mais.
+  const text = u === 0 ? String(Math.round(n)) : n.toFixed(1).replace('.', ',')
+  return `${text} ${units[u]}`
 }
 
 // ─── Nó ───────────────────────────────────────────────────────────────────────

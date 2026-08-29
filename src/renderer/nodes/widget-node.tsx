@@ -16,11 +16,19 @@ import { isKnownWidgetKind } from '@shared/types'
 import { ButtonWidget } from './button-widget'
 import { IconLock, IconUnlock } from '../icons'
 import { GitPanel } from '../panels/git-panel'
+import type { MonitorBlocks } from '../panels/monitor-panel'
+import { MonitorPanel } from '../panels/monitor-panel'
 import { ProjectPanel } from '../panels/project-panel'
 import { store, useStore } from '../state/store'
 
-/** Kinds cujo conteúdo depende de um projeto — só eles mostram a barra de escopo. */
+/** Kinds cujo conteúdo depende de um projeto — só eles mostram a barra de escopo.
+ *
+ *  O monitor NÃO entra: ele mede a máquina e os agentes do canvas, não um
+ *  repositório, e a barra de cadeado só ofereceria uma escolha sem efeito. */
 const SCOPED = new Set(['git'])
+
+/** Períodos aceitos em `view.interval`. Um valor fora disto cai no padrão. */
+const INTERVALS = new Set([1000, 2000, 5000])
 
 export function WidgetNode({
   node,
@@ -93,6 +101,20 @@ export function WidgetNode({
             aqui faria o painel ler a seleção por um caminho torto em vez do
             direto, e as duas leituras poderiam divergir. */}
         {content.kind === 'git' && <GitPanel projectId={locked ? content.projectId : undefined} />}
+        {content.kind === 'monitor' && (
+          <MonitorPanel
+            blocks={readBlocks(content.view.blocks)}
+            intervalMs={readInterval(content.view.interval)}
+            diskPath={content.view.disk ?? ''}
+            // `view` é o lugar CERTO para isto: blocos, período e volume são
+            // configuração e mudam quando o usuário decide. As AMOSTRAS é que
+            // nunca entram ali — sessenta gravações por minuto de dado
+            // descartável (ver o comentário do campo em shared/types.ts).
+            onChange={(patch) =>
+              void store.patchContent(node.id, { view: { ...content.view, ...patch } })
+            }
+          />
+        )}
       </div>
     </div>
   )
@@ -116,5 +138,24 @@ export function widgetLabel(content: WidgetContent, projectName?: string): strin
 
 const LABELS: Record<string, string> = {
   projects: 'Projetos',
-  git: 'Git'
+  git: 'Git',
+  monitor: 'Monitor'
+}
+
+/**
+ * `view` é `[String: String]` — é o que o Swift lê sem caso especial. Estas duas
+ * funções são o único lugar que sabe disso do lado do monitor, como
+ * `readButtonConfig` é para o botão.
+ *
+ * Um valor que este binário não reconhece cai no padrão em vez de quebrar: o
+ * `view` pode ter sido gravado por uma versão mais nova, e o widget continua
+ * legível — o valor original permanece no arquivo e volta intacto no save.
+ */
+function readBlocks(raw: string | undefined): MonitorBlocks {
+  return raw === 'pc' || raw === 'ai' || raw === 'accounts' || raw === 'both' ? raw : 'both'
+}
+
+function readInterval(raw: string | undefined): number {
+  const n = Number(raw)
+  return INTERVALS.has(n) ? n : 2000
 }

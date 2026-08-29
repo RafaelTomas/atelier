@@ -24,6 +24,7 @@ import {
   IconLock,
   IconNote,
   IconPlay,
+  IconPulse,
   IconTerminal,
   IconText
 } from './icons'
@@ -50,7 +51,10 @@ const MIN_SIZE: Record<string, [number, number]> = {
   secretVault: [220, 140],
   text: [80, 32],
   // Espelha Constants.buttonMin* — o main aplica o mesmo piso ao criar.
-  button: [56, 56]
+  button: [56, 56],
+  // Espelha Constants.widgetMin*: o monitor nasce menor que o painel padrão,
+  // mas o PISO continua o do widget — abaixo disso o bloco IA não cabe.
+  widget: [240, 180]
 }
 
 interface MenuItem {
@@ -92,7 +96,7 @@ export function Dock(): JSX.Element {
    * peso) é campo de conteúdo e vai por patchContent.
    */
   const create = (
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault' | 'widget',
     frame: Rect,
     opts: Record<string, unknown> = {},
     patch?: Record<string, unknown>
@@ -109,7 +113,7 @@ export function Dock(): JSX.Element {
    * canvas vale como "tamanho padrão aqui" (ver CLICK_SLOP no canvas-view).
    */
   const add = (
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault' | 'widget',
     size: [number, number],
     opts: Record<string, unknown> = {},
     patch?: Record<string, unknown>,
@@ -399,6 +403,19 @@ export function Dock(): JSX.Element {
         onClick={() => add('secretVault', [320, 280], { name: 'Cofre' }, undefined, 'cofre')}
       >
         <IconLock />
+      </DockButton>
+
+      {/* Ao lado do cofre e do botão, e não na cascata da rail com Git e
+          Projetos: aqueles pedem um projeto escolhido antes de terem o que
+          mostrar, e o monitor mede a MÁQUINA — não depende de nada. */}
+      <DockButton
+        label="Monitor"
+        hint="CPU, memória, disco e o uso dos agentes deste canvas"
+        onClick={() =>
+          add('widget', [340, 300], { kind: 'monitor' }, undefined, 'monitor de recursos')
+        }
+      >
+        <IconPulse />
       </DockButton>
 
       <DockButton

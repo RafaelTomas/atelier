@@ -30,6 +30,18 @@ function isButton(opts: Record<string, unknown>): boolean {
 }
 
 /**
+ * O monitor é o segundo kind com tamanho próprio, e pela mesma razão do botão:
+ * o padrão do widget (380×460) é medida de COLUNA de painel, e o monitor são
+ * duas listas curtas empilhadas — nasceria com metade do nó vazia.
+ *
+ * O PISO continua o do widget: o monitor é um painel, e abaixo de 240×180 as
+ * linhas do bloco IA não cabem.
+ */
+function isMonitor(opts: Record<string, unknown>): boolean {
+  return opts.kind === 'monitor'
+}
+
+/**
  * Piso por tipo. A área é desenhada pelo usuário, e um retângulo de 20px
  * criaria um terminal onde nem o cabeçalho cabe.
  */
@@ -85,9 +97,11 @@ export function defaultSize(
     case 'image':
       return { width: Constants.imageDefaultWidth, height: Constants.imageDefaultHeight }
     case 'widget':
-      return isButton(opts)
-        ? { width: Constants.buttonDefaultWidth, height: Constants.buttonDefaultHeight }
-        : { width: Constants.widgetDefaultWidth, height: Constants.widgetDefaultHeight }
+      if (isButton(opts))
+        return { width: Constants.buttonDefaultWidth, height: Constants.buttonDefaultHeight }
+      if (isMonitor(opts))
+        return { width: Constants.monitorDefaultWidth, height: Constants.monitorDefaultHeight }
+      return { width: Constants.widgetDefaultWidth, height: Constants.widgetDefaultHeight }
     case 'secretVault':
       return { width: Constants.vaultDefaultWidth, height: Constants.vaultDefaultHeight }
   }

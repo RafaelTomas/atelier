@@ -28,6 +28,15 @@ function Svg({ size = 18, children }: IconProps & { children: React.ReactNode })
   )
 }
 
+/** Monitor de recursos: o traço de um eletrocardiograma. */
+export function IconPulse(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M3 12h3.5l2-5.5 3.5 11 2.5-7 1.8 3.5H21" />
+    </Svg>
+  )
+}
+
 /** Cursor de seleção — o único ícone preenchido, como na referência. */
 export function IconCursor(p: IconProps): JSX.Element {
   return (

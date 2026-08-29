@@ -644,6 +644,65 @@ test('kind desconhecido atravessa intacto em vez de virar outro widget', () => {
   assert.equal(back.payload.nodes[0].content.widget._0.kind, 'tarefas')
 })
 
+test('monitor faz round-trip como widget/kind, sem subir a schemaVersion', () => {
+  // O monitor é a segunda prova da promessa do widget ("todo painel futuro cabe
+  // sem tocar no formato"): um kind a mais, nenhum passo em migrations.ts, e um
+  // Atelier mais velho — ou o app nativo Swift — abre o arquivo sem lançar.
+  const view = { blocks: 'both', interval: '2000', disk: '/Volumes/Work' }
+  const doc = decodeWorkspaceDocument(widgetDoc({ kind: 'monitor', projectId: null, view }))
+  assert.equal(doc.droppedNodes, 0)
+  assert.equal(doc.payload.nodes[0].content.value.kind, 'monitor')
+
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.equal(back.widget._0.kind, 'monitor')
+  assert.deepEqual(back.widget._0.view, view)
+  assert.equal(back.widget._0.projectId, null, 'o monitor não pertence a projeto nenhum')
+})
+
+test('a amostra NÃO entra em view — só a configuração é persistida', () => {
+  // Um monitor que gravasse cpuPct sujaria o autosave sessenta vezes por minuto
+  // com dado que morre com a janela. `view` é [String: String], então um número
+  // vindo de fora é descartado na leitura — e é a mesma guarda que impede o
+  // acidente de alguém decidir gravar a amostra ali.
+  const doc = decodeWorkspaceDocument(
+    widgetDoc({ kind: 'monitor', projectId: null, view: { blocks: 'pc', cpuPct: 47.2 } })
+  )
+  const view = doc.payload.nodes[0].content.value.view
+  assert.equal(view.blocks, 'pc')
+  assert.equal('cpuPct' in view, false, 'uma amostra foi parar no workspace')
+})
+
+test('quadro de TODO faz round-trip como widget/kind, sem subir a versão', () => {
+  // Terceira prova da promessa do widget. O que vai no `view` é só o PONTEIRO
+  // para o arquivo — o quadro em si mora em `todos/<file>.json`, porque ele é
+  // reescrito a cada cartão movido e `view` proíbe alta frequência.
+  const view = { title: 'Sprint do editor', file: 'abc-123', mode: 'kanban' }
+  const doc = decodeWorkspaceDocument(widgetDoc({ kind: 'todo', projectId: null, view }))
+  assert.equal(doc.droppedNodes, 0)
+  assert.equal(doc.payload.nodes[0].content.value.kind, 'todo')
+
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.equal(back.widget._0.kind, 'todo')
+  assert.deepEqual(back.widget._0.view, view)
+})
+
+test('os CARTÕES não entram no workspace.json — só o nome do arquivo', () => {
+  // Um quadro serializado em `view` seria um campo de vários KB reescrito a cada
+  // arrasto, dentro do arquivo que o app nativo Swift também grava. `view` é
+  // [String: String], então um array de itens é descartado na leitura — e é a
+  // mesma guarda que impede alguém de decidir gravá-los ali.
+  const doc = decodeWorkspaceDocument(
+    widgetDoc({
+      kind: 'todo',
+      projectId: null,
+      view: { file: 'abc', items: [{ id: 'x', title: 'nao deveria estar aqui' }] }
+    })
+  )
+  const view = doc.payload.nodes[0].content.value.view
+  assert.equal(view.file, 'abc')
+  assert.equal('items' in view, false, 'os cartões foram parar no workspace.json')
+})
+
 test('view descarta o que não é string — o Swift lê [String: String]', () => {
   const doc = decodeWorkspaceDocument(
     widgetDoc({ kind: 'git', projectId: null, view: { tab: 'changes', linhas: 40 } })

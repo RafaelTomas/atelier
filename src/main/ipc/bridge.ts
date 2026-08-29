@@ -60,6 +60,7 @@ import { takenNoteFiles } from '../core/state/note-files'
 import { projectIndex } from '../core/state/project-store'
 import { roles } from '../core/state/role-store'
 import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manager'
+import { accountUsage, setTerminalAccount } from '../core/terminal/status-line'
 // `keyRefs`/`syncVaultKeys` moram no vault-manager: o `.vault` tem dois
 // escritores (esta UI e o `atelier vault set`), e o espelho dos nomes no nó
 // precisa ser exatamente o mesmo código nos dois caminhos.
@@ -76,6 +77,7 @@ import { registerGuest, unregisterGuest } from '../core/portal/portal-registry'
 import { closeSession, openSession } from '../core/portal/portal-cdp'
 import { notifyRenderer } from './notify'
 import { defaultSize, minSize, type NewNodeKind } from '../core/node-sizes'
+import { SystemStatsMonitor } from '../core/system/system-stats'
 
 /** Só as entradas de texto de um mapa vindo do renderer (ver decodeWidget). */
 function stringMap(value: unknown): Record<string, string> {
@@ -286,6 +288,18 @@ function allowReveal(vaultId: UUID): boolean {
   return true
 }
 
+/**
+ * O amostrador de recursos da janela — UM, para todos os nós de monitor.
+ *
+ * Fica aqui, no módulo que já é singleton por natureza, e não dentro do
+ * `registerIPC`: o ref-count precisa sobreviver a cada assinatura e cada
+ * desmonte, e um objeto criado dentro da função morreria com o escopo dela.
+ */
+const systemStats = new SystemStatsMonitor(
+  (stats) => notifyRenderer('system:stats', stats),
+  Constants.systemSampleIntervalMs
+)
+
 export function registerIPC(): void {
   // ─── App ────────────────────────────────────────────────────────────────────
 
@@ -485,6 +499,12 @@ export function registerIPC(): void {
   // ─── Contas do Claude ───────────────────────────────────────────────────────
 
   ipcMain.handle('claude-account:list', () => claudeAccounts.list())
+
+  // A última leitura de limite (5h/7d) de cada conta — o bloco "Perfis" do
+  // monitor. Vem separado do `list` porque muda numa cadência completamente
+  // outra: a lista muda quando o usuário cria uma conta, isto a cada mensagem
+  // que um agente manda.
+  ipcMain.handle('claude-account:usage', () => accountUsage())
 
   ipcMain.handle('claude-account:create', async (_e, label: string) => {
     const { account, warnings } = await claudeAccounts.create(String(label ?? ''))
@@ -813,6 +833,11 @@ export function registerIPC(): void {
       // A conta do Claude vira CLAUDE_CONFIG_DIR. `configDirFor` já resolve a
       // padrão (e a conta apagada) para null, que é "não definir a variável".
       const claudeConfigDir = claudeAccounts.configDirFor(tc.claudeAccountId)
+
+      // Em que conta este terminal está subindo. A `statusLine` chega ao main
+      // só com o id do terminal, e é este vínculo que deixa a leitura de limite
+      // ser creditada à conta certa no painel de perfis.
+      setTerminalAccount(nodeId, tc.claudeAccountId)
 
       const session = await terminals.spawn({
         nodeId,
@@ -1314,6 +1339,47 @@ export function registerIPC(): void {
     if (state) setEditorState(nodeId, state)
     else clearEditorState(nodeId)
   })
+
+  // ─── Monitor de recursos ────────────────────────────────────────────────────
+
+  /**
+   * Assinatura ref-contada do amostrador.
+   *
+   * `ipcMain.on`, não `handle`: é notificação, e o renderer não tem o que fazer
+   * com a resposta. As amostras voltam pelo push `system:stats`, e NÃO pela
+   * store — escrevê-las lá re-renderizaria o canvas inteiro a cada segundo (é a
+   * mesma regra que mantém o progresso da varredura fora da store).
+   *
+   * O volume observado vem do renderer porque é ele que sabe qual widget está
+   * na tela: `view.disk` do nó, ou o `workingDirectory` do workspace quando
+   * vazio. Com vários monitores abertos vence o último que assinou — um
+   * amostrador só não tem como observar dois volumes, e o alternativo (uma
+   * amostra por caminho) é um `statfs` por nó a cada 2s para uma diferença que
+   * quase nunca existe.
+   */
+  ipcMain.on('system:subscribe', (_e, diskPath?: string, intervalMs?: number) => {
+    systemStats.setDiskPath(
+      typeof diskPath === 'string' && diskPath
+        ? diskPath
+        : (appState.activeWorkspace?.payload.workingDirectory ?? '')
+    )
+    systemStats.subscribe(typeof intervalMs === 'number' ? intervalMs : undefined)
+  })
+
+  /**
+   * O período volta no `unsubscribe` porque é ele que identifica a entrada a
+   * remover: com dois monitores em cadências diferentes, sair pela cadência
+   * errada afrouxaria o timer do que continua na tela.
+   */
+  ipcMain.on('system:unsubscribe', (_e, intervalMs?: number) =>
+    systemStats.unsubscribe(typeof intervalMs === 'number' ? intervalMs : undefined)
+  )
+
+  /**
+   * Recarga da janela: os `unsubscribe` dos nós que estavam montados nunca
+   * chegam, e o timer ficaria rodando para ninguém pelo resto da sessão.
+   */
+  ipcMain.on('system:reset', () => systemStats.reset())
 
   // ─── Streams do PTY para a UI ───────────────────────────────────────────────
 

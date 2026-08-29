@@ -528,7 +528,9 @@ await test('atelier recruit cria terminal já conectado ao chamador', async () =
 
 await test('recruit herda o diretório do chamador e aceita --cwd', async () => {
   const out = await cli(['recruit', 'Com CWD', '--cwd', home], terminalId)
-  assert.match(out, new RegExp(`in ${home}`))
+  // includes, não RegExp: no Windows o caminho traz `\`, que a RegExp comeria
+  // como escape — `C:\Users` casaria com `C:Users`.
+  assert.ok(out.includes(`in ${home}`), `não repetiu o cwd: ${out}`)
 })
 
 await test('recruit recusa preset desconhecido sem criar nó', async () => {
@@ -1578,9 +1580,16 @@ await test('atelier editor open cria editor já conectado ao chamador', async ()
   )
 })
 
+// Um arquivo que EXISTE e está fora de toda raiz permitida. `/etc/passwd` não
+// serve: no Windows ele não existe, a recusa sai como 'no such file' e o teste
+// deixa de exercitar a allowlist, que é o que ele veio proteger.
+const dirForaDaAllowlist = await mkdtemp(join(tmpdir(), 'atelier-fora-'))
+const foraDaAllowlist = join(dirForaDaAllowlist, 'segredo.txt')
+await writeFile(foraDaAllowlist, 'nada que o canvas possa abrir\n')
+
 await test('editor open fora da allowlist recusa sem criar nó', async () => {
   const antes = ws.nodes.length
-  const out = await cli(['editor', 'open', '/etc/passwd'], terminalId)
+  const out = await cli(['editor', 'open', foraDaAllowlist], terminalId)
   assert.match(out, /outside the paths/)
   assert.equal(ws.nodes.length, antes)
 })
@@ -1589,7 +1598,9 @@ await test('atelier list ganha a seção dos editores, com o caminho absoluto', 
   resetEditors()
   const out = await cli(['list'], terminalId)
   assert.match(out, /Connected editors/)
-  assert.ok(out.includes(editorFile), 'a listagem não trouxe o caminho absoluto')
+  // O nó guarda o realpath — no Windows o TEMP chega como nome curto
+  // (RUNNER~1) e sai expandido, então comparar com o caminho cru falharia lá.
+  assert.ok(out.includes(await realpath(editorFile)), 'a listagem não trouxe o caminho absoluto')
 })
 
 await test('atelier editor read devolve o conteúdo do arquivo', async () => {
@@ -1628,6 +1639,7 @@ await test('editor close recusa buffer sujo e aceita depois de limpo', async () 
 })
 
 await rm(projectTree, { recursive: true, force: true })
+await rm(dirForaDaAllowlist, { recursive: true, force: true })
 
 await test('childEnv normaliza a chave do PATH e nunca deixa duas', () => {
   const original = { ...process.env }

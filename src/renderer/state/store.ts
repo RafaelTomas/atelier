@@ -1260,14 +1260,60 @@ class Store {
     this.set({ editTerminalId: null })
   }
 
-  /** Mata o PTY e sobe outro no lugar, com o conteúdo atual do nó. */
+  /**
+   * Retoma a sessão do agente: mata o PTY e deixa o boot seguinte encontrar o
+   * id gravado.
+   *
+   * É o MESMO gesto do recarregar, menos o esquecimento — a diferença entre os
+   * dois é exatamente uma linha, e é a linha que decide se a conversa anterior
+   * volta. Ver core/terminal/session-store.ts.
+   */
+  async resumeTerminal(nodeId: UUID): Promise<void> {
+    return this.restartTerminalKeepingSession(nodeId)
+  }
+
+  /**
+   * A sessão gravada deste nó, ou null quando não há o que retomar (agente sem
+   * suporte, primeiro boot, id apagado por um "Sessão nova").
+   */
+  async terminalSession(
+    nodeId: UUID
+  ): Promise<{ sessionId: UUID; startedAt: string } | null> {
+    const wsId = this.workspaceId
+    if (!wsId) return null
+    return window.atelier.terminal.session(wsId, nodeId)
+  }
+
+  /**
+   * Sessão nova: mata o PTY, ESQUECE o id e sobe outro no lugar.
+   *
+   * Recarregar é o gesto de desistir do estado atual — quem clica ali quer
+   * começar limpo, e ressuscitar a conversa anterior seria o oposto do pedido.
+   * Por isso o esquecimento acontece ANTES da remontagem: sem ele o spawn
+   * seguinte encontraria o arquivo e retomaria o que o usuário descartou.
+   */
   async restartTerminal(nodeId: UUID): Promise<void> {
+    const wsId = this.workspaceId
+    if (wsId) await window.atelier.terminal.forgetSession(wsId, nodeId)
+    return this.restartTerminalKeepingSession(nodeId)
+  }
+
+  private async restartTerminalKeepingSession(nodeId: UUID): Promise<void> {
     await window.atelier.terminal.kill(nodeId)
     const epoch = this.state.terminalEpoch
-    // Sessão nova, contadores zerados: os do processo velho não valem mais.
+    // Contadores zerados nos DOIS caminhos: eles são do processo que acabou de
+    // morrer. Um agente retomado republica os dele nos primeiros segundos.
     const status = { ...this.state.terminalStatus }
     delete status[nodeId]
-    this.set({ terminalEpoch: { ...epoch, [nodeId]: (epoch[nodeId] ?? 0) + 1 }, terminalStatus: status })
+    // A leitura publicada é da sessão que acabou de morrer: custo e contexto do
+    // processo velho não valem para o novo.
+    const usage = { ...this.state.terminalUsage }
+    delete usage[nodeId]
+    this.set({
+      terminalEpoch: { ...epoch, [nodeId]: (epoch[nodeId] ?? 0) + 1 },
+      terminalStatus: status,
+      terminalUsage: usage
+    })
   }
 
   /**

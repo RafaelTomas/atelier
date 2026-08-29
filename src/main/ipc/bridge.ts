@@ -60,8 +60,10 @@ import { takenNoteFiles } from '../core/state/note-files'
 import { projectIndex } from '../core/state/project-store'
 import { roles } from '../core/state/role-store'
 import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manager'
+import { supportsResume } from '../core/terminal/agent-resume'
 import { apply as applyTodo, create as createTodo, read as readTodo } from '../core/todo/todo-store'
 import type { TodoOp } from '../core/todo/todo-store'
+import { clearSession, readSession } from '../core/terminal/session-store'
 import { accountUsage, setTerminalAccount } from '../core/terminal/status-line'
 // `keyRefs`/`syncVaultKeys` moram no vault-manager: o `.vault` tem dois
 // escritores (esta UI e o `atelier vault set`), e o espelho dos nomes no nó
@@ -846,6 +848,10 @@ export function registerIPC(): void {
         workspaceId,
         shellPath: tc.shellPath,
         command: resolved.command,
+        // O tipo do agente decide se o comando ganha `--session-id`/`--resume`,
+        // e a decisão tem que acontecer antes de o comando ser digitado — por
+        // isso ele vem aqui, e não só no `setAgentInfo` logo abaixo.
+        agentType: tc.agentType,
         extraEnv: vaultEnv.env,
         ...(claudeConfigDir ? { claudeConfigDir } : {}),
         workingDirectory: tc.workingDirectory || ws.payload.workingDirectory,
@@ -865,6 +871,33 @@ export function registerIPC(): void {
   ipcMain.handle('terminal:write', (_e, nodeId: UUID, data: string) =>
     terminals.write(nodeId, data)
   )
+
+  /**
+   * Há sessão gravada para este nó? É o que habilita "Retomar sessão" no menu.
+   *
+   * Devolve o id e a data para o menu poder dizer QUAL sessão seria retomada —
+   * uma ação que ressuscita uma conversa sem dizer qual é pior que nenhuma.
+   */
+  ipcMain.handle('terminal:session', async (_e, workspaceId: UUID, nodeId: UUID) => {
+    const ws = appState.workspaces.get(workspaceId)
+    const node = ws?.node(nodeId)
+    if (!node || node.content.type !== 'terminal') return null
+    if (!supportsResume(node.content.value.agentType)) return null
+    const session = await readSession(workspaceId, nodeId)
+    return session ? { sessionId: session.sessionId, startedAt: session.startedAt } : null
+  })
+
+  /**
+  /**
+   * Esquece a sessão deste nó — é o que faz "Sessão nova" começar limpo.
+   *
+   * O renderer chama isto ANTES de derrubar o PTY e remontar o nó: sem apagar o
+   * id, o spawn seguinte encontraria o arquivo e retomaria justamente a conversa
+   * que o usuário acabou de descartar.
+   */
+  ipcMain.handle('terminal:forget-session', async (_e, workspaceId: UUID, nodeId: UUID) => {
+    await clearSession(workspaceId, nodeId)
+  })
 
   /**
    * Imagem colada dentro de um terminal. O `xterm` só trata texto, e o Claude

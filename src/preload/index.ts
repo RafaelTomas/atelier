@@ -224,6 +224,18 @@ const api = {
       */
     onUsage: (cb: (p: { id: UUID; usage: AgentUsage }) => void): Unsubscribe =>
       on('terminal:usage', cb),
+    /**
+     * A sessão gravada deste nó, quando o agente sabe retomar. `null` = não há
+     * o que retomar, e o menu desabilita a ação em vez de oferecê-la à toa.
+     */
+    session: (
+      workspaceId: UUID,
+      nodeId: UUID
+    ): Promise<{ sessionId: UUID; startedAt: string } | null> =>
+      ipcRenderer.invoke('terminal:session', workspaceId, nodeId),
+    /** "Sessão nova": apaga o id antes de o nó remontar. */
+    forgetSession: (workspaceId: UUID, nodeId: UUID): Promise<void> =>
+      ipcRenderer.invoke('terminal:forget-session', workspaceId, nodeId),
     onStatus: (cb: (p: { id: UUID; status: AgentStatus }) => void): Unsubscribe =>
       on('terminal:status', cb)
   },

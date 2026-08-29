@@ -81,7 +81,18 @@ export const paths = {
   /** Capturas de portal pedidas pelo agente (`atelier portal shot`). */
   shotsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'shots'),
   scrollback: (workspaceId: UUID, terminalId: UUID) =>
-    join(dataDir(), 'workspaces', workspaceId, 'terminals', `${terminalId}.scrollback`)
+    join(dataDir(), 'workspaces', workspaceId, 'terminals', `${terminalId}.scrollback`),
+  /**
+   * O id da sessão do agente daquele nó, para o `--resume` do boot seguinte.
+   *
+   * Ao lado do `.scrollback` e FORA do workspace.json, pela mesma regra da nota,
+   * da tabela, da imagem e do cofre: o que é derivado e descartável não entra no
+   * conteúdo do nó. Aqui há uma razão a mais — o app nativo Swift descarta
+   * chave que não conhece dentro de `TerminalContent`, e um campo novo ali seria
+   * perdido em silêncio no primeiro save de quem abrisse o canvas de lá.
+   */
+  terminalSession: (workspaceId: UUID, terminalId: UUID) =>
+    join(dataDir(), 'workspaces', workspaceId, 'terminals', `${terminalId}.session.json`)
 }
 
 /**

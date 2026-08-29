@@ -1135,6 +1135,22 @@ export interface TerminalSpawnOptions {
    * sequestrar o canal do CLI.
    */
   extraEnv?: Record<string, string>
+  /**
+   * Tipo do agente daquele nó. Chega no spawn, e não só no `setAgentInfo`
+   * depois dele, porque é ele que decide se o comando ganha as flags de sessão
+   * — e essa decisão precisa acontecer ANTES de o comando ser digitado.
+   */
+  agentType?: string
+  /**
+   * O que fazer com a sessão gravada deste nó:
+   *
+   *  - `auto` (padrão) — retoma se houver id válido. É o boot do app, o caso que
+   *    dói depois de um crash ou de um restart do watcher.
+   *  - `clean` — ignora e apaga o id. É o "Sessão nova": quem clica ali quer
+   *    começar limpo, e ressuscitar a conversa anterior seria o oposto do pedido.
+   *  - `resume` — retoma explicitamente, pedido pelo menu do nó.
+   */
+  sessionMode?: 'auto' | 'clean' | 'resume'
 }
 
 export interface BootInfo {

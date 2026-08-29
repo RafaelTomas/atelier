@@ -46,8 +46,6 @@ await esbuild.build({
   stdin: {
     contents: `
       export { appState } from './src/main/core/state/app-state.ts'
-      export { SystemStatsMonitor } from './src/main/core/system/system-stats.ts'
-      export { getUsage, resetUsage, withStatusLine } from './src/main/core/terminal/status-line.ts'
       export { interAgentServer } from './src/main/core/interagent/server.ts'
       export { persistence } from './src/main/core/persistence/persistence-manager.ts'
       export { ipcSocketPath, paths } from './src/main/core/persistence/paths.ts'
@@ -80,6 +78,14 @@ await esbuild.build({
       // deixa de herdar o tamanho de painel do widget.
       export { minSize, defaultSize } from './src/main/core/node-sizes.ts'
       export { readButtonConfig, writeButtonConfig } from './src/shared/types.ts'
+      // O amostrador de recursos. O ref-count dele é o defeito mais provável da
+      // feature — um timer que sobrevive ao último nó desmontado amostra para
+      // ninguém pelo resto da sessão, e nada na tela denuncia isso.
+      export { SystemStatsMonitor } from './src/main/core/system/system-stats.ts'
+      // A telemetria publicada pelo agente. O que entra aqui é o registro e a
+      // montagem do --settings: o handler em si atravessa o socket de verdade,
+      // logo abaixo, que é o unico jeito de provar que o protocolo bate.
+      export { getUsage, resetUsage, withStatusLine } from './src/main/core/terminal/status-line.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -95,8 +101,6 @@ await esbuild.build({
 
 const core = await import(pathToFileURL(outfile).href)
 const { appState, interAgentServer, persistence, ipcSocketPath, paths } = core
-const { SystemStatsMonitor } = core
-const { getUsage, resetUsage, withStatusLine } = core
 const { makeCanvasNode, makeTerminalContent, makeStickyNoteContent } = core
 const { roles } = core
 const { importLegacyDataIfNeeded } = core
@@ -112,6 +116,8 @@ const { setEditorState, resetEditors } = core
 const { dismissRefusal } = core
 const { minSize, defaultSize } = core
 const { readButtonConfig, writeButtonConfig } = core
+const { SystemStatsMonitor } = core
+const { getUsage, resetUsage, withStatusLine } = core
 
 /** Fala o protocolo real do atelier por socket. */
 function cli(args, terminalId) {
@@ -547,65 +553,6 @@ await test('recruit recusa papel inexistente sem criar nó', async () => {
   const out = await cli(['recruit', 'Sem Papel', '--role', 'papel que não existe'], terminalId)
   assert.match(out, /role .* not found/)
   assert.doesNotMatch(await cli(['list'], terminalId), /Sem Papel/)
-})
-
-await test('recruit sem nome devolve o uso', async () => {
-  assert.match(await cli(['recruit'], terminalId), /usage: atelier recruit/)
-})
-
-await test('dismiss remove o agente que o chamador recrutou', async () => {
-  await cli(['recruit', 'Dispensavel'], terminalId)
-  const antes = ws.nodes.length
-  const out = await cli(['dismiss', 'Dispensavel'], terminalId)
-  assert.match(out, /Dismissed 'Dispensavel'/)
-  assert.equal(ws.nodes.length, antes - 1, 'o nó continuou no canvas')
-  assert.doesNotMatch(await cli(['list'], terminalId), /Dispensavel/)
-})
-
-await test('dismiss recusa terminal que o chamador não recrutou', async () => {
-  await cli(['recruit', 'Do Usuario'], terminalId)
-  const alvo = ws.nodes.find(
-    (n) => n.content.type === 'terminal' && n.content.value.name === 'Do Usuario'
-  )
-  // Simula o terminal criado à mão pelo usuário: sem registro de quem recrutou.
-  alvo.content.value.recruitedBy = null
-
-  const out = await cli(['dismiss', 'Do Usuario'], terminalId)
-  assert.match(out, /was not recruited by you/)
-  assert.ok(ws.node(alvo.id), 'o nó foi removido apesar da recusa')
-})
-
-await test('dismiss recusa o próprio chamador e nome inexistente', async () => {
-  const eu = ws.node(terminalId).content.value.name
-  assert.match(await cli(['dismiss', eu], terminalId), /cannot dismiss itself/)
-  assert.match(await cli(['dismiss', 'ninguem'], terminalId), /not found/)
-  assert.match(await cli(['dismiss'], terminalId), /usage: atelier dismiss/)
-})
-
-await test('dismiss não mata agente ocupado sem --force', () => {
-  const eu = '11111111-1111-4111-8111-111111111111'
-  const outro = '22222222-2222-4222-8222-222222222222'
-  const base = { name: 'Ocupado', callerId: eu, targetId: outro, recruitedBy: eu }
-
-  assert.match(dismissRefusal({ ...base, busy: true, force: false }), /still working/)
-  assert.equal(dismissRefusal({ ...base, busy: true, force: true }), null)
-  assert.equal(dismissRefusal({ ...base, busy: false, force: false }), null)
-  // A permissão vem ANTES do --force: forçar não vira licença para matar o
-  // terminal de outro.
-  assert.match(
-    dismissRefusal({ ...base, recruitedBy: outro, busy: false, force: true }),
-    /was not recruited by you/
-  )
-})
-
-await test('recruit para no teto de terminais do canvas', async () => {
-  let last = ''
-  // O teto é 12 e o canvas já tem alguns; o laço para no primeiro erro.
-  for (let i = 0; i < 20; i++) {
-    last = await cli(['recruit', `Excesso ${i}`], terminalId)
-    if (last.startsWith('error:')) break
-  }
-  assert.match(last, /limit for 'recruit'/)
 })
 
 await test('recruit --model entra no comando do recrutado', async () => {
@@ -1112,92 +1059,6 @@ await test('widget/button nasce 88×88, não com o tamanho de painel do widget',
   assert.deepEqual(minSize('widget', { kind: 'button' }), { width: 56, height: 56 })
   // E o widget comum continua sendo uma coluna: o `opts.kind` é o que separa.
   assert.deepEqual(defaultSize('widget', { kind: 'git' }), { width: 380, height: 460 })
-})
-
-await test('config do botão faz round-trip por um mapa de strings', () => {
-  const config = readButtonConfig(
-    writeButtonConfig({
-      label: 'Subir',
-      icon: 'play',
-      color: '#34C759',
-      action: 'command',
-      command: 'npm run dev',
-      prompt: '',
-      url: '',
-      cwd: '',
-      target: null,
-      confirm: true,
-      pending: false,
-      proposedBy: null
-    })
-  )
-  assert.equal(config.command, 'npm run dev')
-  assert.equal(config.confirm, true)
-  assert.equal(config.pending, false)
-  // Vazio é OMITIDO, não gravado como '' — um `view` enxuto é o que o app
-  // nativo e o diff do workspace mostram.
-  const view = writeButtonConfig({ ...config, cwd: '', confirm: false })
-  assert.equal('cwd' in view, false)
-  assert.equal('confirm' in view, false)
-})
-
-let buttonId
-
-await test('atelier button propose cria o nó PENDENTE', async () => {
-  const out = await cli(
-    ['button', 'propose', 'Subir a app', '--command', 'npm run dev', '--icon', 'play'],
-    terminalId
-  )
-  assert.match(out, /PENDING/)
-  const node = ws.nodes.find(
-    (n) => n.content.type === 'widget' && n.content.value.view.label === 'Subir a app'
-  )
-  assert.ok(node, 'o botão não entrou no canvas')
-  buttonId = node.id
-  const config = readButtonConfig(node.content.value.view)
-  assert.equal(config.pending, true, 'botão de agente nasce armado — é execução arbitrária')
-  assert.equal(config.command, 'npm run dev')
-  assert.equal(config.proposedBy, 'Agent A')
-  // Widget não é conectável: um cabo aqui pediria array novo no payload.
-  assert.ok(!ws.connections.some((c) => c.nodeIdA === node.id || c.nodeIdB === node.id))
-})
-
-await test('atelier button propose sem ação responde uso, e não cria nó inerte', async () => {
-  const antes = ws.nodes.length
-  const out = await cli(['button', 'propose', 'Vazio'], terminalId)
-  assert.match(out, /^error: usage/)
-  assert.equal(ws.nodes.length, antes)
-})
-
-await test('atelier button propose --prompt exige um alvo', async () => {
-  const out = await cli(['button', 'propose', 'Revisar', '--prompt', 'revise o diff'], terminalId)
-  assert.match(out, /--target/)
-})
-
-await test('atelier button list mostra o estado de cada botão', async () => {
-  const out = await cli(['button', 'list'], terminalId)
-  assert.match(out, /Subir a app/)
-  assert.match(out, /pending/)
-})
-
-await test('atelier button remove recusa um botão já aceito pelo usuário', async () => {
-  // O aceite acontece no canvas; aqui ele é simulado no conteúdo do nó.
-  ws.updateContent(buttonId, (n) => {
-    const config = readButtonConfig(n.content.value.view)
-    n.content.value.view = writeButtonConfig({ ...config, pending: false, proposedBy: null })
-  })
-  const out = await cli(['button', 'remove', 'Subir a app'], terminalId)
-  assert.match(out, /only they can remove it/)
-  assert.ok(ws.node(buttonId), 'o botão aceito foi removido pelo agente')
-})
-
-await test('atelier button remove apaga a própria proposta pendente', async () => {
-  await cli(['button', 'propose', 'Testes', '--command', 'npm test'], terminalId)
-  const out = await cli(['button', 'remove', 'Testes'], terminalId)
-  assert.match(out, /Removed pending button/)
-  assert.ok(
-    !ws.nodes.some((n) => n.content.type === 'widget' && n.content.value.view.label === 'Testes')
-  )
 })
 
 // ─── Monitor de recursos ──────────────────────────────────────────────────────

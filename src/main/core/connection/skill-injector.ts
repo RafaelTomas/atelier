@@ -27,7 +27,7 @@ const OWNER_MARKER = '<!-- installed-by: atelier -->'
 
 const SKILL_MD = `---
 name: atelier
-description: Send messages to connected AI agents on the Atelier canvas and get their responses. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'create/update a note', 'open/read a page in a portal', 'show this query result on the canvas', 'put this image on the canvas', or 'describe the projects'.
+description: Send messages to connected AI agents on the Atelier canvas and get their responses, or recruit a new agent as a terminal node already cabled to you. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), read the file the user has open in a connected code editor node (including unsaved changes and the lines they selected), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, create a button on the canvas that runs a command the user repeats, read secrets from a connected vault (including logging into a page without ever seeing the password), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'open/recruit another agent', 'create/update a note', 'open/read a page in a portal', 'what file am I looking at', 'explain/refactor this selection', 'show this query result on the canvas', 'put this image on the canvas', 'make a button for this command', or 'describe the projects'.
 ---
 
 ${OWNER_MARKER}
@@ -56,6 +56,37 @@ atelier check "Agent Name" 40
 the prompt — run \`check\` to see progress and wait again. Never interrupt an
 agent that is still working, and do not edit files another agent is modifying.
 
+## Recruit another agent
+
+\`\`\`
+atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd /path] [--role "Role"] [--account "Account"]
+\`\`\`
+
+Creates a terminal node already cabled to you, so you can hand work to it with
+\`ask\`. Default preset is \`claude\`; without \`--cwd\` it starts in YOUR working
+directory. \`--account\` picks which Claude login the new agent runs under (the
+names the user set up in Atelier); without it, the agent uses the default one.
+A recruited agent boots only when its node is on screen: run \`atelier list\` and
+wait for it to leave \`[not started]\` before asking it anything.
+
+Recruit when the work is genuinely parallel or belongs to a different
+responsibility — not to split a task you can finish yourself. The canvas refuses
+to go past a dozen terminals.
+
+## Dismiss an agent you recruited
+
+\`\`\`
+atelier dismiss "Name" [--force]
+\`\`\`
+
+Kills the process and removes the node from the canvas. You can only dismiss an
+agent YOU recruited — never the user's own terminal, and never a colleague's,
+even when you are cabled to it. Dismissing an agent that is still working is
+refused; run \`check\` first, and pass \`--force\` only when you are sure killing
+it mid-task is what you want. Dismiss when the work you handed over is finished
+and the node would just sit there; leave it alone if the user might still want
+to read its screen.
+
 ## Your own responsibility
 
 \`\`\`
@@ -76,6 +107,42 @@ atelier note read "Note Name" [offset] [limit]
 atelier note write "Note Name" "content"
 atelier note edit "Note Name" "old text" "new text"
 \`\`\`
+
+## Code editors
+
+A code editor node is a file open on the canvas — usually the file the user is
+looking at right now. The cable answers the three things you cannot get from
+disk: **which** file it is, **what** the user selected, and whether the buffer
+has changes that were never saved.
+
+\`\`\`
+atelier editor list
+atelier editor open <absolute path>
+atelier editor read "File" [offset] [limit] [--selection]
+atelier editor close "File"
+\`\`\`
+
+\`list\` prints the ABSOLUTE PATH of every connected editor, plus the cursor line
+and the selected line range. That path is the point of the cable: **read here,
+but edit the file with your own tools** — your \`Edit\`/\`Write\` have the diff,
+the permission prompt and the history that this CLI does not, the file is the
+same file, and the node reloads by itself afterwards. There is deliberately no
+\`editor write\`.
+
+\`read\` gives the buffer when it differs from disk (prefixed with
+\`# unsaved changes — not on disk\`), otherwise the file. \`offset\`/\`limit\` are
+in lines, like \`note read\`. \`--selection\` returns only the lines the user
+selected, which is what answers "explain THIS" or "refactor THIS method"; with
+nothing selected it is an error, never a guessed range.
+
+**An editor with unsaved changes is one you do not touch.** Writing the file
+under it destroys work nobody has reviewed — ask the user to save first, then
+edit. \`close\` refuses a dirty editor for the same reason.
+
+\`open\` creates the node already cabled to you, and only for a path under an
+indexed project, the workspace working directory or a file-tree root. A path
+already open in another node gives you THAT node back instead of a second buffer
+fighting over the same file.
 
 ## Portals
 
@@ -116,6 +183,7 @@ atelier portal type "Portal" <ref | --selector "css"> "text" [--clear] [--enter]
 atelier portal key "Portal" <Enter|Tab|Escape|Backspace|Delete|Space|Arrow…|Home|End|PageUp|PageDown>
 atelier portal scroll "Portal" [ref] [--down | --up | --top | --bottom]
 atelier portal wait "Portal" [--idle | --text "…" | --gone <ref> | --ms N]
+atelier portal login "Portal" <ref | --selector "css"> --vault "Vault" --key KEY [--enter]
 \`\`\`
 
 **Start with \`map\`.** It lists the interactive elements by an accessibility
@@ -139,10 +207,47 @@ interpreter.
 \`XYZ\` leaves \`XYZtst\`. Pass \`--clear\` to replace the value instead of
 appending to it.
 
+\`login\` types a secret you never see. The value goes from the vault straight to
+the page — it never enters your context, your scrollback, or the trail the user
+reads. It works only when the vault node is cabled to BOTH you and that portal,
+and only when the key declares the page's origin: a key for
+\`https://github.com\` is refused on any other site, and a key with no origin is
+refused everywhere. Fill the user field, then the password field, then press
+Enter with \`portal key\` or \`--enter\`.
+
 After a click that loads something, run \`portal wait "Portal" --idle\` before
 reading. Every action reports what changed (new URL, new title) so you can tell
 whether it landed without spending a \`shot\`, and every action is logged in the
 portal node where the user can see it.
+
+## Secrets / vault
+
+A vault node holds secrets encrypted on disk. You can read the names of the keys
+in the vaults cabled to you, and one value at a time when you really need it.
+
+\`\`\`
+atelier vault list
+atelier vault get "Vault" <key>
+atelier vault set "Vault" <KEY> <value>
+atelier vault env "Vault"
+\`\`\`
+
+\`set\` CREATES a key, and that is the only write you have. It refuses a key that
+already exists — you cannot change a value, and you cannot delete one; both are
+the user's action in the node. A key you create is inert: no origin, so
+\`portal login\` will not type it anywhere, and out of every terminal's
+environment. Ask the user to turn those on if the key needs them. Every write is
+in the vault's access trail.
+
+Values you \`get\` land in your context and stay there. Prefer the injected
+environment variable when there is one — \`atelier vault env\` lists which are
+set — and prefer \`atelier portal login\` when the secret is going into a web
+form, because there the value never reaches you at all. Never echo a secret into
+the terminal, into a file, or into another agent's prompt.
+
+A key only becomes an environment variable from the NEXT boot of this terminal
+after the cable was drawn, so if \`$KEY\` is empty right after connecting a
+vault, ask the user to reload the terminal.
 
 ## SQL / query results
 
@@ -178,6 +283,30 @@ PNG, JPEG, GIF, WebP, AVIF, SVG and BMP are accepted, up to 25 MB.
 atelier image create "Title" /abs/path/to/image.png [--alt "description"]
 atelier image list
 \`\`\`
+
+## Buttons
+
+A button is a small node on the canvas that runs something with one click — a
+command in a terminal, a prompt to an agent, or a URL in a portal.
+
+\`\`\`
+atelier button propose "Label" --command "npm run dev" [--icon play] [--color "#34C759"] [--cwd <path>] [--target "Terminal"] [--confirm]
+atelier button propose "Label" --prompt "review the diff" --target "Claude"
+atelier button propose "Label" --url http://localhost:5173
+atelier button list
+atelier button remove "Label"
+\`\`\`
+
+**Propose a button when the user repeats the same command** — the second or
+third time the same line goes into a terminal, offer one.
+**Never propose a destructive button** (\`rm\`, \`drop\`, \`reset --hard\`,
+deploy): one click is not enough deliberation for something that cannot be
+undone.
+
+Every button you propose arrives PENDING and does nothing until the user presses
+Accept on the node — that is where they read the exact command. Say so when you
+report back, or they will click a button that is not armed yet and think it is
+broken. \`remove\` only works on a pending button you proposed yourself.
 
 ## Projects
 

@@ -18,6 +18,8 @@ import type {
   NodeContent,
   PortalContent,
   PortalSource,
+  SecretVaultContent,
+  SecretVaultKeyRef,
   ShapeContent,
   StickyNoteContent,
   StorageMode,
@@ -60,7 +62,8 @@ const VARIANTS = [
   'freehand',
   'dataTable',
   'image',
-  'widget'
+  'widget',
+  'secretVault'
 ] as const
 
 // ─── StorageMode ──────────────────────────────────────────────────────────────
@@ -119,7 +122,13 @@ function decodeTerminal(raw: Record<string, unknown>): TerminalContent {
     lastActiveAt: decodeOptionalDate(raw.lastActiveAt),
     themeId: optStr(raw.themeId),
     fontFamily: optStr(raw.fontFamily),
-    fontSize: optNum(raw.fontSize)
+    fontSize: optNum(raw.fontSize),
+    // Chave nova: terminal gravado antes das contas (ou pelo app nativo) volta
+    // como null, que é a conta padrão — o comportamento que ele já tinha.
+    claudeAccountId: optStr(raw.claudeAccountId),
+    // Sem registro de quem recrutou, o terminal conta como criado pelo usuário
+    // — e o `atelier dismiss` recusa removê-lo. É o default seguro.
+    recruitedBy: raw.recruitedBy ? normalizeUUID(raw.recruitedBy) : null
   }
 }
 
@@ -211,6 +220,45 @@ function decodeWidget(raw: Record<string, unknown>): WidgetContent {
     view: Object.fromEntries(
       Object.entries(view).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
     )
+  }
+}
+
+/**
+ * Cofre. A regra deste decoder é uma só, e é o ponto do nó inteiro: `value`
+ * NÃO existe aqui. Um workspace.json que trouxesse um campo de valor — vindo de
+ * um arquivo editado à mão, de um bug ou de uma versão futura descuidada — o
+ * perde na releitura, porque só os campos abaixo são copiados, e nenhum deles é
+ * o segredo: nome, env, origem, nota, quando foi gravado e por quem.
+ *
+ * `keys` é ordenada e sem repetição: ela é a projeção da lista de entradas do
+ * `.vault`, e duas linhas com o mesmo nome deixariam a UI oferecer duas
+ * remoções para a mesma chave.
+ */
+function decodeSecretVault(raw: Record<string, unknown>): SecretVaultContent {
+  const list = Array.isArray(raw.keys) ? raw.keys : []
+  const seen = new Set<string>()
+  const keys: SecretVaultKeyRef[] = []
+  for (const item of list) {
+    const o = asRecord(item)
+    const key = str(o.key)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    keys.push({
+      key,
+      inEnv: bool(o.inEnv),
+      origin: optStr(o.origin),
+      note: optStr(o.note),
+      updatedAt: str(o.updatedAt),
+      // Ausente vale 'user': cofre gravado antes deste campo não é cofre cheio
+      // de chave de agente.
+      source: o.source === 'agent' ? 'agent' : 'user'
+    })
+  }
+  return {
+    id: normalizeUUID(raw.id),
+    name: str(raw.name, 'Cofre'),
+    keys,
+    locked: bool(raw.locked)
   }
 }
 
@@ -328,6 +376,8 @@ export function decodeNodeContent(value: unknown): NodeContent | null {
       return { type: 'image', value: decodeImage(payload) }
     case 'widget':
       return { type: 'widget', value: decodeWidget(payload) }
+    case 'secretVault':
+      return { type: 'secretVault', value: decodeSecretVault(payload) }
   }
 }
 
@@ -389,6 +439,8 @@ export function makeTerminalContent(
     themeId: null,
     fontFamily: null,
     fontSize: null,
+    claudeAccountId: null,
+    recruitedBy: null,
     ...opts
   }
 }
@@ -500,8 +552,24 @@ export function makeImageContent(
  * O widget nasce seguindo a seleção global (`projectId: null`). Fixar num
  * projeto é ato posterior e explícito do usuário — o cadeado no cabeçalho.
  */
-export function makeWidgetContent(kind: string, projectId: UUID | null = null): WidgetContent {
-  return { kind, projectId, view: {} }
+export function makeWidgetContent(
+  kind: string,
+  projectId: UUID | null = null,
+  // O botão nasce configurado num único `addNode`, em vez de um `patchContent`
+  // logo atrás — que gravaria o workspace duas vezes e deixaria, entre as duas,
+  // um botão sem ação no canvas.
+  view: Record<string, string> = {}
+): WidgetContent {
+  return { kind, projectId, view }
+}
+
+/**
+ * Cofre novo: identidade e nada mais. O `.vault` correspondente só passa a
+ * existir quando a primeira chave é gravada — um cofre vazio não tem segredo
+ * nenhum a proteger, e um arquivo cifrado sem entradas seria só ruído no disco.
+ */
+export function makeSecretVaultContent(name: string): SecretVaultContent {
+  return { id: uuid(), name, keys: [], locked: false }
 }
 
 /** Nome exibido no header do nó, por tipo. */
@@ -531,7 +599,9 @@ export function nodeDisplayName(content: NodeContent): string {
     case 'image':
       return content.value.title || 'Imagem'
     case 'widget':
-      return widgetTitle(content.value.kind)
+      return widgetTitle(content.value.kind, content.value.view)
+    case 'secretVault':
+      return content.value.name || 'Cofre'
     case 'text':
       return content.value.text.slice(0, 24) || 'Text'
     default:
@@ -540,13 +610,18 @@ export function nodeDisplayName(content: NodeContent): string {
 }
 
 /** Rótulo do painel hospedado. Um kind desconhecido responde o próprio kind —
- *  é mais informativo que "Widget" e não finge que o nó é outra coisa. */
-export function widgetTitle(kind: string): string {
+ *  é mais informativo que "Widget" e não finge que o nó é outra coisa.
+ *
+ *  O botão é o único que precisa do `view`: o nome dele é o rótulo que o
+ *  usuário escreveu, e é por esse nome que o CLI o encontra. */
+export function widgetTitle(kind: string, view: Record<string, string> = {}): string {
   switch (kind) {
     case 'projects':
       return 'Projetos'
     case 'git':
       return 'Git'
+    case 'button':
+      return view.label || 'Botão'
     default:
       return kind
   }

@@ -161,6 +161,21 @@ export function IconText({ size = 18 }: IconProps): JSX.Element {
 }
 
 /** Modo desenho: círculo com um traço atravessando, como na referência. */
+/**
+ * Grupo: uma moldura tracejada com dois blocos dentro — a leitura que a
+ * ferramenta produz no canvas, e não um ícone de "pasta", que já é a árvore de
+ * arquivos.
+ */
+export function IconGroup(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <rect x="3" y="4" width="18" height="16" rx="2" strokeDasharray="3 2.5" />
+      <rect x="6.5" y="8" width="4.5" height="8" rx="1" />
+      <rect x="13" y="8" width="4.5" height="5" rx="1" />
+    </Svg>
+  )
+}
+
 export function IconDraw(p: IconProps): JSX.Element {
   return (
     <Svg {...p}>
@@ -234,6 +249,58 @@ export function IconTrash(p: IconProps): JSX.Element {
   return (
     <Svg {...p}>
       <path d="M4.5 7h15M9.5 7V5h5v2M6.5 7l1 13h9l1-13M10 11v6M14 11v6" />
+    </Svg>
+  )
+}
+
+/** Revelar um segredo. */
+export function IconEye(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="2.8" />
+    </Svg>
+  )
+}
+
+/** Esconder de volta: o mesmo olho, cortado. O corte é o que se lê de relance. */
+export function IconEyeOff(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M9.9 5.8A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-3 3.8M6.3 7.4A16.6 16.6 0 0 0 2.5 12S6 18.5 12 18.5c1.5 0 2.8-.4 4-1" />
+      <path d="M10 10a2.8 2.8 0 0 0 4 4" />
+      <path d="m4 4 16 16" />
+    </Svg>
+  )
+}
+
+/** Copiar: as duas folhas sobrepostas. */
+export function IconCopy(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5" />
+    </Svg>
+  )
+}
+
+/** Confirmação efêmera — o "copiado" do cofre. */
+export function IconCheck(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="m5 12.5 4.5 4.5L19 7" />
+    </Svg>
+  )
+}
+
+/** Trocar este segredo: a seta de rotação, com o ponto do alerta no meio. */
+export function IconRotateKey(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M20.5 12a8.5 8.5 0 1 1-2.8-6.3" />
+      <path d="M20.5 3.5V9H15" />
+      <path d="M12 9v3.5" />
+      <circle cx="12" cy="16" r=".9" fill="currentColor" stroke="none" />
     </Svg>
   )
 }
@@ -343,5 +410,45 @@ export function IconChevronDown({ size = 10 }: IconProps): JSX.Element {
     >
       <path d="M2.5 4.5 6 8l3.5-3.5" />
     </svg>
+  )
+}
+
+/** Fetch — baixa até a linha, sem aplicar: consulta o remoto e para aí. */
+export function IconFetch(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M12 4v9" />
+      <path d="M8.5 9.5 12 13l3.5-3.5" />
+      <path d="M5 18h14" />
+    </Svg>
+  )
+}
+
+/** Pull — traz de lá para cá. */
+export function IconPull(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M12 4v14" />
+      <path d="M6.5 12.5 12 18l5.5-5.5" />
+    </Svg>
+  )
+}
+
+/** Push — manda daqui para lá. */
+export function IconPush(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M12 20V6" />
+      <path d="M6.5 11.5 12 6l5.5 5.5" />
+    </Svg>
+  )
+}
+
+/** Play da dock — a entrada do botão configurável. */
+export function IconPlay(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <path d="M8 5.2 18.4 12 8 18.8z" />
+    </Svg>
   )
 }

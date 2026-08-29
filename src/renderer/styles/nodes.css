@@ -13,6 +13,17 @@
    dentro dela é que recorta o conteúdo. */
 .node-frame { position: absolute; will-change: transform; }
 
+/* Modo foco (isolar um grupo): os nós de FORA dele apagam. Só opacidade — o nó
+   continua montado, o terminal continua rodando e o portal continua carregado.
+   A mesma medida de .group.is-dimmed, para moldura e conteúdo apagarem juntos. */
+.node-frame.is-dimmed { opacity: .25; }
+
+/* Dentro de um grupo colapsado, mas ainda montado (portal acordado pelo agente).
+   `visibility`, não `display: none`: o <webview> precisa de caixa de layout para
+   continuar renderizando a página que o agente está lendo. O ponteiro também
+   sai, senão o nó invisível interceptaria cliques em cima da moldura fechada. */
+.node-frame.is-hidden { visibility: hidden; pointer-events: none; }
+
 .node {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;

@@ -11,10 +11,13 @@ import { useSyncExternalStore } from 'react'
 import type {
   AgentRole,
   AgentStatus,
+  ButtonConfig,
   CanvasNode,
+  ClaudeAccountInfo,
   Connection,
   DiscoveredProject,
   Drawing,
+  NodeGroup,
   Preferences,
   Project,
   Rect,
@@ -23,7 +26,10 @@ import type {
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
+import { DEFAULT_CLAUDE_ACCOUNT_ID, readButtonConfig, writeButtonConfig } from '@shared/types'
+import { normalizeURL } from '@shared/portal-url'
 import { viewport } from '../canvas/viewport'
+import { boundsForNodes, groupOf } from '../canvas/group-geometry'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { quoteForShell } from '../paths'
 import { PDF_NODE_SIZE, isPdf } from '../pdf-viewer'
@@ -100,6 +106,18 @@ export interface AppSnapshot {
   activeId: UUID | null
   workspace: WorkspacePayload | null
   selection: UUID[]
+  /**
+   * Moldura de grupo selecionada. Fora de `selection`, e não dentro dela: um
+   * array com ids de dois tipos obrigaria toda leitura ("o que está
+   * selecionado?") a desambiguar antes de responder. Os dois são exclusivos —
+   * escolher um limpa o outro.
+   */
+  selectedGroupId: UUID | null
+  /**
+   * Grupo em foco: ele fica opaco e o resto do canvas apaga. Só em memória, não
+   * vai para o disco — é modo de leitura, não propriedade do grupo. `Esc` sai.
+   */
+  isolatedGroupId: UUID | null
   /** Nó de origem enquanto o usuário arrasta uma conexão nova. */
   connectingFrom: UUID | null
   /** Componente esperando o usuário desenhar a área onde vai nascer. */
@@ -113,12 +131,30 @@ export interface AppSnapshot {
   pen: PenSettings
   /** Responsabilidades disponíveis (globais + as deste workspace). */
   roles: AgentRole[]
+  /** Contas do Claude, com a padrão (~/.claude) sempre na primeira posição. */
+  claudeAccounts: ClaudeAccountInfo[]
   /** Diálogo "Novo Terminal" aberto — a dock dispara, o App renderiza. */
   newTerminalOpen: boolean
   /** Área desenhada antes do diálogo abrir — o terminal nasce nela. */
   newTerminalFrame: Rect | null
   /** Terminal aberto no diálogo em modo edição. null = ninguém editando. */
   editTerminalId: UUID | null
+  /**
+   * Diálogo de botão aberto. `nodeId` null = criando um novo, e aí `frame` é a
+   * área desenhada no canvas. Mesmo compasso do diálogo de terminal: nada é
+   * criado enquanto o usuário não confirma.
+   */
+  buttonDialog: { nodeId: UUID | null; frame: Rect | null } | null
+  /**
+   * Como cada botão foi na última vez que o usuário clicou nele.
+   *
+   * FORA do `view` do widget, de propósito: `view` é snapshot persistido, e
+   * gravar isto ali sujaria o autosave a cada clique com dado descartável.
+   * Descreve a ENTREGA da ação (o comando chegou ao terminal), não o resultado
+   * dele — quem mostra saída, erro e código de saída é o PTY, que é a única
+   * superfície honesta para isso.
+   */
+  buttonRuns: Record<UUID, 'running' | 'failed'>
   /**
    * Geração de cada terminal. Recarregar incrementa: o TerminalNode tem isso
    * nas deps do efeito, então o xterm é derrubado e o PTY sobe de novo.
@@ -183,6 +219,8 @@ const initial: AppSnapshot = {
   activeId: null,
   workspace: null,
   selection: [],
+  selectedGroupId: null,
+  isolatedGroupId: null,
   connectingFrom: null,
   placing: null,
   railRequest: null,
@@ -190,9 +228,12 @@ const initial: AppSnapshot = {
   tool: 'select',
   pen: { color: '#e0245e', lineWidth: 3 },
   roles: [],
+  claudeAccounts: [],
   newTerminalOpen: false,
   newTerminalFrame: null,
   editTerminalId: null,
+  buttonDialog: null,
+  buttonRuns: {},
   terminalEpoch: {},
   terminalStatus: {},
   newTerminalCwd: null,
@@ -235,10 +276,14 @@ class Store {
 
   async load(): Promise<void> {
     try {
-      const [{ entries, activeId }, prefs, roles, projects] = await Promise.all([
+      const [{ entries, activeId }, prefs, roles, claudeAccounts, projects] = await Promise.all([
         window.atelier.workspace.list(),
         window.atelier.prefs.get(),
         window.atelier.role.list(),
+        // As contas entram no boot pelo mesmo motivo das responsabilidades: o
+        // nó de terminal mostra em qual conta está antes de qualquer diálogo
+        // abrir, e o seletor da barra de ações não pode piscar vazio.
+        window.atelier.claudeAccount.list(),
         // O índice entra no BOOT, e não só quando o painel de projetos monta.
         // Um widget de git fixado num projeto precisa resolver esse id para
         // saber de que repositório ele é — e ele pode estar na tela sem que a
@@ -258,6 +303,7 @@ class Store {
         workspace,
         integrity,
         roles,
+        claudeAccounts,
         prefs,
         projects,
         theme,
@@ -271,7 +317,14 @@ class Store {
   async openWorkspace(id: UUID): Promise<void> {
     const workspace = await window.atelier.workspace.open(id)
     const integrity = await window.atelier.workspace.integrity(id)
-    this.set({ workspace, integrity, activeId: id, selection: [] })
+    this.set({
+      workspace,
+      integrity,
+      activeId: id,
+      selection: [],
+      selectedGroupId: null,
+      isolatedGroupId: null
+    })
   }
 
   /**
@@ -315,7 +368,15 @@ class Store {
   async deleteWorkspace(id: UUID): Promise<void> {
     const entries = await window.atelier.workspace.remove(id)
     if (id === this.state.activeId) {
-      this.set({ entries, workspace: null, activeId: null, selection: [], integrity: null })
+      this.set({
+        entries,
+        workspace: null,
+        activeId: null,
+        selection: [],
+        selectedGroupId: null,
+        isolatedGroupId: null,
+        integrity: null
+      })
       return
     }
     this.set({ entries })
@@ -334,7 +395,8 @@ class Store {
       ...ws,
       nodes: [...ws.nodes],
       connections: [...ws.connections],
-      drawings: [...ws.drawings]
+      drawings: [...ws.drawings],
+      groups: [...ws.groups]
     }
     fn(next)
     this.set({ workspace: next })
@@ -350,7 +412,8 @@ class Store {
       | 'codeEditor'
       | 'dataTable'
       | 'image'
-      | 'widget',
+      | 'widget'
+      | 'secretVault',
     position: { x: number; y: number },
     opts: Record<string, unknown> = {},
     size?: { width: number; height: number }
@@ -388,6 +451,11 @@ class Store {
     this.mutateWorkspace((ws) => {
       ws.nodes = ws.nodes.filter((n) => n.id !== nodeId)
       ws.connections = ws.connections.filter((c) => c.nodeIdA !== nodeId && c.nodeIdB !== nodeId)
+      // A moldura fica, só perde o membro — espelha o WorkspaceManager. Sem
+      // isto o contador da faixa continuaria contando um nó que já não existe.
+      ws.groups = ws.groups.map((g) =>
+        g.nodeIds.includes(nodeId) ? { ...g, nodeIds: g.nodeIds.filter((n) => n !== nodeId) } : g
+      )
     })
     this.set({ selection: this.state.selection.filter((s) => s !== nodeId) })
   }
@@ -640,6 +708,27 @@ class Store {
     await window.atelier.node.setFrame(id, nodeId, frame)
   }
 
+  /**
+   * Commit de VÁRIOS frames — o fim de um arrasto de seleção múltipla, e o de
+   * mover um grupo pela faixa do título.
+   *
+   * Um `set()` e um IPC, não N de cada: a store notifica todo assinante a cada
+   * `set()`, então N commits seriam N re-renders da árvore inteira com o
+   * usuário ainda com o dedo no botão do mouse.
+   */
+  async commitFrames(entries: { nodeId: UUID; frame: Rect }[]): Promise<void> {
+    const id = this.workspaceId
+    if (!id || entries.length === 0) return
+    const byId = new Map(entries.map((e) => [e.nodeId, e.frame]))
+    this.mutateWorkspace((ws) => {
+      ws.nodes = ws.nodes.map((n) => {
+        const frame = byId.get(n.id)
+        return frame ? { ...n, frame } : n
+      })
+    })
+    await window.atelier.node.setFrames(id, entries)
+  }
+
   async patchContent(nodeId: UUID, patch: Record<string, unknown>): Promise<void> {
     const id = this.workspaceId
     if (!id) return
@@ -711,6 +800,199 @@ class Store {
 
   closeNewTerminal(): void {
     this.set({ newTerminalOpen: false, newTerminalFrame: null, newTerminalCwd: null })
+  }
+
+  // ─── Botões ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Quanto tempo o pulso de "rodando" fica na tela.
+   *
+   * É o tempo de uma CONFIRMAÇÃO de entrega, não a duração do comando: o
+   * Atelier não acompanha o processo — quem mostra andamento, erro e código de
+   * saída é o terminal. Um pulso que ficasse até o fim do `npm run dev` nunca
+   * apagaria.
+   */
+  private static readonly RUN_PULSE_MS = 1400
+
+  private runTimers = new Map<UUID, ReturnType<typeof setTimeout>>()
+
+  private markRun(nodeId: UUID, state: 'running' | 'failed'): void {
+    const timer = this.runTimers.get(nodeId)
+    if (timer) clearTimeout(timer)
+    this.set({ buttonRuns: { ...this.state.buttonRuns, [nodeId]: state } })
+    this.runTimers.set(
+      nodeId,
+      setTimeout(() => {
+        const runs = { ...this.state.buttonRuns }
+        delete runs[nodeId]
+        this.runTimers.delete(nodeId)
+        this.set({ buttonRuns: runs })
+      }, state === 'failed' ? 4000 : Store.RUN_PULSE_MS)
+    )
+  }
+
+  /** O diálogo mora no App (ver openNewTerminal para o porquê). */
+  openButtonDialog(nodeId: UUID | null, frame: Rect | null = null): void {
+    this.set({ buttonDialog: { nodeId, frame } })
+  }
+
+  closeButtonDialog(): void {
+    this.set({ buttonDialog: null })
+  }
+
+  /**
+   * Botão é `widget` com `kind: 'button'` — não há caso novo no enum de
+   * conteúdo, e a configuração inteira vai em `view` (ver ButtonConfig).
+   */
+  async addButton(frame: Rect, config: ButtonConfig): Promise<CanvasNode | null> {
+    return this.addNode(
+      'widget',
+      { x: frame.x, y: frame.y },
+      { kind: 'button', view: writeButtonConfig(config) },
+      { width: frame.width, height: frame.height }
+    )
+  }
+
+  async saveButton(nodeId: UUID, config: ButtonConfig): Promise<void> {
+    // `view` é substituído inteiro: `writeButtonConfig` OMITE o que está vazio,
+    // e um merge deixaria para trás a `url` de quando a ação ainda era `url`.
+    await this.patchContent(nodeId, { view: writeButtonConfig(config) })
+    this.set({ buttonDialog: null })
+  }
+
+  /** Aceite do usuário a um botão proposto por agente: só isto o arma. */
+  async acceptButton(nodeId: UUID): Promise<void> {
+    const config = this.buttonConfig(nodeId)
+    if (!config) return
+    await this.saveButton(nodeId, { ...config, pending: false, proposedBy: null })
+  }
+
+  private buttonConfig(nodeId: UUID): ButtonConfig | null {
+    const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+    if (!node || node.content.type !== 'widget' || node.content.value.kind !== 'button') return null
+    return readButtonConfig(node.content.value.view)
+  }
+
+  /**
+   * Diretório em que a ação roda: o do botão, o do projeto em que ele está
+   * FIXADO, ou o do workspace — nessa ordem, a mesma do widget de git.
+   */
+  private buttonCwd(nodeId: UUID, config: ButtonConfig): string {
+    if (config.cwd) return config.cwd
+    const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+    const pinned =
+      node?.content.type === 'widget' ? node.content.value.projectId : null
+    const projectId = pinned ?? this.state.selectedProjectId
+    const project = this.state.projects.find((p) => p.id === projectId)
+    return project?.path ?? this.state.workspace?.workingDirectory ?? ''
+  }
+
+  /**
+   * O clique. Aqui é onde a decisão de execução vira código: nenhum comando
+   * roda fora de um PTY visível — o terminal É o log. Um caminho de `execFile`
+   * no main não teria onde mostrar saída, e a primeira vez que o comando
+   * falhasse o usuário ficaria com um botão que "não faz nada".
+   *
+   * Um botão PENDENTE é recusado em silêncio: o componente já não deixa clicar,
+   * e isto é a defesa em profundidade — o aceite é o que separa "o agente
+   * propôs uma linha de comando" de "o agente executa no shell do usuário".
+   */
+  async runButton(nodeId: UUID): Promise<void> {
+    const config = this.buttonConfig(nodeId)
+    if (!config || config.pending) return
+
+    if (config.action === 'url') {
+      const url = normalizeURL(config.url)
+      if (!url) {
+        this.showNotice('este botão não tem endereço configurado')
+        this.markRun(nodeId, 'failed')
+        return
+      }
+      const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+      const at = node
+        ? { x: node.frame.x + node.frame.width + 40, y: node.frame.y }
+        : centerOfViewport(640, 440)
+      await this.addNode('portal', at, { url, name: config.label || 'Portal' }, {
+        width: 640,
+        height: 440
+      })
+      this.markRun(nodeId, 'running')
+      return
+    }
+
+    const text = config.action === 'prompt' ? config.prompt : config.command
+    if (!text.trim()) {
+      this.showNotice('este botão não tem o que enviar')
+      this.markRun(nodeId, 'failed')
+      return
+    }
+
+    // Alvo vivo? Escreve nele. O PTY já existe, o histórico está lá, e é onde o
+    // usuário está olhando.
+    const target = config.target
+      ? this.state.workspace?.nodes.find(
+          (n) => n.id === config.target && n.content.type === 'terminal'
+        ) ?? null
+      : null
+    if (target && (await window.atelier.terminal.write(target.id, `${text}\r`))) {
+      this.set({ selection: [target.id] })
+      this.markRun(nodeId, 'running')
+      return
+    }
+
+    // Prompt exige alvo: criar um agente do zero para receber uma frase não é o
+    // que quem clicou pediu — ele subiria sem contexto nenhum.
+    if (config.action === 'prompt') {
+      this.showNotice(
+        target
+          ? 'o agente deste botão não está rodando — nada foi enviado'
+          : 'este botão não tem um agente alvo — edite-o e escolha um'
+      )
+      this.markRun(nodeId, 'failed')
+      return
+    }
+
+    // Sem alvo (ou com o alvo morto): terminal novo à direita do botão, já com
+    // o comando — o TerminalManager o injeta 300 ms depois do spawn.
+    const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+    const at = node
+      ? { x: node.frame.x + node.frame.width + 40, y: node.frame.y }
+      : centerOfViewport(560, 360)
+    const created = await this.createTerminal(
+      {
+        name: config.label || 'Comando',
+        command: text,
+        agentType: 'generic_shell',
+        workingDirectory: this.buttonCwd(nodeId, config),
+        icon: config.icon,
+        color: config.color,
+        monitorWithOmbro: true,
+        isManager: false,
+        themeId: null,
+        fontFamily: null,
+        fontSize: null,
+        assignedRoleId: null,
+        claudeAccountId: null
+      },
+      at,
+      { width: 560, height: 360 }
+    )
+    this.markRun(nodeId, created ? 'running' : 'failed')
+  }
+
+  /**
+   * Lápis da barra de ações: cada tipo de nó abre o editor dele.
+   *
+   * Existia só `openEditTerminal`, chamado direto pela barra — o que só
+   * funcionava enquanto o terminal era o único nó com barra.
+   */
+  openNodeEditor(nodeId: UUID): void {
+    const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+    if (!node) return
+    if (node.content.type === 'terminal') this.openEditTerminal(nodeId)
+    else if (node.content.type === 'widget' && node.content.value.kind === 'button') {
+      this.openButtonDialog(nodeId)
+    }
   }
 
   // ─── Projetos ───────────────────────────────────────────────────────────────
@@ -951,6 +1233,52 @@ class Store {
     this.set({ terminalStatus: { ...this.state.terminalStatus, [nodeId]: status } })
   }
 
+  // ─── Contas do Claude ───────────────────────────────────────────────────────
+
+  async refreshClaudeAccounts(): Promise<ClaudeAccountInfo[]> {
+    const claudeAccounts = await window.atelier.claudeAccount.list()
+    this.set({ claudeAccounts })
+    return claudeAccounts
+  }
+
+  /**
+   * Cria a conta. NÃO faz login: o diretório nasce vazio de credencial, e quem
+   * conduz o /login é o próprio `claude` no primeiro terminal aberto nela — é
+   * por isso que o aviso abaixo fala em abrir um terminal, e não em autenticar.
+   */
+  async createClaudeAccount(label: string): Promise<string | null> {
+    try {
+      const { account, warnings, accounts } = await window.atelier.claudeAccount.create(label)
+      this.set({ claudeAccounts: accounts })
+      if (warnings.length > 0) this.showNotice(warnings.join('; '))
+      return account.id
+    } catch (err) {
+      this.showNotice(`não deu para criar a conta: ${(err as Error).message}`)
+      return null
+    }
+  }
+
+  async removeClaudeAccount(id: string, deleteFiles: boolean): Promise<void> {
+    const claudeAccounts = await window.atelier.claudeAccount.remove(id, deleteFiles)
+    this.set({ claudeAccounts })
+  }
+
+  /**
+   * Troca a conta de um terminal e reinicia o PTY dele.
+   *
+   * O reinício não é zelo: `CLAUDE_CONFIG_DIR` é lido no `exec` do `claude`, e
+   * um processo já rodando continuaria na conta antiga por mais que o nó
+   * mostrasse a nova. Só este terminal cai — os outros do canvas seguem.
+   */
+  async setTerminalAccount(nodeId: UUID, accountId: string): Promise<void> {
+    const id = accountId === DEFAULT_CLAUDE_ACCOUNT_ID ? null : accountId
+    await this.patchContent(nodeId, { claudeAccountId: id })
+    await this.restartTerminal(nodeId)
+    const label =
+      this.state.claudeAccounts.find((a) => a.id === accountId)?.label ?? 'conta padrão'
+    this.showNotice(`terminal reiniciado na conta ${label}`)
+  }
+
   // ─── Responsabilidades (agentes) ────────────────────────────────────────────
 
   async saveRole(patch: Partial<AgentRole> & { name: string }): Promise<AgentRole> {
@@ -999,10 +1327,155 @@ class Store {
     })
   }
 
+  // ─── Grupos ─────────────────────────────────────────────────────────────────
+  // A moldura com título. A verdade é a lista de membros (`nodeIds`); a
+  // contenção geométrica é só o gesto que a edita — ver canvas/group-geometry.ts.
+
+  get groups(): NodeGroup[] {
+    return this.state.workspace?.groups ?? []
+  }
+
+  group(id: UUID): NodeGroup | null {
+    return this.groups.find((g) => g.id === id) ?? null
+  }
+
+  /** Seleciona a moldura. Grupo e nós são exclusivos: escolher um limpa o outro. */
+  selectGroup(id: UUID | null): void {
+    this.set({ selectedGroupId: id, selection: id ? [] : this.state.selection })
+  }
+
+  async createGroup(title: string, frame: Rect, nodeIds: UUID[]): Promise<NodeGroup | null> {
+    const id = this.workspaceId
+    if (!id) return null
+    const group = await window.atelier.group.create(id, title, frame, nodeIds)
+    if (!group) return null
+    // Substitui a lista inteira em vez de só empurrar o novo: o main pode ter
+    // tirado membros de outros grupos para honrar a regra de um dono por nó, e
+    // a cópia daqui ficaria mostrando o nó nos dois lugares.
+    await this.reload()
+    this.set({ selection: [], selectedGroupId: group.id })
+    return group
+  }
+
+  /**
+   * Ctrl/Cmd+G: envolve o que está selecionado. O frame é a união dos membros
+   * com folga em volta e o espaço da faixa no topo (ver boundsForNodes).
+   */
+  async groupSelection(): Promise<NodeGroup | null> {
+    const ids = this.state.selection
+    if (ids.length === 0) return null
+    const nodes = (this.state.workspace?.nodes ?? []).filter((n) => ids.includes(n.id))
+    const frame = boundsForNodes(nodes.map((n) => n.frame))
+    if (!frame) return null
+    return this.createGroup('Grupo', frame, ids)
+  }
+
+  private async patchGroup(
+    groupId: UUID,
+    patch: Partial<Pick<NodeGroup, 'title' | 'frame' | 'color' | 'isCollapsed' | 'nodeIds'>>
+  ): Promise<void> {
+    const id = this.workspaceId
+    if (!id) return
+    // Otimista: a moldura acompanha o gesto na hora, e o main confirma depois.
+    // O que volta de lá é a mesma coisa — a única regra que ele pode mudar
+    // (dono único) só vale para `nodeIds`, e esse caminho recarrega.
+    this.mutateWorkspace((ws) => {
+      ws.groups = ws.groups.map((g) => (g.id === groupId ? { ...g, ...patch } : g))
+    })
+    const updated = await window.atelier.group.update(id, groupId, patch)
+    if (updated) {
+      this.mutateWorkspace((ws) => {
+        ws.groups = ws.groups.map((g) => (g.id === groupId ? updated : g))
+      })
+    }
+  }
+
+  renameGroup(groupId: UUID, title: string): Promise<void> {
+    return this.patchGroup(groupId, { title: title.trim() || 'Grupo' })
+  }
+
+  setGroupFrame(groupId: UUID, frame: Rect): Promise<void> {
+    return this.patchGroup(groupId, { frame })
+  }
+
+  setGroupColor(groupId: UUID, color: string): Promise<void> {
+    return this.patchGroup(groupId, { color })
+  }
+
+  /**
+   * Colapsa/expande. Os membros saem do RENDER, nunca do estado: o PTY de um
+   * terminal vive no processo principal e continua rodando, e um portal
+   * colapsado continua na exceção do portalWake — senão a leitura pelo agente
+   * pararia de funcionar por causa de um retângulo dobrado na tela.
+   */
+  setGroupCollapsed(groupId: UUID, isCollapsed: boolean): Promise<void> {
+    return this.patchGroup(groupId, { isCollapsed })
+  }
+
+  /** "Ajustar ao conteúdo": a moldura encolhe até os membros, com a folga. */
+  async fitGroupToContent(groupId: UUID): Promise<void> {
+    const group = this.group(groupId)
+    if (!group) return
+    const nodes = (this.state.workspace?.nodes ?? []).filter((n) => group.nodeIds.includes(n.id))
+    const frame = boundsForNodes(nodes.map((n) => n.frame))
+    if (!frame) return
+    await this.setGroupFrame(groupId, frame)
+  }
+
+  /**
+   * Desagrupar: some a moldura, ficam os nós. Com `withNodes`, os membros vão
+   * junto — caminho separado e com confirmação, porque é o único destrutivo.
+   */
+  async removeGroup(groupId: UUID, opts: { withNodes?: boolean } = {}): Promise<void> {
+    const id = this.workspaceId
+    if (!id) return
+    if (opts.withNodes) {
+      const group = this.group(groupId)
+      for (const nodeId of group?.nodeIds ?? []) await this.removeNode(nodeId, { force: true })
+    }
+    await window.atelier.group.remove(id, groupId)
+    this.mutateWorkspace((ws) => {
+      ws.groups = ws.groups.filter((g) => g.id !== groupId)
+    })
+    this.set({
+      selectedGroupId: this.state.selectedGroupId === groupId ? null : this.state.selectedGroupId,
+      isolatedGroupId: this.state.isolatedGroupId === groupId ? null : this.state.isolatedGroupId
+    })
+  }
+
+  /**
+   * Muda o dono de um nó — o que o fim de um arrasto decide. `null` solta.
+   *
+   * Não faz nada quando o dono já é esse: é chamado a cada `mouseup` de arrasto
+   * de nó, e sem a saída rápida todo movimento dentro do mesmo grupo custaria
+   * um IPC e um re-render.
+   */
+  async setNodeGroup(nodeId: UUID, groupId: UUID | null): Promise<void> {
+    const id = this.workspaceId
+    if (!id) return
+    const current = groupOf(this.groups, nodeId)
+    if ((current?.id ?? null) === groupId) return
+    this.mutateWorkspace((ws) => {
+      ws.groups = ws.groups.map((g) => {
+        if (g.id === groupId) return { ...g, nodeIds: [...g.nodeIds, nodeId] }
+        if (g.nodeIds.includes(nodeId)) return { ...g, nodeIds: g.nodeIds.filter((n) => n !== nodeId) }
+        return g
+      })
+    })
+    await window.atelier.group.setNode(id, nodeId, groupId)
+  }
+
+  /** Foco: o grupo fica opaco e o resto do canvas apaga. Só em memória. */
+  isolateGroup(id: UUID | null): void {
+    this.set({ isolatedGroupId: id })
+  }
+
   // ─── Seleção e interação ────────────────────────────────────────────────────
 
   select(ids: UUID[]): void {
-    this.set({ selection: ids })
+    // Selecionar nó tira a seleção da moldura: são o mesmo "o que está
+    // selecionado", e o Delete precisa de uma resposta só.
+    this.set({ selection: ids, selectedGroupId: ids.length > 0 ? null : this.state.selectedGroupId })
   }
 
   toggleSelect(id: UUID): void {

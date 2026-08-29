@@ -1,28 +1,14 @@
 /**
- * Presets do diálogo de novo terminal.
+ * Presets de aparência do terminal: cores do nó e temas do xterm.
  *
- * Os cinco do "Início Rápido" são só um atalho: preenchem nome, comando,
- * agentType, ícone e cor — tudo continua editável nas abas.
+ * O "Início Rápido" (nome, comando, ícone) saiu daqui para
+ * `@shared/terminal-presets`: o `atelier recruit` cria terminal a partir do
+ * main, e o main não importa renderer. O re-export abaixo mantém os dois
+ * consumidores de UI com um import só.
  */
 import type { TerminalTheme } from '@shared/types'
 
-export interface QuickStart {
-  id: string
-  label: string
-  agentType: string
-  /** Vazio = abre o shell sem rodar nada. */
-  command: string
-  icon: string
-  color: string
-}
-
-export const QUICK_STARTS: QuickStart[] = [
-  { id: 'claude', label: 'Claude Code', agentType: 'claude_code', command: 'claude', icon: 'burst', color: '#D97757' },
-  { id: 'codex', label: 'Codex', agentType: 'codex', command: 'codex', icon: 'brain', color: '#10A37F' },
-  { id: 'antigravity', label: 'Antigravity', agentType: 'antigravity', command: 'antigravity', icon: 'sparkle', color: '#4285F4' },
-  { id: 'opencode', label: 'OpenCode', agentType: 'open_code', command: 'opencode', icon: 'square', color: '#8E8E93' },
-  { id: 'shell', label: 'Shell', agentType: 'generic_shell', command: '', icon: 'terminal', color: '#007AFF' }
-]
+export { QUICK_STARTS, presetById, type QuickStart } from '@shared/terminal-presets'
 
 /** As oito cores fixas da aba Aparência; a nona é o seletor livre. */
 export const NODE_COLORS = [

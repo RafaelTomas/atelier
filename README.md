@@ -337,7 +337,7 @@ têm interface.
 | Nós Terminal (xterm.js + node-pty) | ✅ |
 | Nós Nota (`.md` em disco) e Texto | ✅ |
 | Persistência atômica, autosave, recuperação de crash | ✅ |
-| Servidor IPC + CLI (`list`, `ask`, `check`, `note`, `role`, `debug`) | ✅ |
+| Servidor IPC + CLI (`list`, `ask`, `check`, `note`, `portal`, `table`, `image`, `button`, `role`, `projects`, `debug`) | ✅ |
 | Diálogo de terminal — novo e editar (presets, aparência, tema, fonte) | ✅ |
 | Responsabilidades: criar, editar, atribuir, escopo global/workspace | ✅ |
 | Múltiplos workspaces | ✅ |
@@ -345,6 +345,7 @@ têm interface.
 | Desenho à mão livre (caneta, marca-texto, borracha) | ✅ |
 | Nós File Tree: navegar, menu de contexto, renomear, duplicar, lixeira, arrastar | ✅ |
 | Nós Editor de Código (CodeMirror 6) | ✅ |
+| Widgets no canvas: painel de Projetos, painel de Git, Botão | ✅ |
 | Nós Shape, Stroke, Freehand | ⚠️ placeholder |
 | Floors (git worktree), Routines, Git, SSH, Settings | ❌ |
 
@@ -433,6 +434,29 @@ concatenada no renderer: é o que faz espaço, acento e letra de unidade do
 Windows virarem URL válida. O caminho fica salvo no workspace, então o nó reabre
 no mesmo documento; se o arquivo tiver sumido, aparece o mesmo aviso de falha
 dos outros portais.
+
+### Botão no canvas, sem tipo novo no formato
+
+Um comando repetido custava um terminal inteiro. O **Botão** da dock é o gesto
+barato: um nó pequeno, com ícone e rótulo, que ao ser clicado roda um comando,
+manda um prompt para um agente ou abre um endereço.
+
+Ele **não** é um tipo novo de nó — é `widget` com `kind: 'button'`, e a
+configuração inteira mora no `view` do widget (o `[String: String]` que o app
+nativo já serializa de volta). As duas escolhas são a mesma: um caso novo no
+enum de conteúdo faria o `JSONDecoder` do Swift lançar, e um campo novo no
+payload seria ignorado por ele e **descartado no primeiro save de lá**. Nenhuma
+subida de `schemaVersion`, nenhum passo de migração.
+
+Nada roda fora de um PTY visível: o comando é escrito no terminal alvo, ou num
+terminal novo que nasce ao lado — o terminal É o log, e é onde a saída, o erro e
+o código de saída aparecem quando o comando falha.
+
+O agente também pode propor um botão (`atelier button propose`), e **tudo que
+vem do CLI nasce pendente**: o nó aparece apagado, com o comando à vista e uma
+faixa *Aceitar / Descartar*. Um botão armado por agente seria execução
+arbitrária no shell do usuário disfarçada de UI; o aceite é o clique em que ele
+lê o que vai rodar.
 
 ### Editor de código e as ações da árvore
 

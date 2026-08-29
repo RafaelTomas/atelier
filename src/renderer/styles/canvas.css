@@ -157,6 +157,128 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   will-change: transform;
 }
 
+/* ─── Molduras de grupo ───────────────────────────────────────────────────── */
+
+/* Mesmo transform da camada de nós, e ANTES dela no documento: a moldura é o
+   fundo em que os nós estão. `pointer-events: none` na camada e no corpo do
+   grupo é o que deixa clicar ATRAVÉS da moldura para pegar um nó de dentro —
+   sem isso um retângulo de 600px roubaria todo clique da área que ele cobre. */
+.groups-layer {
+  position: absolute; top: 0; left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+  pointer-events: none;
+  /* O inverso do zoom, escrito a cada frame pela própria camada. O valor de
+     repouso é 1 para a faixa nascer com o tamanho certo antes do primeiro
+     evento de viewport. */
+  --group-inv: 1;
+  /* Cor de repouso da moldura. Cada grupo sobrescreve pelo style inline com a
+     cor dele; o valor aqui é o que vale para um grupo cuja cor não foi lida do
+     arquivo — sem ele, borda e faixa nasceriam transparentes. */
+  --group-color: var(--accent);
+}
+
+.group {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid color-mix(in srgb, var(--group-color) 55%, transparent);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--group-color) 7%, transparent);
+  will-change: transform;
+}
+
+/* A faixa: ancorada no topo do retângulo, largura da moldura, ALTURA CONSTANTE
+   EM PIXELS DE TELA. A altura e o tipo são multiplicados pelo inverso do zoom
+   em vez de a faixa inteira levar um `scale`, porque um scale esticaria também
+   a largura, que tem de continuar sendo a da moldura.
+   É isto que faz o grupo virar a unidade de leitura em 25% de zoom: o corpo dos
+   nós já é ilegível ali, e o rótulo continua do mesmo tamanho. */
+.group-title {
+  position: absolute; top: 0; left: 0; right: 0;
+  box-sizing: border-box;
+  display: flex; align-items: center; gap: calc(8px * var(--group-inv));
+  height: calc(32px * var(--group-inv));
+  padding: 0 calc(10px * var(--group-inv));
+  font-size: calc(13px * var(--group-inv));
+  font-weight: 600;
+  color: var(--text);
+  background: color-mix(in srgb, var(--group-color) 22%, var(--surface));
+  border-radius: calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px) 0 0;
+  /* A única parte clicável do corpo, junto das alças: é por ela que o grupo é
+     selecionado, arrastado, renomeado e enquadrado. */
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  overflow: hidden; white-space: nowrap;
+}
+.group-title:active { cursor: grabbing; }
+
+.group-title-text { overflow: hidden; text-overflow: ellipsis; }
+
+/* Empurrado para a direita: o contador é referência, não título. */
+.group-count {
+  margin-left: auto;
+  font-size: calc(11px * var(--group-inv));
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.group-title-input {
+  flex: 1; min-width: 0;
+  border: 0; border-radius: calc(4px * var(--group-inv));
+  padding: calc(2px * var(--group-inv)) calc(4px * var(--group-inv));
+  background: var(--surface); color: var(--text);
+  font: inherit; font-weight: 600;
+}
+.group-title-input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+
+/* Colapsado: sobra a faixa. A altura vem do conteúdo (o inline style não a
+   escreve), então o retângulo encolhe até virar só o rótulo com a contagem. */
+.group.is-collapsed { background: transparent; border-color: transparent; }
+.group.is-collapsed .group-title { position: relative; border-radius: var(--r-lg); }
+
+/* Mesmo anel tracejado do nó selecionado — é o mesmo estado, e inventar uma
+   segunda linguagem de seleção só para molduras faria a pessoa aprender duas. */
+.group.is-selected { outline: 2px dashed var(--accent); outline-offset: 3px; }
+
+/* Vai adotar o nó que está sendo arrastado. Sem este realce, entrar num grupo
+   seria adivinhação até soltar o botão. */
+.group.is-candidate {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Modo foco: os OUTROS grupos apagam. Ver .node-frame.is-dimmed, que faz o
+   mesmo com os nós de fora — os dois têm de apagar na mesma medida, senão a
+   moldura vazia de um grupo apagado continuaria chamando atenção. */
+.group.is-dimmed { opacity: .25; }
+
+/* As alças, na mesma geometria das do nó, mas só na moldura selecionada: oito
+   retângulos invisíveis por grupo, sempre montados, roubariam da borda o clique
+   dos nós que encostam nela. */
+.group [data-group-handle] { position: absolute; pointer-events: auto; }
+.group [data-group-handle='n'] { top: -4px; left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
+.group [data-group-handle='s'] { bottom: -4px; left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
+.group [data-group-handle='w'] { left: -4px; top: 14px; bottom: 14px; width: 8px; cursor: ew-resize; }
+.group [data-group-handle='e'] { right: -4px; top: 14px; bottom: 14px; width: 8px; cursor: ew-resize; }
+.group [data-group-handle='nw'] { top: -4px; left: -4px; width: 18px; height: 18px; cursor: nwse-resize; }
+.group [data-group-handle='ne'] { top: -4px; right: -4px; width: 18px; height: 18px; cursor: nesw-resize; }
+.group [data-group-handle='sw'] { bottom: -4px; left: -4px; width: 18px; height: 18px; cursor: nesw-resize; }
+.group [data-group-handle='se'] { bottom: -4px; right: -4px; width: 18px; height: 18px; cursor: nwse-resize; }
+
+/* A paleta no menu de contexto do grupo — a mesma das notas. */
+.group-swatches {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 4px 9px 6px;
+  max-width: 200px;
+}
+.group-swatches .swatch {
+  width: 18px; height: 18px; padding: 0;
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.group-swatches .swatch.is-active { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .connections-layer {
   position: absolute; top: 0; left: 0;
   transform-origin: 0 0;

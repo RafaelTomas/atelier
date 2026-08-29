@@ -68,6 +68,11 @@ export class RopeSimulation {
     return this.ropes.has(id)
   }
 
+  /** Os ids que a simulação carrega — para varrer o que sobrou sem dono. */
+  ids(): UUID[] {
+    return [...this.ropes.keys()]
+  }
+
   clear(): void {
     this.ropes.clear()
     this.sleep()

@@ -53,6 +53,20 @@ export interface TerminalContent {
   themeId: string | null
   fontFamily: string | null
   fontSize: number | null
+  /**
+   * Conta do Claude que este terminal usa — vira `CLAUDE_CONFIG_DIR` no spawn.
+   * `null` (ou `DEFAULT_CLAUDE_ACCOUNT_ID`) = a conta padrão, ~/.claude.
+   */
+  claudeAccountId: string | null
+  /**
+   * Terminal que criou este pelo `atelier recruit`. `null` = nasceu da mão do
+   * usuário, no diálogo.
+   *
+   * É a permissão do `atelier dismiss`: um agente só desfaz o que ele mesmo
+   * recrutou. Sem esse registro, "remover um terminal conectado" deixaria um
+   * agente apagar o trabalho em andamento de outro — inclusive o do usuário.
+   */
+  recruitedBy: UUID | null
 }
 
 export type StorageMode = { kind: 'managed' } | { kind: 'custom'; path: string }
@@ -86,7 +100,7 @@ export interface PortalContent {
    * Padrão `false`, sempre — inclusive ao reler um portal gravado antes deste
    * campo existir. Ler é livre; agir numa sessão autenticada é decisão do
    * usuário, tomada nó a nó pelo botão do cabeçalho (Decisão C do
-   * PLANO-controle-de-portal.md).
+   * 2026-08-27-PLANO-controle-de-portal.md).
    */
   controlEnabled: boolean
 }
@@ -101,7 +115,7 @@ export interface PortalContent {
  *
  * Sem a herança, um popup nasceria com `content.id` novo, logo partição nova,
  * logo DESLOGADO: o usuário clica num link autenticado e recebe a tela de login.
- * Ver a Decisão B do PLANO-portal.md.
+ * Ver a Decisão B do 2026-08-26-PLANO-portal.md.
  */
 export function portalPartition(content: PortalContent): string {
   if (content.storageScope.startsWith('persist:')) return content.storageScope
@@ -214,12 +228,116 @@ export interface WidgetContent {
  * canvas em que o próprio nó estava. Ele vive no chip do topo, que é global à
  * janela e não pertence a canvas nenhum.
  */
-export type WidgetKind = 'projects' | 'git'
+export type WidgetKind = 'projects' | 'git' | 'button'
 
-export const WIDGET_KINDS: WidgetKind[] = ['projects', 'git']
+export const WIDGET_KINDS: WidgetKind[] = ['projects', 'git', 'button']
 
 export function isKnownWidgetKind(kind: string): kind is WidgetKind {
   return (WIDGET_KINDS as string[]).includes(kind)
+}
+
+/**
+ * Botão do canvas — um clique que dispara uma ação.
+ *
+ * NÃO é um caso novo de `NodeContent`: é `widget` com `kind: 'button'`, e a
+ * configuração inteira mora em `WidgetContent.view`. As duas decisões são a
+ * mesma: o enum de conteúdo é compartilhado com o app nativo Swift, onde um
+ * caso desconhecido faz o decoder LANÇAR, e um campo novo no payload seria
+ * ignorado pelo decoder de lá e DESCARTADO no primeiro save — perda silenciosa
+ * da configuração do usuário. `view` é `[String: String]` dos dois lados e faz
+ * round-trip intacto.
+ *
+ * O preço é que tudo é string. Estas duas funções são o único lugar do código
+ * que sabe disso; do lado de dentro o resto trabalha com `ButtonConfig`.
+ *
+ * O que NÃO entra aqui: estado de execução. "Rodando" e "falhou" mudam a cada
+ * clique e vivem no renderer (ver `buttonRuns` na store) — `view` é snapshot
+ * persistido, e um botão que gravasse o workspace a cada clique sujaria o
+ * autosave com dado descartável.
+ */
+export type ButtonAction = 'command' | 'prompt' | 'url'
+
+export const BUTTON_ACTIONS: ButtonAction[] = ['command', 'prompt', 'url']
+
+export interface ButtonConfig {
+  /** Rótulo exibido e título do nó. */
+  label: string
+  /** Nome do catálogo de ícones do renderer — não validado aqui (ver abaixo). */
+  icon: string
+  color: string
+  action: ButtonAction
+  command: string
+  prompt: string
+  url: string
+  /** Vazio = o diretório do projeto do widget, ou o do workspace. */
+  cwd: string
+  /** Terminal onde a ação roda. null = cria um novo. */
+  target: UUID | null
+  confirm: boolean
+  /** Proposto por um agente e ainda não aceito — inerte até o usuário aceitar. */
+  pending: boolean
+  proposedBy: string | null
+}
+
+export const DEFAULT_BUTTON_COLOR = '#34C759'
+
+/**
+ * `action` é validado como fontFamily/alignment: um valor estranho cairia num
+ * `switch` sem caso e o botão não faria nada.
+ *
+ * `icon` NÃO é validado: o catálogo é do renderer, e trazer `node-icons.tsx`
+ * para `shared/` só para conferir um nome custaria mais do que o defeito — um
+ * nome desconhecido já renderiza o ícone padrão.
+ */
+export function readButtonConfig(view: Record<string, string>): ButtonConfig {
+  const action = view.action ?? ''
+  return {
+    label: view.label ?? '',
+    icon: view.icon || 'bolt',
+    color: view.color || DEFAULT_BUTTON_COLOR,
+    action: (BUTTON_ACTIONS as string[]).includes(action) ? (action as ButtonAction) : 'command',
+    command: view.command ?? '',
+    prompt: view.prompt ?? '',
+    url: view.url ?? '',
+    cwd: view.cwd ?? '',
+    target: view.target ? (view.target as UUID) : null,
+    confirm: view.confirm === '1',
+    pending: view.pending === '1',
+    proposedBy: view.proposedBy || null
+  }
+}
+
+/** Chave vazia ou falsa é OMITIDA: um `view` enxuto é o que o app nativo e o
+ *  diff do arquivo de workspace mostram. */
+export function writeButtonConfig(config: ButtonConfig): Record<string, string> {
+  const view: Record<string, string> = {
+    label: config.label,
+    icon: config.icon,
+    color: config.color,
+    action: config.action
+  }
+  if (config.command) view.command = config.command
+  if (config.prompt) view.prompt = config.prompt
+  if (config.url) view.url = config.url
+  if (config.cwd) view.cwd = config.cwd
+  if (config.target) view.target = config.target
+  if (config.confirm) view.confirm = '1'
+  if (config.pending) view.pending = '1'
+  if (config.proposedBy) view.proposedBy = config.proposedBy
+  return view
+}
+
+/** O que o botão dispara, em uma linha — o que o nó pendente mostra ao usuário
+ *  antes do aceite, e o que o `title` explica depois dele. */
+export function buttonActionSummary(config: ButtonConfig): string {
+  switch (config.action) {
+    case 'prompt':
+      return config.prompt
+    case 'url':
+      return config.url
+    default:
+      return config.command
+  }
 }
 
 export type FontFamily = 'sans' | 'serif' | 'mono' | 'rounded'
@@ -254,6 +372,46 @@ export interface ShapeContent {
   rotation: number
 }
 
+/**
+ * Nó de cofre — a IDENTIDADE de um conjunto de segredos, e a lista de nomes de
+ * chave. Nenhum valor, em lugar nenhum: eles moram cifrados em
+ * `vaults/<id>.vault`, e o workspace.json é arquivo em claro.
+ *
+ * Nome de chave em claro é aceitável e deliberado: é o que a UI e o
+ * `atelier vault list` mostram sem decifrar nada, e saber que existe um segredo
+ * chamado `DB_URL` não é o segredo.
+ */
+export interface SecretVaultKeyRef {
+  key: string
+  /** Entra no ambiente do PTY dos terminais ligados. */
+  inEnv: boolean
+  /**
+   * Origem onde este segredo pode ser digitado por `portal login`. null = uso
+   * em portal PROIBIDO. Quem não declarou, não autorizou.
+   */
+  origin: string | null
+  note: string | null
+  /**
+   * Quando o segredo foi gravado, e por quem — o que o nó precisa para pedir a
+   * troca (ver `rotationReason` em shared/vault.ts). Nenhum dos dois é o valor:
+   * a projeção continua sem segredo nenhum.
+   */
+  updatedAt: string
+  source: 'user' | 'agent'
+}
+
+export interface SecretVaultContent {
+  id: UUID
+  name: string
+  keys: SecretVaultKeyRef[]
+  /**
+   * O `.vault` não pôde ser lido — `safeStorage` indisponível ou blob de outro
+   * chaveiro. Gravado no conteúdo para o nó já nascer mostrando o estado certo
+   * antes de a UI perguntar ao main.
+   */
+  locked: boolean
+}
+
 export interface StrokeContent {
   strokeType: 'line' | 'arrow'
   startPoint: Point
@@ -285,6 +443,9 @@ export interface FreehandContent {
  *
  * `widget` é o último caso que um PAINEL vai pedir: o discriminador dele mora
  * no payload (ver WidgetContent), então painel novo não é caso novo.
+ *
+ * `secretVault` (v7) é o caso mais recente, e a mesma história: um caso a mais,
+ * nenhum dado transformado.
  */
 export type NodeContent =
   | { type: 'terminal'; value: TerminalContent }
@@ -299,6 +460,7 @@ export type NodeContent =
   | { type: 'dataTable'; value: DataTableContent }
   | { type: 'image'; value: ImageContent }
   | { type: 'widget'; value: WidgetContent }
+  | { type: 'secretVault'; value: SecretVaultContent }
 
 export type NodeContentType = NodeContent['type']
 
@@ -308,7 +470,8 @@ export const CONNECTABLE_TYPES: NodeContentType[] = [
   'stickyNote',
   'portal',
   'dataTable',
-  'image'
+  'image',
+  'secretVault'
 ]
 
 export function isConnectable(content: NodeContent): boolean {
@@ -360,6 +523,7 @@ export type ConnectionKind =
   | 'noteToNote'
   | 'crossFloor'
   | 'data'
+  | 'secret'
 
 export type ConnectionStatus = 'idle' | 'communicating' | 'error'
 
@@ -381,6 +545,19 @@ export function connectionKindForTypes(
   // disco ambos caem em `dataConnections` (só referências de id), e o sentido é
   // o mesmo — um agente ligado a um artefato que ele produziu.
   if (pair.has('terminal') && pair.has('image')) return 'data'
+  // Editor de código ligado a um agente: MESMO cabo `data`, não um kind novo.
+  // Em disco cai em `dataConnections`, cujos campos são só referências de id
+  // (`terminalId`/`dataNodeId`) — `codeEditor` é caso de enum desde a v3 e a
+  // lista existe desde a v4, então nenhum documento muda de forma e o
+  // `schemaVersion` não sobe. A alternativa descartada era um `kind: 'file'`
+  // com `fileConnections` próprio: custaria uma migração inteira, e um Atelier
+  // mais antigo ignoraria a chave nova e apagaria os cabos no primeiro
+  // autosave. O ganho seria só uma cor de cabo diferente.
+  if (pair.has('terminal') && pair.has('codeEditor')) return 'data'
+  // Um kind só para terminal↔cofre e portal↔cofre — e, mais tarde,
+  // dataTable↔cofre. Em disco os campos são neutros (`nodeIdA`/`nodeIdB`),
+  // como no crossFloor, justamente para o par novo não pedir lista nova.
+  if (pair.has('secretVault') && (pair.has('terminal') || pair.has('portal'))) return 'secret'
   if (a === 'portal' && b === 'portal') return 'portalToPortal'
   if (a === 'stickyNote' && b === 'stickyNote') return 'noteToNote'
   return null
@@ -402,6 +579,36 @@ export interface Connection {
 
 // ─── Workspace ────────────────────────────────────────────────────────────────
 
+/**
+ * Uma moldura que agrupa nós — o que a UI chama de "grupo".
+ *
+ * NÃO é um caso de `NodeContent`, e a diferença é o que decide se o app nativo
+ * Swift abre o arquivo. Um caso desconhecido no enum de conteúdo faz o
+ * `JSONDecoder` de lá LANÇAR: o workspace não abre. Uma chave desconhecida no
+ * TOPO do payload, ao contrário, ele ignora em silêncio — abre normalmente, só
+ * sem as molduras. O custo é que um save vindo de lá apaga `groups`: perde-se a
+ * moldura, nunca os nós. Por isso `groups` nunca subiu o `schemaVersion`.
+ *
+ * A verdade é `nodeIds`; a contenção geométrica é só o GESTO que edita essa
+ * lista (soltar um nó dentro adota, arrastar para fora solta). Duas restrições
+ * que cabem numa checagem cada e eliminam a maior parte dos casos ruins: um nó
+ * pertence a no máximo um grupo, e grupos não aninham.
+ *
+ * Sem `zIndex`: grupos vivem numa camada própria, sempre atrás dos nós, e a
+ * ordem do array é o empilhamento entre eles.
+ */
+export interface NodeGroup {
+  id: UUID
+  title: string
+  frame: Rect // serializa como [[x,y],[w,h]], igual ao nó
+  nodeIds: UUID[]
+  /** Accent da moldura e da faixa do título. */
+  color: string
+  isCollapsed: boolean
+  createdAt: string
+  lastModifiedAt: string
+}
+
 export interface WorkspacePayload {
   id: UUID
   name: string
@@ -417,6 +624,7 @@ export interface WorkspacePayload {
   connections: Connection[]
   floors: FloorEntry[]
   drawings: Drawing[]
+  groups: NodeGroup[]
   createdAt: string
   lastOpenedAt: string | null
   lastModifiedAt: string
@@ -522,6 +730,38 @@ export interface TerminalTheme {
   foreground: string
 }
 
+// ─── Contas do Claude ─────────────────────────────────────────────────────────
+
+/**
+ * A conta padrão do Claude Code: o ~/.claude de sempre.
+ *
+ * É SINTÉTICA — nunca vai para `claude-accounts.json` e não tem diretório
+ * próprio. Ela significa exatamente "não definir CLAUDE_CONFIG_DIR": apontar a
+ * variável para ~/.claude não seria equivalente, porque o `claude` passaria a
+ * procurar ~/.claude/.claude.json (que não existe) e trataria a conta atual do
+ * usuário como um onboarding novo.
+ */
+export const DEFAULT_CLAUDE_ACCOUNT_ID = 'default'
+
+export interface ClaudeAccount {
+  id: string
+  label: string
+  createdAt: string
+}
+
+/**
+ * O que a UI mostra sobre uma conta. O e-mail e o plano saem do
+ * `.claude.json` do próprio diretório; `authenticated` é a existência do
+ * `.credentials.json`, que é o que decide se o `claude` vai pedir /login.
+ */
+export interface ClaudeAccountInfo extends ClaudeAccount {
+  /** null na conta padrão — ela é a ausência de CLAUDE_CONFIG_DIR. */
+  configDir: string | null
+  email: string | null
+  plan: string | null
+  authenticated: boolean
+}
+
 // ─── Responsabilidades (agentes) ──────────────────────────────────────────────
 
 /**
@@ -557,6 +797,8 @@ export interface TerminalDraft {
   fontFamily: string | null
   fontSize: number | null
   assignedRoleId: UUID | null
+  /** Conta do Claude escolhida no diálogo. null = padrão (~/.claude). */
+  claudeAccountId: string | null
 }
 
 // ─── Ponte renderer ⇄ main ────────────────────────────────────────────────────
@@ -571,6 +813,17 @@ export interface TerminalSpawnOptions {
   rows?: number
   /** Responsabilidade atribuída — vira ATELIER_ROLE_* no ambiente do PTY. */
   role?: { id: UUID; name: string } | null
+  /**
+   * Diretório da conta do Claude — vira `CLAUDE_CONFIG_DIR`. Ausente na conta
+   * padrão: a variável então NÃO é definida, e o `claude` usa ~/.claude.
+   */
+  claudeConfigDir?: string
+  /**
+   * Variáveis vindas dos cofres ligados a este terminal. Mescladas DEPOIS das
+   * `ATELIER_*`, para um cofre não conseguir sobrescrever `ATELIER_SOCKET` e
+   * sequestrar o canal do CLI.
+   */
+  extraEnv?: Record<string, string>
 }
 
 export interface BootInfo {

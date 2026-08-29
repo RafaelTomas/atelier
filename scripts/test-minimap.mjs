@@ -17,10 +17,12 @@ const check = (name, cond, extra) => {
 }
 const near = (a, b, tol = 0.001) => Math.abs(a - b) < tol
 
-function contentBounds(nodes, view) {
+// As molduras de grupo entram nos limites junto com os nós: um grupo é sempre
+// maior que os membros dele, e deixá-lo de fora cortaria a borda no mapa.
+function contentBounds(nodes, groups, view) {
   let minX = view.x, minY = view.y
   let maxX = view.x + view.width, maxY = view.y + view.height
-  for (const n of nodes) {
+  for (const n of [...nodes, ...groups]) {
     minX = Math.min(minX, n.frame.x); minY = Math.min(minY, n.frame.y)
     maxX = Math.max(maxX, n.frame.x + n.frame.width)
     maxY = Math.max(maxY, n.frame.y + n.frame.height)
@@ -28,8 +30,8 @@ function contentBounds(nodes, view) {
   return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) }
 }
 
-function project(nodes, view) {
-  const bounds = contentBounds(nodes, view)
+function project(nodes, view, groups = []) {
+  const bounds = contentBounds(nodes, groups, view)
   const scale = Math.min((WIDTH - PADDING * 2) / bounds.width, (HEIGHT - PADDING * 2) / bounds.height)
   const offsetX = (WIDTH - bounds.width * scale) / 2
   const offsetY = (HEIGHT - bounds.height * scale) / 2
@@ -97,6 +99,32 @@ console.log('\nclique centraliza (não põe o alvo no canto)')
   check('o ponto clicado vira o centro da view',
     near(centerOfNewView.x, target.x) && near(centerOfNewView.y, target.y),
     `${centerOfNewView.x},${centerOfNewView.y}`)
+}
+
+console.log('\nmoldura de grupo no mapa')
+{
+  // A moldura é maior que os membros — é o caso que cortava a borda quando os
+  // limites olhavam só para os nós.
+  const grupo = [{ frame: { x: 9500, y: 8600, width: 2000, height: 1400 } }]
+  const p = project(nodes, view, grupo)
+  const [x1, y1] = toMap(p, grupo[0].frame.x, grupo[0].frame.y)
+  const [x2, y2] = toMap(p, grupo[0].frame.x + grupo[0].frame.width, grupo[0].frame.y + grupo[0].frame.height)
+  check('a moldura inteira cabe no painel',
+    x1 >= -0.01 && y1 >= -0.01 && x2 <= WIDTH + 0.01 && y2 <= HEIGHT + 0.01,
+    `${x1},${y1} → ${x2},${y2}`)
+
+  // E os nós continuam dentro dela, na mesma projeção: escala única.
+  let dentro = true
+  for (const n of nodes) {
+    const [nx, ny] = toMap(p, n.frame.x, n.frame.y)
+    if (nx < x1 - 0.01 || ny < y1 - 0.01) dentro = false
+  }
+  check('os membros continuam dentro da moldura projetada', dentro)
+
+  // Sem grupo os limites são menores: é o sinal de que a moldura entrou na conta.
+  const semGrupo = project(nodes, view)
+  check('a moldura amplia os limites do mapa', p.scale < semGrupo.scale,
+    `${p.scale} vs ${semGrupo.scale}`)
 }
 
 console.log('\ncasos de borda')

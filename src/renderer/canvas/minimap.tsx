@@ -20,7 +20,7 @@
  * volta exatamente o re-render que o resto do arquivo evita.
  */
 import { useEffect, useRef } from 'react'
-import type { CanvasNode, Rect } from '@shared/types'
+import type { CanvasNode, NodeGroup, Rect } from '@shared/types'
 import { useStore } from '../state/store'
 import { viewport } from './viewport'
 
@@ -57,17 +57,19 @@ const COLORS: Record<string, string> = {
  * afastou de tudo sairia do mapa, e o indicador ficaria preso na borda sem
  * dizer o quanto se está longe.
  */
-function contentBounds(nodes: CanvasNode[], view: Rect): Rect {
+function contentBounds(nodes: CanvasNode[], groups: NodeGroup[], view: Rect): Rect {
   let minX = view.x
   let minY = view.y
   let maxX = view.x + view.width
   let maxY = view.y + view.height
 
-  for (const node of nodes) {
-    minX = Math.min(minX, node.frame.x)
-    minY = Math.min(minY, node.frame.y)
-    maxX = Math.max(maxX, node.frame.x + node.frame.width)
-    maxY = Math.max(maxY, node.frame.y + node.frame.height)
+  // As molduras entram na conta junto com os nós: um grupo é sempre maior que
+  // os membros dele, e deixá-lo de fora cortaria a borda no mapa.
+  for (const { frame } of [...nodes, ...groups]) {
+    minX = Math.min(minX, frame.x)
+    minY = Math.min(minY, frame.y)
+    maxX = Math.max(maxX, frame.x + frame.width)
+    maxY = Math.max(maxY, frame.y + frame.height)
   }
   return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) }
 }
@@ -93,6 +95,8 @@ export function Minimap(): JSX.Element | null {
   // mudança de nó.
   const nodesRef = useRef<CanvasNode[]>([])
   nodesRef.current = workspace?.nodes ?? []
+  const groupsRef = useRef<NodeGroup[]>([])
+  groupsRef.current = workspace?.groups ?? []
   const selectionRef = useRef<string[]>([])
   selectionRef.current = selection
 
@@ -134,8 +138,9 @@ export function Minimap(): JSX.Element | null {
 
     const draw = (): void => {
       const nodes = nodesRef.current
+      const groups = groupsRef.current
       const view = viewport.visibleRect(0)
-      const bounds = contentBounds(nodes, view)
+      const bounds = contentBounds(nodes, groups, view)
 
       // Uma escala só para os dois eixos: escalas diferentes distorceriam as
       // proporções, e um nó largo apareceria quadrado.
@@ -154,6 +159,23 @@ export function Minimap(): JSX.Element | null {
       ]
 
       ctx.clearRect(0, 0, WIDTH, HEIGHT)
+
+      // Molduras primeiro, POR BAIXO dos nós — a mesma ordem do canvas. Em 25%
+      // de zoom, quando o corpo dos nós já não se lê, é este bloco de cor que
+      // transforma o mapa no índice do canvas.
+      for (const group of groups) {
+        const [x, y] = toMap(group.frame.x, group.frame.y)
+        const w = Math.max(3, group.frame.width * scale)
+        const h = Math.max(3, group.frame.height * scale)
+        ctx.globalAlpha = 0.16
+        ctx.fillStyle = group.color
+        ctx.fillRect(x, y, w, h)
+        ctx.globalAlpha = 0.55
+        ctx.strokeStyle = group.color
+        ctx.lineWidth = 1
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1)
+      }
+      ctx.globalAlpha = 1
 
       // Nós: um retângulo por nó, com piso de 2px. Sem o piso, um nó pequeno
       // num workspace espalhado desaparece — e um nó invisível no mapa é
@@ -224,7 +246,7 @@ export function Minimap(): JSX.Element | null {
     }
     // `workspace?.nodes` entra nas deps para o mapa redesenhar quando um nó
     // nasce ou morre — o viewport não é notificado disso.
-  }, [workspace?.nodes, selection])
+  }, [workspace?.nodes, workspace?.groups, selection])
 
   if (!workspace) return null
 

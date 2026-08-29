@@ -5,7 +5,7 @@
  * coordenadas de canvas e o pan/zoom sai de graça. Os `d` são escritos direto
  * no DOM pelo tick da física — nunca via estado do React.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { CanvasNode, Connection, Point, UUID } from '@shared/types'
 import { RopeSimulation, ropePath } from './rope'
 import { rectCenter, viewport } from './viewport'
@@ -21,12 +21,36 @@ interface Props {
   connections: Connection[]
   /** Muda a cada frame de arrasto para reancorar as cordas em tempo real. */
   liveFrames: React.MutableRefObject<Map<UUID, Point>>
+  /** Membros de grupos colapsados — as cordas deles somem junto com os nós. */
+  hiddenNodes?: Set<UUID>
 }
 
-export function ConnectionsLayer({ nodes, connections, liveFrames }: Props): JSX.Element {
+export function ConnectionsLayer({
+  nodes,
+  connections,
+  liveFrames,
+  hiddenNodes
+}: Props): JSX.Element {
   const svgRef = useRef<SVGSVGElement>(null)
   const simRef = useRef<RopeSimulation | null>(null)
   const pathsRef = useRef(new Map<UUID, SVGPathElement>())
+
+  /**
+   * As cordas que aparecem: basta UMA das pontas estar dobrada para a corda
+   * sair. Ela ligaria a moldura fechada ao lugar onde o nó estaria — um fio
+   * saindo de um retângulo e morrendo no vazio.
+   *
+   * Sai do desenho e da reancoragem, mas NÃO da simulação: colapsar não move
+   * nó nenhum, então a corda guardada volta exatamente como estava ao expandir.
+   * Removê-la faria a expansão remontá-la a partir dos `ropePoints` do disco,
+   * que podem estar velhos — e a corda daria um pulo na tela.
+   */
+  const visible = useMemo(() => {
+    if (!hiddenNodes?.size) return connections
+    return connections.filter(
+      (c) => !hiddenNodes.has(c.nodeIdA) && !hiddenNodes.has(c.nodeIdB)
+    )
+  }, [connections, hiddenNodes])
 
   // Física: uma instância viva enquanto a camada existir
   useEffect(() => {
@@ -56,12 +80,10 @@ export function ConnectionsLayer({ nodes, connections, liveFrames }: Props): JSX
       return node ? rectCenter(node.frame) : null
     }
 
-    const alive = new Set<UUID>()
-    for (const conn of connections) {
+    for (const conn of visible) {
       const a = centerOf(conn.nodeIdA)
       const b = centerOf(conn.nodeIdB)
       if (!a || !b) continue
-      alive.add(conn.id)
       if (sim.has(conn.id)) {
         sim.updateAnchors(conn.id, a, b)
       } else {
@@ -71,8 +93,13 @@ export function ConnectionsLayer({ nodes, connections, liveFrames }: Props): JSX
         sim.add(conn.id, a, b, existing)
       }
     }
-    for (const conn of connections) if (!alive.has(conn.id)) sim.remove(conn.id)
-  }, [connections, nodes, liveFrames])
+    // A varredura é sobre o que a SIMULAÇÃO carrega, não sobre a lista de
+    // conexões: uma corda cuja conexão foi apagada não aparece mais na lista, e
+    // iterar a lista nunca a alcançaria — ela ficava na física para sempre. A
+    // lista completa, e não a visível, para a corda dobrada sobreviver.
+    const live = new Set(connections.map((c) => c.id))
+    for (const id of sim.ids()) if (!live.has(id)) sim.remove(id)
+  }, [connections, visible, nodes, liveFrames])
 
   // Reancora durante o arrasto, a 60fps, sem passar pelo React
   useEffect(() => {
@@ -80,7 +107,7 @@ export function ConnectionsLayer({ nodes, connections, liveFrames }: Props): JSX
     const tick = (): void => {
       const sim = simRef.current
       if (sim && liveFrames.current.size > 0) {
-        for (const conn of connections) {
+        for (const conn of visible) {
           const a = liveFrames.current.get(conn.nodeIdA)
           const b = liveFrames.current.get(conn.nodeIdB)
           if (!a && !b) continue
@@ -94,7 +121,7 @@ export function ConnectionsLayer({ nodes, connections, liveFrames }: Props): JSX
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [connections, nodes, liveFrames])
+  }, [visible, nodes, liveFrames])
 
   // Acompanha o transform do viewport
   useEffect(() => {
@@ -106,7 +133,7 @@ export function ConnectionsLayer({ nodes, connections, liveFrames }: Props): JSX
 
   return (
     <svg ref={svgRef} className="connections-layer" overflow="visible">
-      {connections.map((conn) => (
+      {visible.map((conn) => (
         <path
           key={conn.id}
           ref={(el) => {

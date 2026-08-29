@@ -88,7 +88,26 @@ const WHEEL_MAX_PIXELS = 140
 const WHEEL_IDLE_MS = 400
 /** `deltaMode: 1` conta LINHAS; esta é a altura suposta de cada uma. */
 const WHEEL_LINE_HEIGHT = 16
+/**
+ * Margem de ENTRADA: um nó começa a renderizar quando chega a esta distância da
+ * viewport.
+ */
 export const CULL_MARGIN = 200
+
+/**
+ * Margem de SAÍDA — e ela é maior que a de entrada de propósito.
+ *
+ * Com um limiar só, um nó parado em cima da borda entra e sai a cada frame do
+ * gesto: o pan tremido de uma mão, ou um degrau de zoom, bastam para cruzá-la
+ * várias vezes por segundo. Para a maioria dos nós isso seria só re-render; para
+ * um Portal é um PROCESSO do Chromium destruído e recriado, com a página
+ * recarregada do zero a cada volta — foi o que apareceu no monitor como um
+ * renderer novo a cada ~5s durante o pan.
+ *
+ * Entrando em CULL_MARGIN e saindo só em KEEP_MARGIN, a borda vira uma faixa: o
+ * nó que oscila dentro dela fica montado, e só desmonta quem foi de fato embora.
+ */
+export const KEEP_MARGIN = 1200
 
 export interface ViewportState {
   origin: Point // ponto do canvas que fica no canto superior esquerdo da view

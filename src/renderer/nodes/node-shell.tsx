@@ -17,6 +17,7 @@ import { TerminalNode } from './terminal-node'
 import { TextNode } from './text-node'
 import { PortalNode, portalLabel } from './portal-node'
 import { PlaceholderNode } from './placeholder-node'
+import { SecretVaultNode, secretVaultLabel } from './secret-vault-node'
 import { WidgetNode, widgetLabel } from './widget-node'
 
 interface Props {
@@ -31,6 +32,20 @@ interface Props {
   status?: AgentStatus | null
   /** Nome do projeto de um widget FIXADO — resolvido pelo canvas (ver lá). */
   projectName?: string | null
+  /**
+   * Fora do grupo em foco: o nó apaga para o grupo isolado sobressair. Não
+   * desmonta nem desabilita nada — é opacidade, e um terminal apagado continua
+   * rodando e recebendo o que se digita nele.
+   */
+  dimmed?: boolean
+  /**
+   * Dentro de um grupo colapsado. O nó só chega aqui quando algo o mantém
+   * MONTADO apesar do colapso — hoje só o portal acordado, que não pode perder
+   * o processo no meio de uma leitura do agente. Sai da tela por
+   * `visibility`, e não por `display: none`: um `<webview>` sem caixa de
+   * layout para de renderizar, e o agente leria uma página congelada.
+   */
+  hidden?: boolean
 }
 
 function title(node: CanvasNode, projectName: string | null): string {
@@ -52,6 +67,8 @@ function title(node: CanvasNode, projectName: string | null): string {
       return imageLabel(node.content.value)
     case 'widget':
       return widgetLabel(node.content.value, projectName ?? undefined)
+    case 'secretVault':
+      return secretVaultLabel(node.content.value)
     default:
       return node.content.type
   }
@@ -65,9 +82,17 @@ function title(node: CanvasNode, projectName: string | null): string {
  */
 const RESIZE_EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
 
-/** Text é o único sem chrome — igual ao app nativo. */
+/**
+ * Sem barra de título: o texto (igual ao app nativo) e o BOTÃO.
+ *
+ * O botão entrou aqui porque um cabeçalho de 28 px em cima de um nó de 88 é um
+ * terço de moldura para nada — e porque o nó inteiro é o alvo de clique, o que
+ * um header roubaria pela metade. Editar e excluir ele ganha na barra de ações
+ * da seleção, como o terminal.
+ */
 function isChromeless(node: CanvasNode): boolean {
-  return node.content.type === 'text'
+  if (node.content.type === 'text') return true
+  return node.content.type === 'widget' && node.content.value.kind === 'button'
 }
 
 export function NodeShell({
@@ -77,7 +102,9 @@ export function NodeShell({
   role = null,
   customThemes = [],
   status = null,
-  projectName = null
+  projectName = null,
+  dimmed = false,
+  hidden = false
 }: Props): JSX.Element {
   const { frame } = node
   const terminal = node.content.type === 'terminal' ? node.content.value : null
@@ -109,6 +136,10 @@ export function NodeShell({
         return <ImageNode node={node} content={node.content.value} workspaceId={workspaceId} />
       case 'widget':
         return <WidgetNode node={node} content={node.content.value} />
+      case 'secretVault':
+        return (
+          <SecretVaultNode node={node} content={node.content.value} workspaceId={workspaceId} />
+        )
       default:
         return <PlaceholderNode type={node.content.type} />
     }
@@ -124,7 +155,9 @@ export function NodeShell({
      */
     <div
       data-node-id={node.id}
-      className="node-frame"
+      className={['node-frame', dimmed ? 'is-dimmed' : '', hidden ? 'is-hidden' : '']
+        .filter(Boolean)
+        .join(' ')}
       style={{
         left: frame.x,
         top: frame.y,

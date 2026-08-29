@@ -56,8 +56,21 @@
   text-transform: uppercase; color: var(--text-dim);
 }
 
-.git-actions { display: flex; gap: 4px; padding: 0 10px 6px; }
-.git-actions .btn { flex: 1; font-size: var(--fs-sm); padding: 4px 2px; }
+/* Ações na própria linha do branch: são operações *daquele* branch, e como
+   ícone + legenda cabem ao lado dele sem roubar uma faixa inteira do painel.
+   `flex-shrink: 0` porque quem encolhe num branch de nome longo é o nome. */
+.git-actions { display: flex; gap: 2px; margin-left: auto; flex-shrink: 0; }
+.git-action {
+  display: flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: var(--text-dim);
+  border-radius: var(--r-md); cursor: pointer;
+  padding: 4px; font: inherit;
+}
+.git-action:hover:not(:disabled) { background: var(--border); color: var(--text); }
+.git-action:disabled { opacity: .45; cursor: default; }
+/* Sem legenda visível, a operação em curso só pode se anunciar pelo ícone. */
+.git-action.is-busy { opacity: 1; color: var(--accent); animation: git-action-pulse .9s ease-in-out infinite; }
+@keyframes git-action-pulse { 50% { opacity: .35; } }
 
 .git-feedback {
   margin: 0 10px 6px; padding: 5px 8px; border-radius: var(--r-md);

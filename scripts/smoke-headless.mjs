@@ -63,6 +63,21 @@ await esbuild.build({
       // aspas erradas quebram em silêncio — o comando roda com o argumento errado.
       export { quoteForShell } from './src/renderer/paths.ts'
       export { childEnv, prependPath } from './src/main/core/subprocess-env.ts'
+      export { useSafeStorage } from './src/main/core/vault/crypto.ts'
+      export { makePortalContent, makeSecretVaultContent } from './src/main/core/models/node-content.ts'
+      export { envForTerminal, resolveTemplate, secretForPortal } from './src/main/core/vault/vault-manager.ts'
+      export { maskForTerminal } from './src/main/core/vault/masking.ts'
+      // O registro que o renderer alimenta: aqui não há renderer, então o teste
+      // empurra no lugar dele — é o único jeito de exercitar o buffer sujo.
+      export { setEditorState, resetEditors } from './src/main/core/editor/editor-registry.ts'
+      // A permissão do dismiss: 'ocupado' não existe sem PTY, e é a regra que
+      // ninguém quer descobrir quebrada em produção.
+      export { dismissRefusal } from './src/main/core/interagent/handlers/dismiss.ts'
+      // Tamanho do nó novo por tipo. Saiu de bridge.ts (que importa electron e
+      // não pode entrar aqui) justamente para ficar testável: é onde o botão
+      // deixa de herdar o tamanho de painel do widget.
+      export { minSize, defaultSize } from './src/main/core/node-sizes.ts'
+      export { readButtonConfig, writeButtonConfig } from './src/shared/types.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -85,8 +100,14 @@ const { scanAgentStatus } = core
 const { projectIndex, scanForProjects, isRepository, inferKind, isPathAllowed } = core
 const { resolveAllowedPath, resolveAllowedTarget } = core
 const { readTextFile, writeTextFile, renameEntry, duplicateEntry, MAX_TEXT_BYTES } = core
+const { useSafeStorage, makePortalContent, makeSecretVaultContent } = core
+const { envForTerminal, resolveTemplate, secretForPortal, maskForTerminal } = core
 const { quoteForShell } = core
 const { childEnv, prependPath } = core
+const { setEditorState, resetEditors } = core
+const { dismissRefusal } = core
+const { minSize, defaultSize } = core
+const { readButtonConfig, writeButtonConfig } = core
 
 /** Fala o protocolo real do atelier por socket. */
 function cli(args, terminalId) {
@@ -204,6 +225,106 @@ await test('workspace relê do disco preservando nós e conexões', async () => 
   assert.equal(reloaded.nodes.length, 3)
   assert.equal(reloaded.connections.length, 1)
   assert.equal(reloaded.connections[0].kind, 'note')
+})
+
+// ─── Grupos ───────────────────────────────────────────────────────────────────
+// As regras que o renderer NÃO pode garantir sozinho: um nó pertence a no
+// máximo um grupo, e apagar um nó não pode deixar a moldura contando fantasmas.
+
+let grupoWs
+let grupoNo
+let grupoA
+
+await test('criar grupo adota só nós que existem, sem repetir', async () => {
+  const criado = await appState.createWorkspace('Com Grupos', '')
+  const a = makeCanvasNode({ x: 0, y: 0, width: 100, height: 100 }, {
+    type: 'text',
+    value: { text: 'a', fontSize: 14, fontWeight: 'regular', color: '#000', alignment: 'left', fontFamily: 'sans', isItalic: false, isUnderlined: false, isStrikethrough: false, backgroundColor: null, lineHeight: 1.3, letterSpacing: 0 }
+  })
+  criado.addNode(a)
+
+  const g = criado.createGroup('Infra', { x: -50, y: -50, width: 400, height: 400 }, [
+    a.id,
+    a.id,
+    'DEADBEEF-0000-0000-0000-000000000000'
+  ])
+  assert.deepEqual(g.nodeIds, [a.id])
+  grupoWs = criado
+  grupoNo = a
+  grupoA = g
+})
+
+await test('entrar num grupo tira do outro — um dono por nó', async () => {
+  const b = grupoWs.createGroup('Apps', { x: 500, y: 0, width: 300, height: 300 }, [grupoNo.id])
+  assert.deepEqual(b.nodeIds, [grupoNo.id])
+  assert.deepEqual(grupoWs.group(grupoA.id).nodeIds, [], 'o nó ficou nos dois grupos')
+
+  // E o caminho de UM nó (o gesto de arrastar) segue a mesma regra.
+  grupoWs.setNodeGroup(grupoNo.id, grupoA.id)
+  assert.deepEqual(grupoWs.group(grupoA.id).nodeIds, [grupoNo.id])
+  assert.deepEqual(grupoWs.group(b.id).nodeIds, [])
+
+  // null solta de todos.
+  grupoWs.setNodeGroup(grupoNo.id, null)
+  assert.deepEqual(grupoWs.group(grupoA.id).nodeIds, [])
+  grupoWs.setNodeGroup(grupoNo.id, grupoA.id)
+})
+
+await test('apagar o nó tira o membro, mas a moldura fica', async () => {
+  grupoWs.removeNode(grupoNo.id)
+  const g = grupoWs.group(grupoA.id)
+  assert.ok(g, 'a moldura sumiu junto com o nó')
+  assert.deepEqual(g.nodeIds, [], 'o grupo ficou contando um nó que não existe')
+})
+
+await test('desagrupar tira a moldura e nada mais', async () => {
+  const n = makeCanvasNode({ x: 0, y: 0, width: 10, height: 10 }, {
+    type: 'text',
+    value: { text: 'b', fontSize: 14, fontWeight: 'regular', color: '#000', alignment: 'left', fontFamily: 'sans', isItalic: false, isUnderlined: false, isStrikethrough: false, backgroundColor: null, lineHeight: 1.3, letterSpacing: 0 }
+  })
+  grupoWs.addNode(n)
+  const g = grupoWs.createGroup('Temp', { x: 0, y: 0, width: 100, height: 100 }, [n.id])
+  grupoWs.removeGroup(g.id)
+  assert.equal(grupoWs.group(g.id), undefined)
+  assert.ok(grupoWs.node(n.id), 'desagrupar apagou o nó')
+})
+
+await test('updateFrames move a seleção inteira numa marcação só', async () => {
+  const mk = (x) =>
+    makeCanvasNode({ x, y: 0, width: 50, height: 50 }, {
+      type: 'text',
+      value: { text: 'c', fontSize: 14, fontWeight: 'regular', color: '#000', alignment: 'left', fontFamily: 'sans', isItalic: false, isUnderlined: false, isStrikethrough: false, backgroundColor: null, lineHeight: 1.3, letterSpacing: 0 }
+    })
+  const n1 = mk(0)
+  const n2 = mk(100)
+  grupoWs.addNode(n1)
+  grupoWs.addNode(n2)
+  grupoWs.isDirty = false
+
+  grupoWs.updateFrames([
+    { nodeId: n1.id, frame: { x: 10, y: 20, width: 50, height: 50 } },
+    { nodeId: n2.id, frame: { x: 110, y: 20, width: 50, height: 50 } },
+    { nodeId: 'DEADBEEF-0000-0000-0000-000000000000', frame: { x: 0, y: 0, width: 1, height: 1 } }
+  ])
+  assert.equal(grupoWs.node(n1.id).frame.x, 10)
+  assert.equal(grupoWs.node(n2.id).frame.y, 20)
+  assert.equal(grupoWs.isDirty, true)
+
+  // Lista vazia não suja o workspace: um arrasto que não moveu nada não é uma
+  // alteração, e sujar por isso faria o autosave regravar o arquivo à toa.
+  grupoWs.isDirty = false
+  grupoWs.updateFrames([])
+  assert.equal(grupoWs.isDirty, false)
+})
+
+await test('grupos sobrevivem ao round-trip em disco', async () => {
+  const g = grupoWs.group(grupoA.id)
+  await persistence.saveWorkspace(grupoWs.snapshot(), grupoWs.fileSchemaVersion)
+  const reloaded = await persistence.loadWorkspace(grupoWs.id)
+  const back = reloaded.groups.find((x) => x.id === g.id)
+  assert.ok(back, 'a moldura não voltou do disco')
+  assert.equal(back.title, 'Infra')
+  assert.deepEqual(back.frame, g.frame)
 })
 
 // ─── Reparo de notas que dividiam o mesmo .md ─────────────────────────────────
@@ -327,7 +448,7 @@ await test('primeira gravação de um workspace v2 deixa um backup ao lado', asy
 
   assert.ok(existsSync(backup), 'não gravou o backup da v2')
   assert.equal(readFileSync(backup, 'utf8'), original, 'o backup não é o arquivo original')
-  assert.equal(JSON.parse(readFileSync(file, 'utf8')).schemaVersion, 6)
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).schemaVersion, 7)
 
   // Segunda gravação não reescreve o backup: o valor dele é ser o ANTES.
   reaberto.markDirty()
@@ -392,8 +513,95 @@ await test('comando desconhecido não derruba o servidor', async () => {
 })
 
 await test('comando não portado responde de forma honesta', async () => {
-  const out = await cli(['recruit', 'x'], terminalId)
+  const out = await cli(['connect', 'x'], terminalId)
   assert.match(out, /ainda não implementado/)
+})
+
+// ─── Recrutar agente pelo CLI ─────────────────────────────────────────────────
+
+await test('atelier recruit cria terminal já conectado ao chamador', async () => {
+  const out = await cli(['recruit', 'Ajudante'], terminalId)
+  assert.match(out, /Recruited 'Ajudante'/)
+  // Aparece na lista do chamador: o cabo é o que dá o `ask` de graça
+  assert.match(await cli(['list'], terminalId), /Ajudante/)
+})
+
+await test('recruit herda o diretório do chamador e aceita --cwd', async () => {
+  const out = await cli(['recruit', 'Com CWD', '--cwd', home], terminalId)
+  // includes, não RegExp: no Windows o caminho traz `\`, que a RegExp comeria
+  // como escape — `C:\Users` casaria com `C:Users`.
+  assert.ok(out.includes(`in ${home}`), `não repetiu o cwd: ${out}`)
+})
+
+await test('recruit recusa preset desconhecido sem criar nó', async () => {
+  const out = await cli(['recruit', 'Fantasma', '--preset', 'naoexiste'], terminalId)
+  assert.match(out, /unknown preset/)
+  assert.doesNotMatch(await cli(['list'], terminalId), /Fantasma/)
+})
+
+await test('recruit recusa papel inexistente sem criar nó', async () => {
+  const out = await cli(['recruit', 'Sem Papel', '--role', 'papel que não existe'], terminalId)
+  assert.match(out, /role .* not found/)
+  assert.doesNotMatch(await cli(['list'], terminalId), /Sem Papel/)
+})
+
+await test('recruit sem nome devolve o uso', async () => {
+  assert.match(await cli(['recruit'], terminalId), /usage: atelier recruit/)
+})
+
+await test('dismiss remove o agente que o chamador recrutou', async () => {
+  await cli(['recruit', 'Dispensavel'], terminalId)
+  const antes = ws.nodes.length
+  const out = await cli(['dismiss', 'Dispensavel'], terminalId)
+  assert.match(out, /Dismissed 'Dispensavel'/)
+  assert.equal(ws.nodes.length, antes - 1, 'o nó continuou no canvas')
+  assert.doesNotMatch(await cli(['list'], terminalId), /Dispensavel/)
+})
+
+await test('dismiss recusa terminal que o chamador não recrutou', async () => {
+  await cli(['recruit', 'Do Usuario'], terminalId)
+  const alvo = ws.nodes.find(
+    (n) => n.content.type === 'terminal' && n.content.value.name === 'Do Usuario'
+  )
+  // Simula o terminal criado à mão pelo usuário: sem registro de quem recrutou.
+  alvo.content.value.recruitedBy = null
+
+  const out = await cli(['dismiss', 'Do Usuario'], terminalId)
+  assert.match(out, /was not recruited by you/)
+  assert.ok(ws.node(alvo.id), 'o nó foi removido apesar da recusa')
+})
+
+await test('dismiss recusa o próprio chamador e nome inexistente', async () => {
+  const eu = ws.node(terminalId).content.value.name
+  assert.match(await cli(['dismiss', eu], terminalId), /cannot dismiss itself/)
+  assert.match(await cli(['dismiss', 'ninguem'], terminalId), /not found/)
+  assert.match(await cli(['dismiss'], terminalId), /usage: atelier dismiss/)
+})
+
+await test('dismiss não mata agente ocupado sem --force', () => {
+  const eu = '11111111-1111-4111-8111-111111111111'
+  const outro = '22222222-2222-4222-8222-222222222222'
+  const base = { name: 'Ocupado', callerId: eu, targetId: outro, recruitedBy: eu }
+
+  assert.match(dismissRefusal({ ...base, busy: true, force: false }), /still working/)
+  assert.equal(dismissRefusal({ ...base, busy: true, force: true }), null)
+  assert.equal(dismissRefusal({ ...base, busy: false, force: false }), null)
+  // A permissão vem ANTES do --force: forçar não vira licença para matar o
+  // terminal de outro.
+  assert.match(
+    dismissRefusal({ ...base, recruitedBy: outro, busy: false, force: true }),
+    /was not recruited by you/
+  )
+})
+
+await test('recruit para no teto de terminais do canvas', async () => {
+  let last = ''
+  // O teto é 12 e o canvas já tem alguns; o laço para no primeiro erro.
+  for (let i = 0; i < 20; i++) {
+    last = await cli(['recruit', `Excesso ${i}`], terminalId)
+    if (last.startsWith('error:')) break
+  }
+  assert.match(last, /limit for 'recruit'/)
 })
 
 // ─── Portais pelo CLI ─────────────────────────────────────────────────────────
@@ -449,7 +657,7 @@ await test('atelier portal read sem webview montado explica em vez de pendurar',
   assert.match(out, /error: portal .* não respondeu/)
 })
 
-// ─── Controle de portal (PLANO-controle-de-portal.md) ────────────────────────
+// ─── Controle de portal (2026-08-27-PLANO-controle-de-portal.md) ─────────────
 
 await test('portal click sem permissão é recusado, e o erro diz como ligar', async () => {
   // A trava da Decisão C. O erro é metade do recurso: um agente que só ouve
@@ -494,6 +702,306 @@ await test('atelier portal close leva o cabo junto', async () => {
   assert.ok(
     !ws.connections.some((c) => c.nodeIdA === portalId || c.nodeIdB === portalId),
     'a conexão sobreviveu ao nó'
+  )
+})
+
+// ─── Cofre: CLI, ambiente do PTY e login de portal ───────────────────────────
+// O cofre inteiro depende de uma cripto do SO que não existe num teste headless,
+// então o `safeStorage` é INJETADO — é para isso que `crypto.ts` recebe a
+// implementação em vez de importá-la. O mock não cifra nada de verdade (base64
+// com um prefixo); o que está sob teste aqui não é a cifra do Electron, é o
+// caminho: quem pode ler o quê, o que entra no ambiente, e o que o Atelier
+// recusa a digitar numa página.
+
+const fakeStorage = {
+  isEncryptionAvailable: () => true,
+  encryptString: (text) => Buffer.from(`mock:${text}`, 'utf8'),
+  decryptString: (buf) => buf.toString('utf8').replace(/^mock:/, '')
+}
+
+let vaultNodeId
+let vaultPortalId
+
+await test('monta cofre, terminal e portal ligados por cabo', async () => {
+  useSafeStorage(fakeStorage)
+
+  const vault = makeCanvasNode(
+    { x: 11200, y: 8600, width: 320, height: 280 },
+    { type: 'secretVault', value: makeSecretVaultContent('Pessoal') }
+  )
+  const portal = makeCanvasNode(
+    { x: 11600, y: 8600, width: 640, height: 440 },
+    { type: 'portal', value: makePortalContent('Conta', 'https://github.com/login') }
+  )
+  ws.addNode(vault)
+  ws.addNode(portal)
+  vaultNodeId = vault.id
+  vaultPortalId = portal.id
+
+  assert.equal(ws.addConnection(terminalId, vault.id)?.kind, 'secret')
+  assert.equal(ws.addConnection(portal.id, vault.id)?.kind, 'secret')
+  assert.ok(ws.addConnection(terminalId, portal.id), 'terminal ↔ portal')
+
+  // As entradas vão direto ao arquivo, como se a UI as tivesse gravado: o CLI
+  // não escreve segredo, e é justamente isso que este teste NÃO pode contornar.
+  const content = ws.node(vault.id).content.value
+  await persistence.writeVault(ws.id, content.id, {
+    version: 1,
+    kdf: null,
+    entries: [
+      { key: 'DB_URL', value: 'postgres://u:senha@host/db', origin: null, inEnv: true, note: null, updatedAt: '' },
+      { key: 'GITHUB_PASS', value: 'hunter2-github', origin: 'https://github.com', inEnv: false, note: null, updatedAt: '' },
+      { key: 'SEM_ORIGEM', value: 'valor-sem-origem', origin: null, inEnv: false, note: null, updatedAt: '' }
+    ]
+  })
+  ws.updateContent(vault.id, (node) => {
+    node.content.value.keys = [
+      { key: 'DB_URL', inEnv: true, origin: null, note: null },
+      { key: 'GITHUB_PASS', inEnv: false, origin: 'https://github.com', note: null },
+      { key: 'SEM_ORIGEM', inEnv: false, origin: null, note: null }
+    ]
+  })
+})
+
+await test('atelier vault list mostra chaves e flags, nunca valores', async () => {
+  const out = await cli(['vault', 'list'], terminalId)
+  assert.match(out, /Pessoal/)
+  assert.match(out, /DB_URL/)
+  assert.match(out, /origin https:\/\/github\.com/)
+  assert.doesNotMatch(out, /hunter2/, 'list vazou um valor')
+  assert.doesNotMatch(out, /senha@host/, 'list vazou um valor')
+})
+
+await test('atelier vault get entrega o valor e avisa que ele está no contexto', async () => {
+  const out = await cli(['vault', 'get', 'Pessoal', 'GITHUB_PASS'], terminalId)
+  assert.match(out, /hunter2-github/)
+  assert.match(out, /now in your context/)
+})
+
+await test('o valor lido passa a ser mascarado no scrollback daquele terminal', () => {
+  // O `get` acima registrou o valor. O que o PTY gravar a partir de agora sai
+  // com a máscara — é o que impede o segredo de ficar em claro no arquivo.
+  const masked = maskForTerminal(terminalId, 'echo hunter2-github > /tmp/x')
+  assert.doesNotMatch(masked, /hunter2-github/)
+  assert.match(masked, /echo .* > \/tmp\/x/)
+})
+
+await test('outro terminal não herda o mascaramento nem o acesso', async () => {
+  const outro = makeCanvasNode(
+    { x: 0, y: 0, width: 100, height: 100 },
+    { type: 'terminal', value: makeTerminalContent('Sem cabo') }
+  )
+  ws.addNode(outro)
+  assert.match(maskForTerminal(outro.id, 'hunter2-github'), /hunter2-github/)
+  const out = await cli(['vault', 'get', 'Pessoal', 'GITHUB_PASS'], outro.id)
+  assert.match(out, /not found/, 'cofre sem cabo não pode ser lido')
+})
+
+await test('atelier vault get recusa chave que não existe, e diz quais existem', async () => {
+  const out = await cli(['vault', 'get', 'Pessoal', 'NAO_EXISTE'], terminalId)
+  assert.match(out, /error: key 'NAO_EXISTE' not found/)
+  assert.match(out, /DB_URL/)
+})
+
+await test('só as chaves marcadas "no ambiente" entram no PTY', async () => {
+  const { env, keys, error } = await envForTerminal(terminalId)
+  assert.equal(error, undefined)
+  assert.deepEqual(keys, ['DB_URL'])
+  assert.equal(env.DB_URL, 'postgres://u:senha@host/db')
+  assert.equal(env.GITHUB_PASS, undefined, 'chave sem inEnv não pode vazar para o ambiente')
+})
+
+await test('colisão de chave entre dois cofres RECUSA o spawn, não escolhe um', async () => {
+  const outro = makeCanvasNode(
+    { x: 11200, y: 9000, width: 320, height: 280 },
+    { type: 'secretVault', value: makeSecretVaultContent('Trabalho') }
+  )
+  ws.addNode(outro)
+  ws.addConnection(terminalId, outro.id)
+  await persistence.writeVault(ws.id, outro.content.value.id, {
+    version: 1,
+    kdf: null,
+    entries: [
+      { key: 'DB_URL', value: 'postgres://outro', origin: null, inEnv: true, note: null, updatedAt: '' }
+    ]
+  })
+
+  const { error } = await envForTerminal(terminalId)
+  assert.match(error ?? '', /DB_URL/)
+  assert.match(error ?? '', /Pessoal/)
+  assert.match(error ?? '', /Trabalho/)
+
+  ws.removeNode(outro.id)
+})
+
+await test('${vault:...} é expandido no comando, e some quando o cabo não existe', async () => {
+  const ok = await resolveTemplate(terminalId, 'psql "${vault:Pessoal/DB_URL}"')
+  assert.equal(ok.command, 'psql "postgres://u:senha@host/db"')
+
+  const semCofre = await resolveTemplate(terminalId, 'psql "${vault:Inexistente/DB_URL}"')
+  assert.match(semCofre.error ?? '', /não é um cofre ligado/)
+
+  const semChave = await resolveTemplate(terminalId, 'psql "${vault:Pessoal/NADA}"')
+  assert.match(semChave.error ?? '', /não tem a chave/)
+})
+
+await test('portal login: chave sem origem declarada é recusada em qualquer página', async () => {
+  const out = await secretForPortal(terminalId, vaultPortalId, 'Pessoal', 'SEM_ORIGEM', 'https://github.com/login')
+  assert.equal(typeof out, 'string')
+  assert.match(out, /declares no origin/)
+})
+
+await test('portal login: origem diferente da página é recusada, nomeando as duas', async () => {
+  const out = await secretForPortal(terminalId, vaultPortalId, 'Pessoal', 'GITHUB_PASS', 'https://phishing.example/login')
+  assert.equal(typeof out, 'string')
+  assert.match(out, /only allowed on https:\/\/github\.com/)
+  assert.match(out, /phishing\.example/)
+  assert.match(out, /Nothing was typed/)
+})
+
+await test('portal login: http não passa por https — o downgrade é o ataque', async () => {
+  const out = await secretForPortal(terminalId, vaultPortalId, 'Pessoal', 'GITHUB_PASS', 'http://github.com/login')
+  assert.equal(typeof out, 'string')
+  assert.match(out, /only allowed on/)
+})
+
+await test('portal login: origem batendo entrega o valor para o main digitar', async () => {
+  const out = await secretForPortal(terminalId, vaultPortalId, 'Pessoal', 'GITHUB_PASS', 'https://github.com/session')
+  assert.equal(typeof out, 'object', out.toString?.())
+  assert.equal(out.value, 'hunter2-github')
+  assert.equal(out.vault.label, 'Pessoal')
+})
+
+await test('portal login: cofre ligado ao terminal mas NÃO ao portal é recusado', async () => {
+  const solto = makeCanvasNode(
+    { x: 12200, y: 9000, width: 640, height: 440 },
+    { type: 'portal', value: makePortalContent('Outro', 'https://github.com/login') }
+  )
+  ws.addNode(solto)
+  ws.addConnection(terminalId, solto.id)
+  const out = await secretForPortal(terminalId, solto.id, 'Pessoal', 'GITHUB_PASS', 'https://github.com/login')
+  assert.equal(typeof out, 'string')
+  assert.match(out, /not connected to that portal/)
+  ws.removeNode(solto.id)
+})
+
+await test('a trilha de auditoria registra os acessos e nenhum valor', async () => {
+  const linhas = await persistence.readVaultAccess(ws.id, 50)
+  assert.ok(linhas.length >= 2, 'nada foi auditado')
+  const texto = linhas.join('\n')
+  assert.match(texto, /get GITHUB_PASS/)
+  assert.match(texto, /login GITHUB_PASS/)
+  assert.doesNotMatch(texto, /hunter2/, 'a trilha gravou o segredo')
+})
+
+await test('atelier list anuncia o cofre pelo nome e pela contagem, sem as chaves', async () => {
+  const out = await cli(['list'], terminalId)
+  assert.match(out, /Connected vaults:/)
+  assert.match(out, /Pessoal {2}3 keys/)
+  assert.doesNotMatch(out, /GITHUB_PASS/, 'list expôs nome de chave')
+  assert.doesNotMatch(out, /hunter2/, 'list expôs um valor')
+})
+
+await test('cofre ilegível (sem chaveiro) é recusado inteiro, e o CLI explica', async () => {
+  useSafeStorage({ ...fakeStorage, isEncryptionAvailable: () => false })
+  const out = await cli(['vault', 'get', 'Pessoal', 'GITHUB_PASS'], terminalId)
+  assert.match(out, /locked/)
+  assert.match(out, /keychain/)
+  useSafeStorage(fakeStorage)
+})
+
+// ─── Botões ───────────────────────────────────────────────────────────────────
+
+await test('widget/button nasce 88×88, não com o tamanho de painel do widget', () => {
+  assert.deepEqual(defaultSize('widget', { kind: 'button' }), { width: 88, height: 88 })
+  assert.deepEqual(minSize('widget', { kind: 'button' }), { width: 56, height: 56 })
+  // E o widget comum continua sendo uma coluna: o `opts.kind` é o que separa.
+  assert.deepEqual(defaultSize('widget', { kind: 'git' }), { width: 380, height: 460 })
+})
+
+await test('config do botão faz round-trip por um mapa de strings', () => {
+  const config = readButtonConfig(
+    writeButtonConfig({
+      label: 'Subir',
+      icon: 'play',
+      color: '#34C759',
+      action: 'command',
+      command: 'npm run dev',
+      prompt: '',
+      url: '',
+      cwd: '',
+      target: null,
+      confirm: true,
+      pending: false,
+      proposedBy: null
+    })
+  )
+  assert.equal(config.command, 'npm run dev')
+  assert.equal(config.confirm, true)
+  assert.equal(config.pending, false)
+  // Vazio é OMITIDO, não gravado como '' — um `view` enxuto é o que o app
+  // nativo e o diff do workspace mostram.
+  const view = writeButtonConfig({ ...config, cwd: '', confirm: false })
+  assert.equal('cwd' in view, false)
+  assert.equal('confirm' in view, false)
+})
+
+let buttonId
+
+await test('atelier button propose cria o nó PENDENTE', async () => {
+  const out = await cli(
+    ['button', 'propose', 'Subir a app', '--command', 'npm run dev', '--icon', 'play'],
+    terminalId
+  )
+  assert.match(out, /PENDING/)
+  const node = ws.nodes.find(
+    (n) => n.content.type === 'widget' && n.content.value.view.label === 'Subir a app'
+  )
+  assert.ok(node, 'o botão não entrou no canvas')
+  buttonId = node.id
+  const config = readButtonConfig(node.content.value.view)
+  assert.equal(config.pending, true, 'botão de agente nasce armado — é execução arbitrária')
+  assert.equal(config.command, 'npm run dev')
+  assert.equal(config.proposedBy, 'Agent A')
+  // Widget não é conectável: um cabo aqui pediria array novo no payload.
+  assert.ok(!ws.connections.some((c) => c.nodeIdA === node.id || c.nodeIdB === node.id))
+})
+
+await test('atelier button propose sem ação responde uso, e não cria nó inerte', async () => {
+  const antes = ws.nodes.length
+  const out = await cli(['button', 'propose', 'Vazio'], terminalId)
+  assert.match(out, /^error: usage/)
+  assert.equal(ws.nodes.length, antes)
+})
+
+await test('atelier button propose --prompt exige um alvo', async () => {
+  const out = await cli(['button', 'propose', 'Revisar', '--prompt', 'revise o diff'], terminalId)
+  assert.match(out, /--target/)
+})
+
+await test('atelier button list mostra o estado de cada botão', async () => {
+  const out = await cli(['button', 'list'], terminalId)
+  assert.match(out, /Subir a app/)
+  assert.match(out, /pending/)
+})
+
+await test('atelier button remove recusa um botão já aceito pelo usuário', async () => {
+  // O aceite acontece no canvas; aqui ele é simulado no conteúdo do nó.
+  ws.updateContent(buttonId, (n) => {
+    const config = readButtonConfig(n.content.value.view)
+    n.content.value.view = writeButtonConfig({ ...config, pending: false, proposedBy: null })
+  })
+  const out = await cli(['button', 'remove', 'Subir a app'], terminalId)
+  assert.match(out, /only they can remove it/)
+  assert.ok(ws.node(buttonId), 'o botão aceito foi removido pelo agente')
+})
+
+await test('atelier button remove apaga a própria proposta pendente', async () => {
+  await cli(['button', 'propose', 'Testes', '--command', 'npm test'], terminalId)
+  const out = await cli(['button', 'remove', 'Testes'], terminalId)
+  assert.match(out, /Removed pending button/)
+  assert.ok(
+    !ws.nodes.some((n) => n.content.type === 'widget' && n.content.value.view.label === 'Testes')
   )
 })
 
@@ -1048,7 +1556,90 @@ await test('isPathAllowed barra caminho fora das raízes permitidas', async () =
   assert.equal(await isPathAllowed('nao/absoluto', permitido), false)
 })
 
+// ─── Editor no cabo, pelo CLI ─────────────────────────────────────────────────
+// O par terminal ↔ codeEditor de ponta a ponta: o cabo, a seção no `list`, e a
+// regra que justifica o comando — buffer sujo vence o disco.
+
+// Dentro de um projeto INDEXADO: é o que a allowlist de `allowed-roots` libera.
+const editorFile = join(projectTree, 'b', 'editado.ts')
+await writeFile(editorFile, 'linha 1\nlinha 2\nlinha 3\n')
+let editorNodeId
+
+await test('atelier editor open cria editor já conectado ao chamador', async () => {
+  const out = await cli(['editor', 'open', editorFile], terminalId)
+  assert.match(out, /Opened 'editado\.ts'/)
+
+  const abertos = ws.nodes.filter((n) => n.content.type === 'codeEditor')
+  editorNodeId = abertos[abertos.length - 1].id
+  // Decisão A: reusa o cabo `data`, sem kind novo e sem subir o schemaVersion.
+  assert.ok(
+    ws.connections.some(
+      (c) => (c.nodeIdA === editorNodeId || c.nodeIdB === editorNodeId) && c.kind === 'data'
+    ),
+    'o editor nasceu sem o cabo data'
+  )
+})
+
+// Um arquivo que EXISTE e está fora de toda raiz permitida. `/etc/passwd` não
+// serve: no Windows ele não existe, a recusa sai como 'no such file' e o teste
+// deixa de exercitar a allowlist, que é o que ele veio proteger.
+const dirForaDaAllowlist = await mkdtemp(join(tmpdir(), 'atelier-fora-'))
+const foraDaAllowlist = join(dirForaDaAllowlist, 'segredo.txt')
+await writeFile(foraDaAllowlist, 'nada que o canvas possa abrir\n')
+
+await test('editor open fora da allowlist recusa sem criar nó', async () => {
+  const antes = ws.nodes.length
+  const out = await cli(['editor', 'open', foraDaAllowlist], terminalId)
+  assert.match(out, /outside the paths/)
+  assert.equal(ws.nodes.length, antes)
+})
+
+await test('atelier list ganha a seção dos editores, com o caminho absoluto', async () => {
+  resetEditors()
+  const out = await cli(['list'], terminalId)
+  assert.match(out, /Connected editors/)
+  // O nó guarda o realpath — no Windows o TEMP chega como nome curto
+  // (RUNNER~1) e sai expandido, então comparar com o caminho cru falharia lá.
+  assert.ok(out.includes(await realpath(editorFile)), 'a listagem não trouxe o caminho absoluto')
+})
+
+await test('atelier editor read devolve o conteúdo do arquivo', async () => {
+  resetEditors()
+  assert.equal(await cli(['editor', 'read', 'editado.ts'], terminalId), 'linha 1\nlinha 2\nlinha 3\n')
+  // offset/limit em linhas, como o `note read`
+  assert.equal(await cli(['editor', 'read', 'editado.ts', '1', '1'], terminalId), 'linha 2')
+})
+
+await test('read de editor sujo devolve o BUFFER, não o disco', async () => {
+  resetEditors()
+  setEditorState(editorNodeId, {
+    path: editorFile,
+    dirty: true,
+    buffer: 'linha 1 mexida\nlinha 2\n',
+    selection: { from: 1, to: 1 },
+    cursorLine: 1
+  })
+  const out = await cli(['editor', 'read', 'editado.ts'], terminalId)
+  assert.match(out, /# unsaved changes — not on disk/)
+  assert.ok(out.includes('linha 1 mexida'), 'não devolveu o buffer')
+
+  const sel = await cli(['editor', 'read', 'editado.ts', '--selection'], terminalId)
+  assert.match(sel, /# lines 1-1/)
+  assert.ok(sel.includes('linha 1 mexida') && !sel.includes('linha 2'))
+})
+
+await test('editor close recusa buffer sujo e aceita depois de limpo', async () => {
+  const sujo = await cli(['editor', 'close', 'editado.ts'], terminalId)
+  assert.match(sujo, /unsaved changes/)
+  assert.ok(ws.node(editorNodeId), 'fechou o editor sujo')
+
+  resetEditors()
+  assert.match(await cli(['editor', 'close', 'editado.ts'], terminalId), /Closed editor/)
+  assert.equal(ws.node(editorNodeId), undefined)
+})
+
 await rm(projectTree, { recursive: true, force: true })
+await rm(dirForaDaAllowlist, { recursive: true, force: true })
 
 await test('childEnv normaliza a chave do PATH e nunca deixa duas', () => {
   const original = { ...process.env }

@@ -2,13 +2,13 @@
  * A sessão CDP de um Portal — o canal por onde o agente AGE na página.
  *
  * POR QUE CDP E NÃO `executeJavaScript('el.click()')` (Decisão A do
- * PLANO-controle-de-portal.md): um `.click()` de script é evento sintético, e
+ * 2026-08-27-PLANO-controle-de-portal.md): um `.click()` de script é evento sintético, e
  * menu nativo, `<select>`, arrastar, canvas, Shadow DOM fechado e qualquer
  * componente que cheque `isTrusted` simplesmente não reagem.
  * `Input.dispatchMouseEvent` entra pelo mesmo lugar que o mouse do usuário — o
  * navegador não distingue. E, principalmente: nada da nossa string chega ao
  * contexto da origem. O CDP fala com o MOTOR do navegador, não com o JS da
- * página, e é isso que mantém a Decisão D do PLANO-portal.md de pé enquanto o
+ * página, e é isso que mantém a Decisão D do 2026-08-26-PLANO-portal.md de pé enquanto o
  * agente ganha braços.
  *
  * O DOMÍNIO `Runtime` FICA DESLIGADO, DE PROPÓSITO. É ele que traria

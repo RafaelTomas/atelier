@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { BootInfo, TerminalDraft } from '@shared/types'
+import type { BootInfo, ButtonConfig, TerminalDraft } from '@shared/types'
+import { readButtonConfig } from '@shared/types'
 import { CanvasView } from './canvas/canvas-view'
 import { viewport } from './canvas/viewport'
+import { ButtonDialog } from './dialogs/button-dialog'
 import { NewTerminalDialog } from './dialogs/new-terminal-dialog'
 import { ScanDialog } from './dialogs/scan-dialog'
 import { ProjectCandidates } from './project-candidates'
@@ -19,6 +21,7 @@ export function App(): JSX.Element {
     newTerminalFrame,
     newTerminalCwd,
     editTerminalId,
+    buttonDialog,
     scanDialogOpen,
     integrity,
     closingEditor
@@ -90,6 +93,30 @@ export function App(): JSX.Element {
     void store.createTerminal(draft, { x: c.x - 280, y: c.y - 180 })
   }
 
+  /**
+   * Botão novo nasce na área desenhada; sem área (edição, ou criação por outro
+   * caminho), o diálogo só grava por cima do nó que já existe.
+   */
+  const submitButton = (config: ButtonConfig): void => {
+    const dialog = buttonDialog
+    if (!dialog) return
+    if (dialog.nodeId) {
+      void store.saveButton(dialog.nodeId, config)
+      return
+    }
+    store.closeButtonDialog()
+    const frame = dialog.frame ?? centeredButtonFrame()
+    void store.addButton(frame, config)
+  }
+
+  const editingButton = buttonDialog?.nodeId
+    ? workspace?.nodes.find((n) => n.id === buttonDialog.nodeId) ?? null
+    : null
+  const buttonDraft =
+    editingButton && editingButton.content.type === 'widget'
+      ? readButtonConfig(editingButton.content.value.view)
+      : null
+
   /** Nó em edição → rascunho com o que já está gravado nele. */
   const editing = workspace?.nodes.find((n) => n.id === editTerminalId) ?? null
   const editDraft: TerminalDraft | null =
@@ -106,7 +133,8 @@ export function App(): JSX.Element {
           themeId: editing.content.value.themeId,
           fontFamily: editing.content.value.fontFamily,
           fontSize: editing.content.value.fontSize,
-          assignedRoleId: editing.content.value.assignedRoleId
+          assignedRoleId: editing.content.value.assignedRoleId,
+          claudeAccountId: editing.content.value.claudeAccountId
         }
       : null
 
@@ -159,6 +187,16 @@ export function App(): JSX.Element {
         />
       )}
 
+      {buttonDialog && (
+        <ButtonDialog
+          key={buttonDialog.nodeId ?? 'novo'}
+          initial={buttonDraft}
+          defaultWorkingDirectory={workspace?.workingDirectory ?? ''}
+          onCancel={() => store.closeButtonDialog()}
+          onSubmit={submitButton}
+        />
+      )}
+
       {scanDialogOpen && <ScanDialog />}
 
       {closingEditor && <UnsavedEditorDialog />}
@@ -166,6 +204,12 @@ export function App(): JSX.Element {
       <ProjectCandidates />
     </div>
   )
+}
+
+/** Botão criado sem área desenhada: 88×88 no meio do que está à vista. */
+function centeredButtonFrame(): { x: number; y: number; width: number; height: number } {
+  const c = viewport.toCanvas({ x: viewport.width / 2, y: viewport.height / 2 })
+  return { x: c.x - 44, y: c.y - 44, width: 88, height: 88 }
 }
 
 /**

@@ -10,7 +10,7 @@
  *   4. Janela        — só depois que o estado está em memória
  */
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeImage } from 'electron'
+import { app, BrowserWindow, nativeImage, safeStorage } from 'electron'
 import { log } from './core/logger'
 import { Constants } from './core/constants'
 import { persistence } from './core/persistence/persistence-manager'
@@ -25,6 +25,7 @@ import { fileWatcher } from './core/projects/file-watcher'
 import { armPopupHandling } from './core/portal/portal-popup'
 import { armPortalZoom } from './core/portal/portal-zoom'
 import { armPortalCDP } from './core/portal/portal-cdp'
+import { useSafeStorage } from './core/vault/crypto'
 import { registerIPC } from './ipc/bridge'
 import { createMainWindow } from './window'
 
@@ -35,6 +36,23 @@ import { createMainWindow } from './window'
  * bundle do node_modules, renomeado por scripts/fix-native-deps.mjs.
  */
 app.setName('Atelier')
+
+/**
+ * O UA que o Chromium do Electron manda de fábrica carrega dois tokens que
+ * navegador nenhum tem: o nome/versão do app (`Atelier/0.1.0`) e
+ * `Electron/31.7.7`. Sites que fazem sniffing de browser — WhatsApp Web é o
+ * caso que apareceu — não reconhecem essa string e mandam "atualize para o
+ * Chrome 100 ou posterior", mesmo rodando sobre um Chromium bem mais novo que
+ * isso. Tirar os dois tokens deixa um UA de Chrome legítimo, com a versão real
+ * do Chromium embutido.
+ *
+ * `userAgentFallback` vale para TODAS as sessões, inclusive as partitions dos
+ * <webview> dos Portais, que é onde isso importa. Precisa ser setado antes de
+ * qualquer webContents nascer.
+ */
+app.userAgentFallback = app.userAgentFallback
+  .replace(/ Electron\/[\d.]+/, '')
+  .replace(new RegExp(` ${app.getName()}\\/[\\d.]+`, 'i'), '')
 
 /**
  * Dev e produção lado a lado: o lock de instância única do Electron é indexado
@@ -75,6 +93,13 @@ const LAUNCH_SCAN_DELAY_MS = 2000
 
 async function boot(): Promise<void> {
   const started = Date.now()
+
+  // 0. A cripto do cofre. Injetada em vez de importada lá dentro: o núcleo é
+  //    bundlado sem Electron nos testes headless, e um import de `electron` no
+  //    persistence-manager quebraria o bundle inteiro. Sem chaveiro do SO isto
+  //    continua sendo chamado — e `vaultEncryptionAvailable()` responde false,
+  //    que é o estado bloqueado do nó.
+  useSafeStorage(safeStorage)
 
   // 1. IPC primeiro, sempre
   try {

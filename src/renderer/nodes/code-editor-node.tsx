@@ -65,6 +65,15 @@ const baseTheme = EditorView.theme({
   '&.cm-focused': { outline: 'none' }
 })
 
+/**
+ * Quanto tempo sem digitar antes de contar ao main o estado do buffer.
+ *
+ * O push é por tecla no caminho ingênuo, e o buffer sujo viaja inteiro — 300 ms
+ * é o mesmo intervalo que o resto do app usa para "parou de digitar", e o que
+ * separa um IPC por palavra de um IPC por caractere.
+ */
+const PUSH_DEBOUNCE_MS = 300
+
 export function CodeEditorNode({ node, content }: Props): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
@@ -106,10 +115,44 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
     savedText.current = text
     setDirty(false)
     store.setEditorDirty(node.id, false)
+    // Sem este push o main seguiria com o buffer velho marcado como sujo, e o
+    // agente leria como "não salvo" um arquivo que já está em disco.
+    pushNowRef.current(view)
     return true
   }
   const saveRef = useRef(save)
   saveRef.current = save
+
+  // ─── O que o main não tem como perguntar ───────────────────────────────────
+  // O buffer vive aqui, no renderer, e o agente ligado a este nó por cabo
+  // precisa saber qual arquivo é, se há alteração pendente e onde está o
+  // cursor. Quem empurra é este nó; quem guarda é core/editor/editor-registry.
+  // A alternativa — o main perguntar quando o agente pedir — exigiria um
+  // protocolo de requestId/timeout para um dado minúsculo, e não funcionaria
+  // com o nó desmontado, que é justamente quando a resposta seria mais tardia.
+
+  const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /** Manda agora, sem esperar o debounce. Usado no save e na montagem. */
+  const pushNow = (view: EditorView): void => {
+    const text = view.state.doc.toString()
+    const isDirty = text !== savedText.current
+    window.atelier.editor.push(node.id, {
+      path,
+      dirty: isDirty,
+      // O texto só sobe enquanto sujo: limpo, o disco é a fonte da verdade e
+      // já tem o teto de tamanho. Duas cópias seriam dois lugares divergindo.
+      buffer: isDirty ? text : null,
+      ...selectionOf(view)
+    })
+  }
+  const pushNowRef = useRef(pushNow)
+  pushNowRef.current = pushNow
+
+  const pushSoon = (view: EditorView): void => {
+    if (pushTimer.current) clearTimeout(pushTimer.current)
+    pushTimer.current = setTimeout(() => pushNowRef.current(view), PUSH_DEBOUNCE_MS)
+  }
 
   // ─── Monta o editor uma vez, e o recria quando o ARQUIVO muda ───────────────
 
@@ -165,17 +208,25 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
             languageRef.current.of([]),
             themeRef.current.of(themeExtensions()),
             EditorView.updateListener.of((update) => {
-              if (!update.docChanged) return
-              if (isMd) setDocText(update.state.doc.toString())
-              const changed = update.state.doc.toString() !== savedText.current
-              setDirty(changed)
-              store.setEditorDirty(node.id, changed)
+              // `selectionSet` também conta: "explica ISTO" é a pergunta que só
+              // a seleção responde, e ela muda sem o documento mudar.
+              if (!update.docChanged && !update.selectionSet) return
+              if (update.docChanged) {
+                if (isMd) setDocText(update.state.doc.toString())
+                const changed = update.state.doc.toString() !== savedText.current
+                setDirty(changed)
+                store.setEditorDirty(node.id, changed)
+              }
+              pushSoon(update.view)
             })
           ]
         })
       })
       viewRef.current = view
       setLoading(false)
+      // Push de estreia: sem ele o agente só descobriria o caminho depois de o
+      // usuário digitar algo, e um arquivo apenas ABERTO é o caso mais comum.
+      pushNowRef.current(view)
 
       // Linguagem depois do editor de pé: o chunk dela é carregado sob demanda,
       // e esperar por ele atrasaria o texto aparecer.
@@ -192,9 +243,14 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
 
     return () => {
       disposed = true
+      if (pushTimer.current) clearTimeout(pushTimer.current)
       viewRef.current?.destroy()
       viewRef.current = null
       store.setEditorDirty(node.id, false)
+      // Desmonte (zoom, virtualização, remoção) apaga a entrada: um registro
+      // sobrevivente afirmaria ao agente que há um editor aqui, com um buffer
+      // que já não existe.
+      window.atelier.editor.push(node.id, null)
     }
   }, [path, node.id])
 
@@ -278,6 +334,32 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
       )}
     </div>
   )
+}
+
+/**
+ * Cursor e seleção em LINHAS 1-based — a unidade em que um agente pensa e a
+ * mesma de `offset`/`limit` do resto do CLI. Deslocamento de caractere seria
+ * exato e inútil: ninguém pede "explica do byte 4120 ao 4390".
+ *
+ * Seleção vazia devolve `selection: null`, não um intervalo de uma linha só:
+ * "o cursor está na linha 12" e "as linhas 12 a 12 estão selecionadas" são
+ * respostas diferentes, e a segunda faria `read --selection` inventar recorte.
+ */
+function selectionOf(view: EditorView): {
+  selection: { from: number; to: number } | null
+  cursorLine: number
+} {
+  const range = view.state.selection.main
+  const doc = view.state.doc
+  const cursorLine = doc.lineAt(range.head).number
+  if (range.empty) return { selection: null, cursorLine }
+  return {
+    selection: {
+      from: doc.lineAt(range.from).number,
+      to: doc.lineAt(range.to).number
+    },
+    cursorLine
+  }
 }
 
 /** Rótulo do nó no header — o nome do arquivo, não o caminho inteiro. */

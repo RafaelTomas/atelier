@@ -16,6 +16,7 @@ import { atelierBinDir } from '../interagent/cli-install'
 import { persistence } from '../persistence/persistence-manager'
 import { ipcSocketPath } from '../persistence/paths'
 import { childEnv, prependPath } from '../subprocess-env'
+import { forgetTerminalSecrets, hasSecrets, maskForTerminal } from '../vault/masking'
 import { scanAgentStatus } from './agent-status'
 
 /**
@@ -96,30 +97,20 @@ class TerminalManager extends EventEmitter {
     return this.sessions.get(id)
   }
 
-  /**
-   * Ambiente injetado no PTY — é o contrato que faz o `atelier` funcionar
-   * dentro do terminal (espelha SwiftTermProvider.swift:116-134).
-   */
-  private buildEnv(terminalId: UUID, role?: { id: UUID; name: string } | null): NodeJS.ProcessEnv {
-    const env = childEnv()
-    env.ATELIER_TERMINAL_ID = terminalId
-    env.ATELIER_SOCKET = ipcSocketPath()
-    env.ATELIER_SERVER_PORT = String(this.serverPort)
-    env.TERM = 'xterm-256color'
-
-    // Responsabilidade atribuída: o nome fica no ambiente para prompts e
-    // scripts; o texto inteiro sai em `atelier role`, que lê do RoleStore.
-    if (role) {
-      env.ATELIER_ROLE_ID = role.id
-      env.ATELIER_ROLE = role.name
-    }
-
-    const bin = atelierBinDir()
-    env.ATELIER_CLI = bin.cliPath
-    // O bin do Atelier entra na frente; o PATH herdado (onde mora `claude`,
-    // `codex`, `npm`…) continua inteiro graças ao `childEnv` acima.
-    prependPath(env, bin.dir)
-    return env
+  /** Ambiente do PTY. A montagem é a função pura abaixo. */
+  private buildEnv(
+    terminalId: UUID,
+    role?: { id: UUID; name: string } | null,
+    extraEnv?: Record<string, string>,
+    claudeConfigDir?: string
+  ): NodeJS.ProcessEnv {
+    return buildTerminalEnv({
+      terminalId,
+      serverPort: this.serverPort,
+      role,
+      extraEnv,
+      claudeConfigDir
+    })
   }
 
   async spawn(opts: TerminalSpawnOptions): Promise<TerminalSession | null> {
@@ -140,7 +131,12 @@ class TerminalManager extends EventEmitter {
         cols: opts.cols ?? 80,
         rows: opts.rows ?? 24,
         cwd,
-        env: this.buildEnv(opts.nodeId, opts.role) as Record<string, string>
+        env: this.buildEnv(
+          opts.nodeId,
+          opts.role,
+          opts.extraEnv,
+          opts.claudeConfigDir
+        ) as Record<string, string>
       })
     } catch (err) {
       ptyLoadError = `falha ao abrir PTY (${shell}): ${(err as Error).message}`
@@ -169,11 +165,21 @@ class TerminalManager extends EventEmitter {
       session.lastOutputAt = Date.now()
       this.emit('data', session.id, data)
       this.scanStatus(session)
-      void persistence.appendScrollback(session.workspaceId, session.id, data).catch(() => undefined)
+      // O que vai para o DISCO passa pela máscara; o que vai para a tela, não.
+      // O usuário está olhando o próprio terminal e pediu aquele valor — quem
+      // não deve ficar com ele em claro é o arquivo, que sobrevive à sessão e é
+      // lido depois por quem reabrir o workspace. `hasSecrets` evita varrer
+      // cada chunk quando nenhum segredo foi revelado a este terminal, que é o
+      // caso comum.
+      const chunk = hasSecrets(session.id) ? maskForTerminal(session.id, data) : data
+      void persistence
+        .appendScrollback(session.workspaceId, session.id, chunk)
+        .catch(() => undefined)
     })
 
     proc.onExit(({ exitCode }) => {
       session.exited = true
+      forgetTerminalSecrets(session.id)
       log.info('terminal', `PTY ${session.id.slice(0, 8)} saiu (código ${exitCode})`)
       this.emit('exit', session.id, exitCode)
     })
@@ -276,6 +282,59 @@ class TerminalManager extends EventEmitter {
     if (!session) return true
     return Date.now() - session.lastOutputAt > Constants.agentIdleTimeoutMs
   }
+}
+
+/**
+ * Ambiente injetado no PTY — o contrato que faz o `atelier` funcionar dentro do
+ * terminal (espelha SwiftTermProvider.swift:116-134).
+ *
+ * Função à parte do TerminalManager porque a ORDEM aqui é uma regra de
+ * segurança, não arrumação: tudo que o Atelier define entra antes das variáveis
+ * dos cofres, e o laço no fim recusa qualquer chave que já exista. É isso que
+ * impede um cofre de redefinir `ATELIER_SOCKET` (e sequestrar o canal do CLI) ou
+ * `CLAUDE_CONFIG_DIR` (e rodar o agente logado como outra conta). Testável sem
+ * node-pty — ver scripts/test-claude-accounts.mjs.
+ */
+export function buildTerminalEnv(params: {
+  terminalId: UUID
+  serverPort: number
+  role?: { id: UUID; name: string } | null
+  extraEnv?: Record<string, string>
+  /** Ausente = a conta padrão: a variável NÃO é definida, e o `claude` usa ~/.claude. */
+  claudeConfigDir?: string
+}): NodeJS.ProcessEnv {
+  const env = childEnv()
+  env.ATELIER_TERMINAL_ID = params.terminalId
+  env.ATELIER_SOCKET = ipcSocketPath()
+  env.ATELIER_SERVER_PORT = String(params.serverPort)
+  env.TERM = 'xterm-256color'
+
+  // Responsabilidade atribuída: o nome fica no ambiente para prompts e
+  // scripts; o texto inteiro sai em `atelier role`, que lê do RoleStore.
+  if (params.role) {
+    env.ATELIER_ROLE_ID = params.role.id
+    env.ATELIER_ROLE = params.role.name
+  }
+
+  if (params.claudeConfigDir) env.CLAUDE_CONFIG_DIR = params.claudeConfigDir
+
+  const bin = atelierBinDir()
+  env.ATELIER_CLI = bin.cliPath
+  // O bin do Atelier entra na frente; o PATH herdado (onde mora `claude`,
+  // `codex`, `npm`…) continua inteiro graças ao `childEnv` acima.
+  prependPath(env, bin.dir)
+
+  // Os cofres por último, mas SEM poder pisar no que veio antes.
+  if (params.extraEnv) {
+    for (const [key, value] of Object.entries(params.extraEnv)) {
+      if (key in env) {
+        log.warn('vault', `chave '${key}' ignorada: já existe no ambiente do PTY`)
+        continue
+      }
+      env[key] = value
+    }
+  }
+  return env
 }
 
 /** Remove sequências ANSI para que a saída do CLI seja texto limpo. */

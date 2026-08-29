@@ -13,12 +13,9 @@ import { makePortalContent } from '../models/node-content'
 import { makeCanvasNode } from '../models/workspace'
 import { appState } from '../state/app-state'
 import type { WorkspaceManager } from '../state/workspace-manager'
+import { freeSpotRightOf } from '../spawn-spot'
 
 const PORTAL_SIZE = { width: 640, height: 440 }
-/** Folga entre o pai e o filho, e passo da cascata quando há sobreposição. */
-const GAP = 60
-const CASCADE_STEP = 40
-const CASCADE_TRIES = 12
 
 /** O workspace que contém este nó — não necessariamente o ativo. */
 export function workspaceForNode(nodeId: UUID): WorkspaceManager | null {
@@ -28,31 +25,6 @@ export function workspaceForNode(nodeId: UUID): WorkspaceManager | null {
   return null
 }
 
-function overlaps(ws: WorkspaceManager, x: number, y: number): boolean {
-  return ws.nodes.some(
-    (n) =>
-      x < n.frame.x + n.frame.width &&
-      x + PORTAL_SIZE.width > n.frame.x &&
-      y < n.frame.y + n.frame.height &&
-      y + PORTAL_SIZE.height > n.frame.y
-  )
-}
-
-/**
- * Posição livre à direita da origem. Dois popups seguidos não podem nascer
- * empilhados — o segundo ficaria invisível debaixo do primeiro.
- */
-function freeSpotRightOf(ws: WorkspaceManager, origin: CanvasNode): { x: number; y: number } {
-  const x = origin.frame.x + origin.frame.width + GAP
-  const y = origin.frame.y
-  for (let i = 0; i < CASCADE_TRIES; i++) {
-    const cx = x + i * CASCADE_STEP
-    const cy = y + i * CASCADE_STEP
-    if (!overlaps(ws, cx, cy)) return { x: cx, y: cy }
-  }
-  return { x: x + CASCADE_TRIES * CASCADE_STEP, y: y + CASCADE_TRIES * CASCADE_STEP }
-}
-
 interface SpawnOptions {
   /** Nó de onde o portal nasce: o pai do popup, ou o terminal que pediu. */
   originId: UUID
@@ -60,7 +32,7 @@ interface SpawnOptions {
   name?: string
   /**
    * Partição a herdar. Vinda do portal pai, é o que mantém o popup logado —
-   * ver Decisão B do PLANO-portal.md.
+   * ver Decisão B do 2026-08-26-PLANO-portal.md.
    */
   partition?: string
 }
@@ -75,7 +47,7 @@ export function spawnPortal(opts: SpawnOptions): { node: CanvasNode; workspaceId
   const content: PortalContent = makePortalContent(opts.name ?? 'Portal', opts.url)
   if (opts.partition) content.storageScope = opts.partition
 
-  const spot = freeSpotRightOf(ws, origin)
+  const spot = freeSpotRightOf(ws, origin, PORTAL_SIZE)
   const node = makeCanvasNode({ ...spot, ...PORTAL_SIZE }, { type: 'portal', value: content })
 
   ws.addNode(node)

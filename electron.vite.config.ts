@@ -15,6 +15,9 @@ export default defineConfig({
   },
   renderer: {
     root: 'src/renderer',
+    // Porta fixa própria: a 5173 (padrão do Vite) fica livre para outros
+    // projetos. `strictPort` evita cair em outra porta silenciosamente.
+    server: { port: 5273, strictPort: true },
     resolve: {
       alias: { '@shared': resolve('src/shared'), '@renderer': resolve('src/renderer') }
     },

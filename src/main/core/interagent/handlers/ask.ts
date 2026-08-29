@@ -38,13 +38,44 @@ export async function handleAsk(args: string[], terminalId: UUID | null): Promis
   terminals.markActiveTask(target.id)
 
   const baseline = session.buffer.length
-  terminals.write(target.id, prompt.replace(/\r?\n$/, '') + '\r')
+  await writePrompt(target.id, prompt)
   log.debug('ask', `prompt enviado a ${target.id.slice(0, 8)}: ${prompt.slice(0, 50)}`)
 
   const output = await waitForIdle(target.id, baseline)
   if (connection) setConnectionStatus(connection.id, 'idle')
 
   return output.trim() || '(agent produced no output)'
+}
+
+/**
+ * Pausa entre o texto e o Enter. Mesmo valor do comando inicial do PTY
+ * (terminal-manager.spawn), pela mesma razão: dar ao programa do outro lado um
+ * ciclo de leitura antes da próxima tecla.
+ */
+const ENTER_DELAY_MS = 300
+
+/**
+ * Escreve o prompt e MANDA O ENTER SEPARADO — nunca `texto + '\r'` num write só.
+ *
+ * O TUI de um agente (Claude Code, Codex) classifica como COLAGEM todo bloco
+ * que chega grande e de uma vez, e uma colagem vira um anexo no campo de
+ * entrada (`[Pasted text #1 +13 lines]`) em vez de virar tecla por tecla. O
+ * `\r` que vem grudado no mesmo bloco entra nessa mesma colagem e não é lido
+ * como "enviar": o prompt fica parado no input, o agente segue ocioso, e o
+ * `ask` volta com `(agent produced no output)` — o que parece o agente ter
+ * ignorado a mensagem, quando ele nunca a recebeu.
+ *
+ * Não é questão de quebras de linha: um prompt de UMA linha só, longo, é
+ * classificado do mesmo jeito. O que separa uma tecla de uma colagem é o
+ * pedaço em que ela chega.
+ *
+ * Num shell puro os dois caminhos dão no mesmo — daí isto ter passado tanto
+ * tempo despercebido.
+ */
+async function writePrompt(id: UUID, prompt: string): Promise<void> {
+  terminals.write(id, prompt.replace(/\r?\n$/, ''))
+  await sleep(ENTER_DELAY_MS)
+  terminals.write(id, '\r')
 }
 
 /**

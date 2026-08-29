@@ -25,7 +25,17 @@ async function loadCodec() {
   const outdir = await mkdtemp(join(tmpdir(), 'atelier-codec-'))
   const outfile = join(outdir, 'codec.mjs')
   await esbuild.build({
-    entryPoints: [join(ROOT, 'src/main/core/models/workspace.ts')],
+    // Bundle por stdin, e não por entryPoint único, porque o par de tipos que
+    // vira `kind` mora em shared/types.ts: testar a dedução pelo documento
+    // gravado provaria só o codec, e a regra que decide o cabo ficaria de fora.
+    stdin: {
+      contents: `
+        export * from './src/main/core/models/workspace.ts'
+        export { connectionKindForTypes } from './src/shared/types.ts'
+      `,
+      resolveDir: ROOT,
+      loader: 'ts'
+    },
     bundle: true,
     format: 'esm',
     platform: 'node',
@@ -53,7 +63,7 @@ function test(name, fn) {
 }
 
 const { mod, cleanup } = await loadCodec()
-const { decodeWorkspaceDocument, encodeWorkspaceDocument } = mod
+const { decodeWorkspaceDocument, encodeWorkspaceDocument, connectionKindForTypes } = mod
 
 const raw = JSON.parse(readFileSync(join(ROOT, 'fixtures/full-workspace.json'), 'utf8'))
 const { payload } = decodeWorkspaceDocument(raw)
@@ -141,7 +151,7 @@ test('storageScope com partição herdada sobrevive à ida e volta', () => {
  * Um portal gravado antes do campo existir — ou pelo app nativo, que não o
  * conhece — tem de carregar com `false`: a alternativa é um portal dirigível
  * pelo agente sem que ninguém tenha clicado em nada. Ver Decisão C do
- * PLANO-controle-de-portal.md.
+ * 2026-08-27-PLANO-controle-de-portal.md.
  */
 test('controlEnabled sobrevive à ida e volta, e ausente vira false', () => {
   const clone = structuredClone(raw)
@@ -454,6 +464,64 @@ test('nó image faz round-trip no formato Maestri { image: { _0: … } }', () =>
   assert.match(out.image._0.addedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
 })
 
+// ─── Editor de código ligado a um agente (cabo `data`, sem subir schema) ─────
+// A asserção que importa aqui é a do schemaVersion: o par novo REUSA o cabo de
+// dados justamente para não virar migração, e um `kind` próprio criado por
+// descuido apareceria primeiro como este número mudando.
+
+test('connectionKindForTypes reconhece terminal↔codeEditor nos dois sentidos', () => {
+  assert.equal(connectionKindForTypes('terminal', 'codeEditor'), 'data')
+  assert.equal(connectionKindForTypes('codeEditor', 'terminal'), 'data')
+})
+
+test('editor↔editor e editor↔portal continuam recusados', () => {
+  assert.equal(connectionKindForTypes('codeEditor', 'codeEditor'), null)
+  assert.equal(connectionKindForTypes('codeEditor', 'portal'), null)
+  assert.equal(connectionKindForTypes('codeEditor', 'secretVault'), null)
+})
+
+test('conexão terminal↔codeEditor faz round-trip por dataConnections', () => {
+  const doc = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      dataConnections: [
+        {
+          id: 'CCCCCCCC-0000-0000-0000-0000000000EE',
+          terminalId: 'DDDDDDDD-0000-0000-0000-0000000000EE',
+          dataNodeId: 'EEEEEEEE-0000-0000-0000-0000000000EE',
+          createdAt: '2026-08-28T00:00:00Z',
+          ropePoints: []
+        }
+      ]
+    }
+  })
+  const conn = doc.payload.connections.find((c) => c.kind === 'data')
+  assert.ok(conn, 'conexão data não foi decodificada')
+  const back = encodeWorkspaceDocument(doc.payload)
+  assert.equal(back.payload.dataConnections.length, 1)
+  assert.equal(back.payload.dataConnections[0].dataNodeId, 'EEEEEEEE-0000-0000-0000-0000000000EE')
+})
+
+test('o cabo editor↔terminal não sobe o schemaVersion', () => {
+  const doc = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      dataConnections: [
+        {
+          id: 'CCCCCCCC-0000-0000-0000-0000000000EF',
+          terminalId: 'DDDDDDDD-0000-0000-0000-0000000000EE',
+          dataNodeId: 'EEEEEEEE-0000-0000-0000-0000000000EE',
+          createdAt: '2026-08-28T00:00:00Z',
+          ropePoints: []
+        }
+      ]
+    }
+  })
+  assert.equal(encodeWorkspaceDocument(doc.payload).schemaVersion, 7)
+})
+
 test('conexão terminal↔image vira kind "data" e volta para dataConnections', () => {
   const doc = decodeWorkspaceDocument({
     ...raw,
@@ -540,8 +608,138 @@ test('view descarta o que não é string — o Swift lê [String: String]', () =
   assert.equal('linhas' in view, false, 'um número foi gravado num mapa de strings')
 })
 
+// ─── Grupos (sem subir a versão) ─────────────────────────────────────────────
+// A moldura é uma chave a mais no TOPO do payload, não um caso a mais no enum
+// de conteúdo — é o que faz o app nativo Swift continuar abrindo o arquivo. O
+// que estes testes protegem é a leitura defensiva: a lista de membros vem de um
+// arquivo que outra ferramenta pode ter escrito.
+
+const NODE_A = raw.payload.nodes[0].id.toUpperCase()
+
+function groupsDoc(groups) {
+  return { ...raw, payload: { ...raw.payload, groups } }
+}
+
+function aGroup(patch = {}) {
+  return {
+    id: 'CCCCCCCC-0000-0000-0000-0000000000G1',
+    title: 'Infra',
+    frame: [[10, 20], [400, 300]],
+    nodeIds: [NODE_A],
+    color: '#E6F0FF',
+    isCollapsed: false,
+    createdAt: '2026-08-27T00:00:00Z',
+    lastModifiedAt: '2026-08-27T00:00:00Z',
+    ...patch
+  }
+}
+
+test('grupo faz round-trip sem perda', () => {
+  const doc = decodeWorkspaceDocument(groupsDoc([aGroup()]))
+  const g = doc.payload.groups[0]
+  assert.equal(g.title, 'Infra')
+  assert.deepEqual(g.frame, { x: 10, y: 20, width: 400, height: 300 })
+  assert.deepEqual(g.nodeIds, [NODE_A])
+  assert.equal(g.color, '#E6F0FF')
+
+  const back = encodeWorkspaceDocument(doc.payload)
+  const encoded = back.payload.groups[0]
+  assert.deepEqual(encoded.frame, [[10, 20], [400, 300]], 'frame não saiu como [[x,y],[w,h]]')
+  assert.deepEqual(encoded.nodeIds, [NODE_A])
+  assert.equal(encoded.isCollapsed, false)
+})
+
+test('grupo não sobe o schemaVersion — o app nativo continua abrindo', () => {
+  // O número é o da versão CORRENTE: o ponto do teste é que a moldura de grupo
+  // não o move, e ele muda quando o enum de conteúdo ganha um caso.
+  const doc = decodeWorkspaceDocument(groupsDoc([aGroup()]))
+  assert.equal(encodeWorkspaceDocument(doc.payload).schemaVersion, 7)
+})
+
+test('id órfão em nodeIds é filtrado, e o grupo sobrevive', () => {
+  const doc = decodeWorkspaceDocument(
+    groupsDoc([aGroup({ nodeIds: [NODE_A, 'DEADBEEF-0000-0000-0000-000000000000'] })])
+  )
+  assert.deepEqual(doc.payload.groups[0].nodeIds, [NODE_A])
+  assert.equal(doc.droppedNodes, 0, 'grupo com id órfão não é perda de conteúdo')
+})
+
+test('membro repetido em dois grupos fica no primeiro', () => {
+  const doc = decodeWorkspaceDocument(
+    groupsDoc([
+      aGroup(),
+      aGroup({ id: 'CCCCCCCC-0000-0000-0000-0000000000G2', title: 'Outro' })
+    ])
+  )
+  assert.deepEqual(doc.payload.groups[0].nodeIds, [NODE_A])
+  assert.deepEqual(doc.payload.groups[1].nodeIds, [], 'o mesmo nó ficou em dois grupos')
+})
+
+test('membro repetido DENTRO do mesmo grupo entra uma vez só', () => {
+  const doc = decodeWorkspaceDocument(groupsDoc([aGroup({ nodeIds: [NODE_A, NODE_A] })]))
+  assert.deepEqual(doc.payload.groups[0].nodeIds, [NODE_A])
+})
+
+test('frame inválido descarta o grupo — sem moldura não há o que desenhar', () => {
+  const doc = decodeWorkspaceDocument(groupsDoc([aGroup({ frame: 'nada' }), aGroup({ id: 'CCCCCCCC-0000-0000-0000-0000000000G3' })]))
+  assert.equal(doc.payload.groups.length, 1)
+})
+
+test('payload sem a chave groups decodifica como lista vazia', () => {
+  const doc = decodeWorkspaceDocument(raw)
+  assert.deepEqual(doc.payload.groups, [], 'arquivo antigo virou grupos indefinidos')
+  assert.deepEqual(encodeWorkspaceDocument(doc.payload).payload.groups, [])
+})
+
+test('nodeIds chega em minúsculo e sai maiúsculo, como todo UUID do formato', () => {
+  const doc = decodeWorkspaceDocument(groupsDoc([aGroup({ nodeIds: [NODE_A.toLowerCase()] })]))
+  assert.deepEqual(doc.payload.groups[0].nodeIds, [NODE_A])
+})
+
+// O botão é o primeiro teste da promessa do widget: "todo widget futuro cabe
+// sem tocar no formato". Se algum destes falhar, o formato mudou e o app nativo
+// (ou uma versão mais velha deste binário) perde a configuração do usuário.
+
+test('botão faz round-trip como widget/button, com a config inteira em view', () => {
+  const view = {
+    label: 'Subir a app',
+    icon: 'play',
+    color: '#34C759',
+    action: 'command',
+    command: 'npm run dev',
+    cwd: '/home/dev/app',
+    confirm: '1'
+  }
+  const doc = decodeWorkspaceDocument(widgetDoc({ kind: 'button', projectId: null, view }))
+  const value = doc.payload.nodes[0].content.value
+  assert.equal(value.kind, 'button')
+  assert.deepEqual(value.view, view)
+
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.equal(back.widget._0.kind, 'button')
+  assert.deepEqual(back.widget._0.view, view)
+})
+
+test('chave desconhecida no view de um botão sobrevive ao round-trip', () => {
+  // Uma versão mais nova pode gravar `shortcut` aqui. Perder essa chave no save
+  // seria a mesma perda silenciosa que o formato do botão veio evitar.
+  const view = { label: 'X', action: 'command', command: 'ls', shortcut: 'cmd+1' }
+  const doc = decodeWorkspaceDocument(widgetDoc({ kind: 'button', projectId: null, view }))
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.equal(back.widget._0.view.shortcut, 'cmd+1')
+})
+
+test('valor não-string no view de um botão é filtrado', () => {
+  const doc = decodeWorkspaceDocument(
+    widgetDoc({ kind: 'button', projectId: null, view: { label: 'X', confirm: true } })
+  )
+  const view = doc.payload.nodes[0].content.value.view
+  assert.equal(view.label, 'X')
+  assert.equal('confirm' in view, false, 'um booleano foi gravado num mapa de strings')
+})
+
 test('schemaVersion e type ficam corretos na raiz', () => {
-  assert.equal(reencoded.schemaVersion, 6)
+  assert.equal(reencoded.schemaVersion, 7)
   assert.equal(reencoded.type, 'workspace')
 })
 

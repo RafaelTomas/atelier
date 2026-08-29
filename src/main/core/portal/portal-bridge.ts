@@ -11,7 +11,7 @@
  * prompt mal formulado em ação autenticada. Ler é o caso real: o agente quer ver
  * o que o usuário está vendo.
  *
- * DESDE O PLANO-controle-de-portal.md O AGENTE TAMBÉM AGE — e a frase acima
+ * DESDE O 2026-08-27-PLANO-controle-de-portal.md O AGENTE TAMBÉM AGE — e a frase acima
  * continua inteira. `map`/`click`/`type`/`key`/`scroll`/`wait` passam pelo CDP
  * (core/portal/portal-cdp.ts), que fala com o motor do navegador em vez de
  * injetar script na origem, e só rodam em portal com `controlEnabled` ligado

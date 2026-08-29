@@ -9,6 +9,7 @@ import type {
   Connection,
   ConnectionKind,
   Drawing,
+  NodeGroup,
   Rect,
   UUID,
   WorkspacePayload
@@ -16,7 +17,7 @@ import type {
 import { connectionKindForTypes } from '@shared/types'
 import { nowISO } from '../coding'
 import { Constants } from '../constants'
-import { makeConnection } from '../models/workspace'
+import { makeConnection, makeNodeGroup } from '../models/workspace'
 
 export class WorkspaceManager {
   payload: WorkspacePayload
@@ -101,6 +102,13 @@ export class WorkspaceManager {
     this.payload.connections = this.payload.connections.filter(
       (c) => c.nodeIdA !== id && c.nodeIdB !== id
     )
+    // A moldura fica; só perde o membro. Um grupo vazio continua sendo um
+    // grupo — apagá-lo junto tiraria da tela um rótulo que o usuário escreveu
+    // por causa de um nó que ele apagou.
+    for (const group of this.payload.groups) {
+      const i = group.nodeIds.indexOf(id)
+      if (i >= 0) group.nodeIds.splice(i, 1)
+    }
     this.markDirty()
   }
 
@@ -110,6 +118,26 @@ export class WorkspaceManager {
     node.frame = frame
     node.lastModifiedAt = nowISO()
     this.markDirty()
+  }
+
+  /**
+   * Vários frames de uma vez — o commit de um arrasto de seleção múltipla.
+   *
+   * Existe para NÃO haver um IPC por nó: arrastar um grupo de dez nós fazia dez
+   * chamadas e dez marcações de dirty. Aqui é uma travessia e uma marcação só.
+   */
+  updateFrames(entries: { nodeId: UUID; frame: Rect }[]): void {
+    if (entries.length === 0) return
+    const ts = nowISO()
+    let touched = false
+    for (const { nodeId, frame } of entries) {
+      const node = this.node(nodeId)
+      if (!node) continue
+      node.frame = frame
+      node.lastModifiedAt = ts
+      touched = true
+    }
+    if (touched) this.markDirty()
   }
 
   updateContent(id: UUID, mutate: (node: CanvasNode) => void): void {
@@ -159,6 +187,13 @@ export class WorkspaceManager {
       a = idB
       b = idA
     }
+    // No cabo de cofre quem manda no lado B é o COFRE, não o terminal: o outro
+    // lado pode ser um terminal ou um portal, e ancorar no cofre é o que deixa
+    // "os cofres ligados a este nó" ser uma pergunta só, com uma resposta só.
+    if (kind === 'secret' && this.node(idA)?.content.type === 'secretVault') {
+      a = idB
+      b = idA
+    }
 
     const conn = makeConnection(kind, a, b)
     this.payload.connections.push(conn)
@@ -202,6 +237,99 @@ export class WorkspaceManager {
     if (this.payload.drawings.length === 0) return
     this.payload.drawings = []
     this.markDirty()
+  }
+
+  // ─── Grupos ─────────────────────────────────────────────────────────────────
+  // Moldura com título em volta de um conjunto de nós. Vive em payload.groups,
+  // fora do array de nós e fora do enum de conteúdo — ver NodeGroup.
+
+  get groups(): NodeGroup[] {
+    return this.payload.groups
+  }
+
+  group(id: UUID): NodeGroup | undefined {
+    return this.payload.groups.find((g) => g.id === id)
+  }
+
+  /**
+   * Cria a moldura já com os membros. `nodeIds` passa pelo mesmo filtro do
+   * decoder: só nós que existem, sem repetição, e cada um sai do grupo anterior
+   * — um nó pertence a no máximo um grupo.
+   */
+  createGroup(title: string, frame: Rect, nodeIds: UUID[]): NodeGroup {
+    const group = makeNodeGroup(title, frame, [])
+    this.payload.groups.push(group)
+    this.assignNodes(group, nodeIds)
+    this.markDirty()
+    return group
+  }
+
+  /** Patch raso do que a UI edita: título, frame, cor, colapso. */
+  updateGroup(
+    id: UUID,
+    patch: Partial<Pick<NodeGroup, 'title' | 'frame' | 'color' | 'isCollapsed'>>
+  ): NodeGroup | null {
+    const group = this.group(id)
+    if (!group) return null
+    if (patch.title !== undefined) group.title = patch.title
+    if (patch.frame !== undefined) group.frame = patch.frame
+    if (patch.color !== undefined) group.color = patch.color
+    if (patch.isCollapsed !== undefined) group.isCollapsed = patch.isCollapsed
+    group.lastModifiedAt = nowISO()
+    this.markDirty()
+    return group
+  }
+
+  /**
+   * Desagrupar. Os NÓS não são tocados: quem quer apagá-los junto passa por
+   * `node:remove`, um a um, e essa decisão é de quem confirmou o diálogo.
+   */
+  removeGroup(id: UUID): void {
+    const before = this.payload.groups.length
+    this.payload.groups = this.payload.groups.filter((g) => g.id !== id)
+    if (this.payload.groups.length !== before) this.markDirty()
+  }
+
+  /** Membros de um grupo, na íntegra — é o que "mover junto" precisa saber. */
+  setGroupNodes(id: UUID, nodeIds: UUID[]): NodeGroup | null {
+    const group = this.group(id)
+    if (!group) return null
+    group.nodeIds = []
+    this.assignNodes(group, nodeIds)
+    this.markDirty()
+    return group
+  }
+
+  /**
+   * O nó passa a pertencer a `groupId` — e deixa de pertencer a qualquer outro.
+   * `null` só solta. É por aqui que passa o gesto de entrar/sair pela geometria.
+   */
+  setNodeGroup(nodeId: UUID, groupId: UUID | null): void {
+    if (!this.node(nodeId)) return
+    for (const g of this.payload.groups) {
+      const i = g.nodeIds.indexOf(nodeId)
+      if (i >= 0 && g.id !== groupId) g.nodeIds.splice(i, 1)
+    }
+    if (groupId) {
+      const target = this.group(groupId)
+      if (target && !target.nodeIds.includes(nodeId)) target.nodeIds.push(nodeId)
+    }
+    this.markDirty()
+  }
+
+  /** O filtro comum de createGroup/setGroupNodes: existe, não repete, dono único. */
+  private assignNodes(group: NodeGroup, nodeIds: UUID[]): void {
+    for (const id of nodeIds) {
+      if (!this.node(id)) continue
+      if (group.nodeIds.includes(id)) continue
+      for (const other of this.payload.groups) {
+        if (other.id === group.id) continue
+        const i = other.nodeIds.indexOf(id)
+        if (i >= 0) other.nodeIds.splice(i, 1)
+      }
+      group.nodeIds.push(id)
+    }
+    group.lastModifiedAt = nowISO()
   }
 
   // ─── Viewport ───────────────────────────────────────────────────────────────

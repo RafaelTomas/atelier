@@ -19,11 +19,16 @@ import {
   IconDraw,
   IconFolder,
   IconGlobe,
+  IconGroup,
   IconHand,
+  IconLock,
   IconNote,
+  IconPlay,
   IconTerminal,
   IconText
 } from './icons'
+import { GROUP_MIN_HEIGHT, GROUP_MIN_WIDTH, rectContains } from './canvas/group-geometry'
+import { rectCenter } from './canvas/viewport'
 import { HOME_URL } from './nodes/portal-node'
 import { truncateStart } from './paths'
 import { store, useStore } from './state/store'
@@ -39,7 +44,10 @@ const MIN_SIZE: Record<string, [number, number]> = {
   note: [120, 80],
   portal: [240, 180],
   fileTree: [180, 140],
-  text: [80, 32]
+  secretVault: [220, 140],
+  text: [80, 32],
+  // Espelha Constants.buttonMin* — o main aplica o mesmo piso ao criar.
+  button: [56, 56]
 }
 
 interface MenuItem {
@@ -78,7 +86,7 @@ export function Dock(): JSX.Element {
    * peso) é campo de conteúdo e vai por patchContent.
    */
   const create = (
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault',
     frame: Rect,
     opts: Record<string, unknown> = {},
     patch?: Record<string, unknown>
@@ -95,7 +103,7 @@ export function Dock(): JSX.Element {
    * canvas vale como "tamanho padrão aqui" (ver CLICK_SLOP no canvas-view).
    */
   const add = (
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault',
     size: [number, number],
     opts: Record<string, unknown> = {},
     patch?: Record<string, unknown>,
@@ -361,6 +369,34 @@ export function Dock(): JSX.Element {
         <IconGlobe />
       </DockButton>
 
+      {/* Ao lado do navegador de propósito: o cofre existe, entre outras coisas,
+          para o portal poder logar sem o segredo passar pelo agente. */}
+      <DockButton
+        label="Cofre"
+        hint="guarda segredos cifrados; ligue por cabo a um terminal ou portal"
+        onClick={() => add('secretVault', [320, 280], { name: 'Cofre' }, undefined, 'cofre')}
+      >
+        <IconLock />
+      </DockButton>
+
+      <DockButton
+        label="Botão"
+        hint="desenhe a área; o diálogo abre em seguida"
+        onClick={() => {
+          setOpenMenu(null)
+          // Como o Terminal: o diálogo abre DEPOIS da área, e o botão nasce
+          // configurado — nunca vazio. Cancelar não cria nó nenhum.
+          store.startPlacing({
+            label: 'botão',
+            defaultSize: [88, 88],
+            minSize: MIN_SIZE.button,
+            finish: (frame) => store.openButtonDialog(null, frame)
+          })
+        }}
+      >
+        <IconPlay />
+      </DockButton>
+
       <DockMenuButton
         label="Texto"
         items={TEXT_MENU}
@@ -369,6 +405,25 @@ export function Dock(): JSX.Element {
       >
         <IconText />
       </DockMenuButton>
+
+      {/* Grupo não passa por `add`: ele não cria nó nenhum. Desenha a moldura
+          e ADOTA quem já estava dentro dela — o gesto de organizar o que existe,
+          não o de acrescentar mais uma coisa ao canvas. */}
+      <DockButton
+        label="Grupo"
+        hint="desenhe a moldura em volta do que quer agrupar"
+        onClick={() => {
+          setOpenMenu(null)
+          store.startPlacing({
+            label: 'grupo',
+            defaultSize: [520, 380],
+            minSize: [GROUP_MIN_WIDTH, GROUP_MIN_HEIGHT],
+            finish: (frame) => void createGroupIn(frame)
+          })
+        }}
+      >
+        <IconGroup />
+      </DockButton>
 
       <span className="dock-sep" />
 
@@ -388,6 +443,18 @@ export function Dock(): JSX.Element {
       </DockButton>
     </div>
   )
+}
+
+/**
+ * A moldura desenhada adota quem estiver DENTRO dela — pelo centro do nó, a
+ * mesma regra do arrasto (ver groupAt). Nós já pertencentes a outro grupo
+ * trocam de dono: o main faz valer a regra de um dono por nó.
+ */
+async function createGroupIn(frame: Rect): Promise<void> {
+  const inside = store
+    .getSnapshot()
+    .workspace?.nodes.filter((n) => rectContains(frame, rectCenter(n.frame)))
+  await store.createGroup('Grupo', frame, (inside ?? []).map((n) => n.id))
 }
 
 /**

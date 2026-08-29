@@ -11,6 +11,8 @@ import { pathToFileURL } from 'node:url'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { extForImageMime, isSupportedImageName, mimeForImageName, pngDimensions } from '@shared/image'
 import { quoteForShell } from '@shared/shell'
+import type { VaultEntry, VaultFile } from '@shared/vault'
+import { isValidKeyName, originOf } from '@shared/vault'
 import type {
   AgentRole,
   AgentStatus,
@@ -19,8 +21,10 @@ import type {
   NodeContent,
   Point,
   Rect,
+  SecretVaultContent,
   UUID
 } from '@shared/types'
+import { claudeAccounts } from '../core/claude/accounts'
 import { Constants } from '../core/constants'
 import { log } from '../core/logger'
 import {
@@ -29,11 +33,12 @@ import {
   makeFileTreeContent,
   makeImageContent,
   makePortalContent,
+  makeSecretVaultContent,
   makeStickyNoteContent,
-  makeTerminalContent,
   makeTextContent,
   makeWidgetContent
 } from '../core/models/node-content'
+import { terminalContentFromOpts } from '../core/models/terminal-draft'
 import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import type { WorkspaceManager } from '../core/state/workspace-manager'
 import { persistence } from '../core/persistence/persistence-manager'
@@ -41,6 +46,9 @@ import { ipcSocketPath, dataDir } from '../core/persistence/paths'
 import { listDirectory } from '../core/projects/file-tree'
 import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../core/projects/file-ops'
 import { fileWatcher } from '../core/projects/file-watcher'
+import type { EditorState } from '../core/editor/editor-registry'
+import { clearEditorState, setEditorState } from '../core/editor/editor-registry'
+import { allowedRoots } from '../core/projects/allowed-roots'
 import { resolveAllowedPath, resolveAllowedTarget } from '../core/projects/fs-access'
 import * as gitActions from '../core/git/actions'
 import { status as gitStatus, treeStatus as gitTreeStatus } from '../core/git/git'
@@ -52,23 +60,32 @@ import { takenNoteFiles } from '../core/state/note-files'
 import { projectIndex } from '../core/state/project-store'
 import { roles } from '../core/state/role-store'
 import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manager'
+// `keyRefs`/`syncVaultKeys` moram no vault-manager: o `.vault` tem dois
+// escritores (esta UI e o `atelier vault set`), e o espelho dos nomes no nó
+// precisa ser exatamente o mesmo código nos dois caminhos.
+import {
+  envForTerminal,
+  keyRefs,
+  resolveTemplate,
+  syncVaultKeys
+} from '../core/vault/vault-manager'
 import { interAgentServer } from '../core/interagent/server'
 import { onConnectionCreated, restoreConnections } from '../core/connection/connection-manager'
 import { forgetTerminal } from '../core/connection/skill-injector'
 import { registerGuest, unregisterGuest } from '../core/portal/portal-registry'
 import { closeSession, openSession } from '../core/portal/portal-cdp'
 import { notifyRenderer } from './notify'
+import { defaultSize, minSize, type NewNodeKind } from '../core/node-sizes'
 
-type NewNodeKind =
-  | 'terminal'
-  | 'note'
-  | 'text'
-  | 'portal'
-  | 'fileTree'
-  | 'codeEditor'
-  | 'dataTable'
-  | 'image'
-  | 'widget'
+/** Só as entradas de texto de um mapa vindo do renderer (ver decodeWidget). */
+function stringMap(value: unknown): Record<string, string> {
+  if (typeof value !== 'object' || value === null) return {}
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    )
+  )
+}
 
 function contentFor(
   kind: NewNodeKind,
@@ -81,23 +98,9 @@ function contentFor(
     case 'terminal':
       return {
         type: 'terminal',
-        value: makeTerminalContent(String(opts.name ?? 'Terminal'), {
-          agentType: String(opts.agentType ?? 'generic_shell'),
-          command: String(opts.command ?? ''),
-          workingDirectory: String(opts.workingDirectory ?? ''),
-          icon: String(opts.icon ?? 'terminal'),
-          color: String(opts.color ?? '#007AFF'),
-          isManager: opts.isManager === true,
-          monitorWithOmbro: opts.monitorWithOmbro === true,
-          themeId: typeof opts.themeId === 'string' ? opts.themeId : null,
-          fontFamily: typeof opts.fontFamily === 'string' ? opts.fontFamily : null,
-          fontSize: typeof opts.fontSize === 'number' ? opts.fontSize : null,
-          // Só aceita responsabilidade que existe de fato — um id órfão vindo
-          // do renderer deixaria o terminal apontando para o nada
-          assignedRoleId:
-            typeof opts.assignedRoleId === 'string' && roles.has(opts.assignedRoleId as UUID)
-              ? (opts.assignedRoleId as UUID)
-              : null
+        value: terminalContentFromOpts(opts, {
+          roleExists: (id) => roles.has(id as UUID),
+          accountExists: (id) => claudeAccounts.has(id)
         })
       }
     case 'note':
@@ -121,6 +124,11 @@ function contentFor(
       return { type: 'codeEditor', value: makeCodeEditorContent(String(opts.filePath ?? '')) }
     case 'dataTable':
       return { type: 'dataTable', value: makeDataTableContent(String(opts.title ?? 'Resultado')) }
+    case 'secretVault':
+      return {
+        type: 'secretVault',
+        value: makeSecretVaultContent(String(opts.name ?? 'Cofre'))
+      }
     case 'image':
       return {
         type: 'image',
@@ -138,7 +146,11 @@ function contentFor(
           String(opts.kind ?? 'projects'),
           // Sem `projectId` o widget segue a seleção global; com ele, nasce
           // fixado — é o que o "fixar no canvas" da cascata manda.
-          typeof opts.projectId === 'string' ? (opts.projectId as UUID) : null
+          typeof opts.projectId === 'string' ? (opts.projectId as UUID) : null,
+          // Mesma filtragem de `decodeWidget`: `view` é [String: String] no
+          // Swift, e um número aqui faria o decoder de lá lançar no arquivo que
+          // nós mesmos gravamos. É por aqui que o botão nasce configurado.
+          stringMap(opts.view)
         )
       }
   }
@@ -245,53 +257,33 @@ async function addImageNode(
 }
 
 /**
- * Piso por tipo. A área é desenhada pelo usuário, e um retângulo de 20px
- * criaria um terminal onde nem o cabeçalho cabe.
+ * O nó de cofre e o conteúdo dele, ou null se o id não é (mais) um cofre. Todo
+ * canal `vault:*` começa por aqui: um nodeId vindo do renderer é entrada não
+ * confiável, e sem esta checagem `vault:reveal` leria o arquivo de um cofre
+ * qualquer a partir de um id qualquer.
  */
-function minSize(kind: NewNodeKind): { width: number; height: number } {
-  switch (kind) {
-    case 'terminal':
-      return { width: Constants.terminalMinWidth, height: Constants.terminalMinHeight }
-    case 'note':
-      return { width: Constants.noteMinWidth, height: Constants.noteMinHeight }
-    case 'portal':
-      return { width: 240, height: 180 }
-    case 'fileTree':
-      return { width: 180, height: 140 }
-    case 'codeEditor':
-      return { width: 240, height: 160 }
-    case 'dataTable':
-      return { width: Constants.tableMinWidth, height: Constants.tableMinHeight }
-    case 'image':
-      return { width: Constants.imageMinWidth, height: Constants.imageMinHeight }
-    case 'widget':
-      return { width: Constants.widgetMinWidth, height: Constants.widgetMinHeight }
-    case 'text':
-      return { width: 80, height: 32 }
-  }
+function vaultNode(
+  workspaceId: UUID,
+  nodeId: UUID
+): { content: SecretVaultContent } | null {
+  const node = appState.workspaces.get(workspaceId)?.node(nodeId)
+  if (!node || node.content.type !== 'secretVault') return null
+  return { content: node.content.value }
 }
 
-function defaultSize(kind: NewNodeKind): { width: number; height: number } {
-  switch (kind) {
-    case 'terminal':
-      return { width: 560, height: 360 }
-    case 'note':
-      return { width: Constants.noteDefaultWidth, height: Constants.noteDefaultHeight }
-    case 'text':
-      return { width: 240, height: 48 }
-    case 'portal':
-      return { width: 640, height: 440 }
-    case 'fileTree':
-      return { width: 300, height: 420 }
-    case 'codeEditor':
-      return { width: 620, height: 440 }
-    case 'dataTable':
-      return { width: Constants.tableDefaultWidth, height: Constants.tableDefaultHeight }
-    case 'image':
-      return { width: Constants.imageDefaultWidth, height: Constants.imageDefaultHeight }
-    case 'widget':
-      return { width: Constants.widgetDefaultWidth, height: Constants.widgetDefaultHeight }
+/** Janela deslizante de um minuto por cofre — ver `vault:reveal`. */
+const revealHits = new Map<UUID, number[]>()
+
+function allowReveal(vaultId: UUID): boolean {
+  const now = Date.now()
+  const hits = (revealHits.get(vaultId) ?? []).filter((t) => now - t < 60_000)
+  if (hits.length >= Constants.vaultRevealPerMinute) {
+    revealHits.set(vaultId, hits)
+    return false
   }
+  hits.push(now)
+  revealHits.set(vaultId, hits)
+  return true
 }
 
 export function registerIPC(): void {
@@ -398,13 +390,13 @@ export function registerIPC(): void {
         )
       }
 
-      const floor = minSize(kind)
+      const floor = minSize(kind, opts)
       const size = requested
         ? {
             width: Math.max(requested.width, floor.width),
             height: Math.max(requested.height, floor.height)
           }
-        : defaultSize(kind)
+        : defaultSize(kind, opts)
       const content = contentFor(kind, opts, kind === 'note' ? await takenNoteFiles(ws) : [])
       const node = makeCanvasNode({ x: position.x, y: position.y, ...size }, content)
       ws.addNode(node)
@@ -443,6 +435,20 @@ export function registerIPC(): void {
     appState.workspaces.get(workspaceId)?.updateFrame(nodeId, frame)
   })
 
+  /**
+   * Commit de um arrasto de SELEÇÃO MÚLTIPLA: um IPC para N nós.
+   *
+   * O caminho de um nó só continua existindo — `node:set-frame` é o que a
+   * esmagadora maioria dos gestos usa. Este é o que impede que mover um grupo
+   * de vinte nós vire vinte travessias do processo principal.
+   */
+  ipcMain.handle(
+    'node:set-frames',
+    (_e, workspaceId: UUID, entries: { nodeId: UUID; frame: Rect }[]) => {
+      appState.workspaces.get(workspaceId)?.updateFrames(entries ?? [])
+    }
+  )
+
   ipcMain.handle('node:bring-to-front', (_e, workspaceId: UUID, nodeId: UUID) => {
     appState.workspaces.get(workspaceId)?.bringToFront(nodeId)
   })
@@ -453,6 +459,18 @@ export function registerIPC(): void {
     (_e, workspaceId: UUID, nodeId: UUID, patch: Record<string, unknown>) => {
       const ws = appState.workspaces.get(workspaceId)
       if (!ws) return null
+
+      // Num cofre, o patch genérico só pode mexer no NOME. `keys` e `locked`
+      // são a projeção do arquivo cifrado, e quem os escreve é `vault:set` /
+      // `vault:remove` depois de gravar o `.vault` — deixar o patch tocá-los
+      // faria a lista do canvas divergir do que existe em disco. Um `value`
+      // vindo por aqui seria pior ainda: segredo em claro no workspace.json.
+      if (ws.node(nodeId)?.content.type === 'secretVault') {
+        const allowed: Record<string, unknown> = {}
+        if (typeof patch.name === 'string') allowed.name = patch.name
+        patch = allowed
+      }
+
       ws.updateContent(nodeId, (node) => {
         // Patch raso preservando a variante: o `type` nunca muda, só o payload.
         node.content = {
@@ -463,6 +481,28 @@ export function registerIPC(): void {
       return ws.node(nodeId) ?? null
     }
   )
+
+  // ─── Contas do Claude ───────────────────────────────────────────────────────
+
+  ipcMain.handle('claude-account:list', () => claudeAccounts.list())
+
+  ipcMain.handle('claude-account:create', async (_e, label: string) => {
+    const { account, warnings } = await claudeAccounts.create(String(label ?? ''))
+    return { account, warnings, accounts: await claudeAccounts.list() }
+  })
+
+  ipcMain.handle('claude-account:rename', async (_e, id: string, label: string) => {
+    await claudeAccounts.rename(id, String(label ?? ''))
+    return claudeAccounts.list()
+  })
+
+  ipcMain.handle('claude-account:remove', async (_e, id: string, deleteFiles: boolean) => {
+    await claudeAccounts.remove(id, deleteFiles === true)
+    // Os terminais que apontavam para ela NÃO são reescritos, ao contrário do
+    // que role:delete faz: a conta não some da tela do nó — ela vira "padrão" no
+    // próximo boot do PTY, e o usuário vê isso acontecer.
+    return claudeAccounts.list()
+  })
 
   // ─── Responsabilidades (agentes) ────────────────────────────────────────────
 
@@ -579,25 +619,6 @@ export function registerIPC(): void {
   })
 
   // ─── Sistema de arquivos (árvore do nó de projeto) ──────────────────────────
-
-  /**
-   * Raízes que o renderer pode ler: os projetos do índice, o diretório do
-   * workspace ativo e o rootPath de cada nó de árvore aberto. Recalculado a
-   * cada chamada de propósito — ver fs-access.ts.
-   */
-  function allowedRoots(): { roots: string[] } {
-    const roots = projectIndex.all.map((p) => p.path)
-    const ws = appState.activeWorkspace
-    if (ws) {
-      if (ws.payload.workingDirectory) roots.push(ws.payload.workingDirectory)
-      for (const node of ws.nodes) {
-        if (node.content.type === 'fileTree' && node.content.value.rootPath) {
-          roots.push(node.content.value.rootPath)
-        }
-      }
-    }
-    return { roots }
-  }
 
   ipcMain.handle('fs:list-dir', async (_e, path: string) => {
     const allowed = await resolveAllowedPath(path, allowedRoots())
@@ -776,11 +797,30 @@ export function registerIPC(): void {
 
       const tc = node.content.value
       const role = roles.get(tc.assignedRoleId)
+
+      // Os cofres ligados, antes de abrir o PTY. Colisão de chave entre dois
+      // cofres RECUSA o spawn: escolher um valor em silêncio faria o agente
+      // rodar contra o banco errado sem ninguém perceber.
+      const vaultEnv = await envForTerminal(nodeId)
+      if (vaultEnv.error) return { error: vaultEnv.error }
+
+      // `${vault:Cofre/CHAVE}` no comando é expandido AQUI, no que é escrito no
+      // PTY — nunca no que está gravado. O workspace.json continua com o
+      // template; o shell recebe o valor.
+      const resolved = await resolveTemplate(nodeId, tc.command ?? '')
+      if ('error' in resolved) return { error: resolved.error }
+
+      // A conta do Claude vira CLAUDE_CONFIG_DIR. `configDirFor` já resolve a
+      // padrão (e a conta apagada) para null, que é "não definir a variável".
+      const claudeConfigDir = claudeAccounts.configDirFor(tc.claudeAccountId)
+
       const session = await terminals.spawn({
         nodeId,
         workspaceId,
         shellPath: tc.shellPath,
-        command: tc.command,
+        command: resolved.command,
+        extraEnv: vaultEnv.env,
+        ...(claudeConfigDir ? { claudeConfigDir } : {}),
         workingDirectory: tc.workingDirectory || ws.payload.workingDirectory,
         cols,
         rows,
@@ -858,6 +898,51 @@ export function registerIPC(): void {
     appState.workspaces.get(workspaceId)?.clearDrawings()
   })
 
+  // ─── Grupos ─────────────────────────────────────────────────────────────────
+  // Moldura com título em volta de um conjunto de nós. Devolvem o grupo já
+  // resolvido pelo manager (com a lista de membros filtrada) em vez de confiar
+  // no que o renderer mandou: é lá que a regra de um dono por nó é aplicada.
+
+  ipcMain.handle(
+    'group:create',
+    (_e, workspaceId: UUID, title: string, frame: Rect, nodeIds: UUID[]) => {
+      const ws = appState.workspaces.get(workspaceId)
+      if (!ws) return null
+      return ws.createGroup(title || 'Grupo', frame, Array.isArray(nodeIds) ? nodeIds : [])
+    }
+  )
+
+  ipcMain.handle(
+    'group:update',
+    (_e, workspaceId: UUID, groupId: UUID, patch: Record<string, unknown>) => {
+      const ws = appState.workspaces.get(workspaceId)
+      if (!ws) return null
+      // `nodeIds` não é campo de patch raso: mexer na lista de membros passa
+      // pelo filtro de dono único, que os outros campos não precisam.
+      if (Array.isArray(patch.nodeIds)) {
+        return ws.setGroupNodes(groupId, patch.nodeIds as UUID[])
+      }
+      return ws.updateGroup(groupId, {
+        title: typeof patch.title === 'string' ? patch.title : undefined,
+        frame: (patch.frame as Rect | undefined) ?? undefined,
+        color: typeof patch.color === 'string' ? patch.color : undefined,
+        isCollapsed: typeof patch.isCollapsed === 'boolean' ? patch.isCollapsed : undefined
+      })
+    }
+  )
+
+  ipcMain.handle('group:delete', (_e, workspaceId: UUID, groupId: UUID) => {
+    appState.workspaces.get(workspaceId)?.removeGroup(groupId)
+  })
+
+  /** O nó muda de dono (ou fica sem nenhum) — o gesto de entrar/sair da moldura. */
+  ipcMain.handle(
+    'group:set-node',
+    (_e, workspaceId: UUID, nodeId: UUID, groupId: UUID | null) => {
+      appState.workspaces.get(workspaceId)?.setNodeGroup(nodeId, groupId)
+    }
+  )
+
   // ─── Portais ────────────────────────────────────────────────────────────────
 
   /**
@@ -881,7 +966,7 @@ export function registerIPC(): void {
    * O botão de controle do cabeçalho do portal.
    *
    * A sessão CDP nasce ao LIGAR e morre ao desligar (Decisão D do
-   * PLANO-controle-de-portal.md): `attach`/`detach` por comando custa handshake
+   * 2026-08-27-PLANO-controle-de-portal.md): `attach`/`detach` por comando custa handshake
    * a cada clique e perde os observadores de navegação que invalidam as
    * referências do mapa. O conteúdo do nó continua sendo escrito pelo renderer
    * — aqui só se abre e fecha o canal.
@@ -1081,6 +1166,153 @@ export function registerIPC(): void {
     const buf = await persistence.readImage(workspaceId, safe)
     if (!buf) return { error: 'missing' as const }
     return { dataUrl: `data:${mimeForImageName(safe)};base64,${buf.toString('base64')}` }
+  })
+
+  // ─── Cofres ─────────────────────────────────────────────────────────────────
+  // O renderer NUNCA recebe valor de segredo, com uma exceção explícita e
+  // pedida pelo usuário: `vault:reveal`, que devolve UM valor, UMA vez, sob
+  // limite de frequência. Todo o resto trafega só nomes de chave.
+  //
+  // Cada escrita faz duas coisas na ordem certa: grava o `.vault` cifrado e só
+  // depois espelha os NOMES no conteúdo do nó. Se a cifra falhar, o
+  // workspace.json não passa a anunciar uma chave que não existe em disco.
+
+  ipcMain.handle('vault:available', () => persistence.vaultAvailable())
+
+  ipcMain.handle('vault:list-keys', async (_e, workspaceId: UUID, nodeId: UUID) => {
+    const found = vaultNode(workspaceId, nodeId)
+    if (!found) return { error: 'este nó não é um cofre' as const }
+    const file = await persistence.readVault(workspaceId, found.content.id)
+    if (!file) {
+      syncVaultKeys(workspaceId, nodeId, null)
+      return { error: 'locked' as const }
+    }
+    syncVaultKeys(workspaceId, nodeId, file)
+    return { keys: keyRefs(file) }
+  })
+
+  ipcMain.handle(
+    'vault:set',
+    async (_e, workspaceId: UUID, nodeId: UUID, input: Record<string, unknown>) => {
+      const found = vaultNode(workspaceId, nodeId)
+      if (!found) return { error: 'este nó não é um cofre' as const }
+
+      const key = String(input.key ?? '').trim()
+      if (!isValidKeyName(key)) {
+        return {
+          error: 'nome de chave inválido — use letras, números e _, começando por letra ou _'
+        }
+      }
+      const value = String(input.value ?? '')
+      if (!value) return { error: 'segredo vazio não é segredo' }
+
+      // Origem é opcional, mas se vier tem de ser uma origem de verdade: uma
+      // string torta aqui viraria uma comparação que nunca casa no
+      // `portal login`, e o erro apareceria a quilômetros daqui.
+      let origin: string | null = null
+      if (typeof input.origin === 'string' && input.origin.trim()) {
+        origin = originOf(input.origin.trim())
+        if (!origin) return { error: 'origem inválida — use algo como https://github.com' }
+      }
+
+      const file = await persistence.readVault(workspaceId, found.content.id)
+      if (!file) {
+        syncVaultKeys(workspaceId, nodeId, null)
+        return { error: 'locked' as const }
+      }
+
+      const entry: VaultEntry = {
+        key,
+        value,
+        origin,
+        inEnv: input.inEnv === true,
+        note: typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null,
+        updatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+        source: 'user'
+      }
+      const entries = file.entries.filter((e) => e.key !== key)
+      entries.push(entry)
+      entries.sort((a, b) => a.key.localeCompare(b.key))
+
+      const next: VaultFile = { ...file, entries }
+      if (!(await persistence.writeVault(workspaceId, found.content.id, next))) {
+        syncVaultKeys(workspaceId, nodeId, null)
+        return { error: 'locked' as const }
+      }
+      syncVaultKeys(workspaceId, nodeId, next)
+      log.info('vault', `chave ${key} gravada no cofre "${found.content.name}"`)
+      return { keys: keyRefs(next) }
+    }
+  )
+
+  ipcMain.handle('vault:remove', async (_e, workspaceId: UUID, nodeId: UUID, key: string) => {
+    const found = vaultNode(workspaceId, nodeId)
+    if (!found) return { error: 'este nó não é um cofre' as const }
+    const file = await persistence.readVault(workspaceId, found.content.id)
+    if (!file) {
+      syncVaultKeys(workspaceId, nodeId, null)
+      return { error: 'locked' as const }
+    }
+    const next: VaultFile = { ...file, entries: file.entries.filter((e) => e.key !== key) }
+    if (!(await persistence.writeVault(workspaceId, found.content.id, next))) {
+      return { error: 'locked' as const }
+    }
+    syncVaultKeys(workspaceId, nodeId, next)
+    return { keys: keyRefs(next) }
+  })
+
+  /**
+   * O ÚNICO canal que devolve valor ao renderer, e por pedido explícito do
+   * usuário no nó. Limite de frequência por cofre: um renderer comprometido (ou
+   * um bug em loop) não drena o cofre inteiro num piscar. O renderer não guarda
+   * o que recebe — ver secret-vault-node.tsx.
+   */
+  ipcMain.handle('vault:reveal', async (_e, workspaceId: UUID, nodeId: UUID, key: string) => {
+    const found = vaultNode(workspaceId, nodeId)
+    if (!found) return { error: 'este nó não é um cofre' as const }
+    if (!allowReveal(found.content.id)) {
+      return { error: 'muitas revelações seguidas — espere um instante' }
+    }
+    const file = await persistence.readVault(workspaceId, found.content.id)
+    if (!file) return { error: 'locked' as const }
+    const entry = file.entries.find((e) => e.key === key)
+    if (!entry) return { error: 'esta chave não existe neste cofre' }
+    void persistence
+      .appendVaultAccess(
+        workspaceId,
+        `${new Date().toISOString()}\tui\t${found.content.id}\treveal ${key}\n`
+      )
+      .catch(() => undefined)
+    return { value: entry.value }
+  })
+
+  /**
+   * A trilha de acessos, para o nó mostrar "últimos acessos".
+   *
+   * O arquivo é em claro de propósito — ele precisa ser legível num sistema em
+   * que o cofre não abre, que é justamente quando alguém quer saber quem leu o
+   * quê. Por isso nada aqui carrega valor: só quando, qual terminal, qual chave.
+   */
+  ipcMain.handle('vault:access-log', async (_e, workspaceId: UUID, limit?: number) =>
+    persistence.readVaultAccess(workspaceId, typeof limit === 'number' ? limit : 20)
+  )
+
+  // ─── Estado dos editores de código ──────────────────────────────────────────
+
+  /**
+   * O renderer empurra o que só ele sabe: qual arquivo está aberto, se o buffer
+   * difere do disco, onde está o cursor e o que está selecionado.
+   *
+   * `ipcMain.on`, não `handle`: é notificação, não pergunta — o renderer não tem
+   * o que fazer com uma resposta, e um `invoke` a cada 300 ms de digitação
+   * pagaria um round-trip por nada. `state` nulo é o desmonte do nó: sem ele o
+   * main afirmaria "há um editor neste arquivo" depois do nó ter saído da tela.
+   *
+   * Ver core/editor/editor-registry.ts.
+   */
+  ipcMain.on('editor:state', (_e, nodeId: UUID, state: EditorState | null) => {
+    if (state) setEditorState(nodeId, state)
+    else clearEditorState(nodeId)
   })
 
   // ─── Streams do PTY para a UI ───────────────────────────────────────────────

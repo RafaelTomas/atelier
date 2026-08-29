@@ -5,6 +5,7 @@
  * WorkspaceManagers carregados e o ciclo de autosave (30 s, só os sujos).
  */
 import type { AppStateData, Preferences, UUID, WorkspaceManifest } from '@shared/types'
+import { claudeAccounts } from '../claude/accounts'
 import { nowISO } from '../coding'
 import { Constants } from '../constants'
 import { log } from '../logger'
@@ -57,7 +58,8 @@ class AppState {
       persistence.loadPreferences(),
       persistence.loadAppState(),
       roles.load(), // responsabilidades: mapa em memória antes de qualquer terminal
-      projectIndex.load() // índice de projetos: global, independe do workspace ativo
+      projectIndex.load(), // índice de projetos: global, independe do workspace ativo
+      claudeAccounts.load() // contas do Claude: lidas antes do primeiro spawn de PTY
     ])
 
     this.manifest = manifest

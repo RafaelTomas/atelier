@@ -13,6 +13,7 @@
  */
 import type { CanvasNode, WidgetContent } from '@shared/types'
 import { isKnownWidgetKind } from '@shared/types'
+import { ButtonWidget } from './button-widget'
 import { IconLock, IconUnlock } from '../icons'
 import { GitPanel } from '../panels/git-panel'
 import { ProjectPanel } from '../panels/project-panel'
@@ -43,6 +44,10 @@ export function WidgetNode({
     // um segundo depois.
     void store.patchContent(node.id, { projectId: locked ? null : effectiveId })
   }
+
+  // O botão sai antes de tudo: ele não tem barra de escopo nem corpo de painel
+  // — o nó INTEIRO é o alvo de clique (ver isChromeless em node-shell).
+  if (content.kind === 'button') return <ButtonWidget node={node} content={content} />
 
   if (!isKnownWidgetKind(content.kind)) {
     return (
@@ -102,6 +107,9 @@ export function WidgetNode({
  * e não "Portal".
  */
 export function widgetLabel(content: WidgetContent, projectName?: string): string {
+  // O botão é chromeless — este título não vai para a tela, mas vale para quem
+  // lista nós (o CLI acha o botão pelo rótulo que o usuário escreveu).
+  if (content.kind === 'button') return content.view.label || 'Botão'
   const base = LABELS[content.kind] ?? content.kind
   return content.projectId && projectName ? `${base} · ${projectName}` : base
 }

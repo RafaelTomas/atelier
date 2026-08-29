@@ -12,6 +12,7 @@ import { constants } from 'node:fs'
 import {
   access,
   copyFile,
+  cp,
   mkdir,
   open,
   readdir,
@@ -19,12 +20,16 @@ import {
   rename,
   rm,
   stat,
+  symlink,
   writeFile
 } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import type { VaultFile } from '@shared/vault'
+import { decodeVaultFile, emptyVaultFile } from '@shared/vault'
 import type {
   AgentRole,
   AppStateData,
+  ClaudeAccount,
   Preferences,
   ProjectIndex,
   UUID,
@@ -49,10 +54,30 @@ import {
 } from '../models/project'
 import { decodeAgentRole, encodeAgentRole } from '../models/role'
 import { decodeWorkspaceDocument, encodeWorkspaceDocument } from '../models/workspace'
+import { decryptFromBase64, encryptToBase64, vaultEncryptionAvailable } from '../vault/crypto'
 import { migrateWorkspaceDocument } from './migrations'
 import { paths } from './paths'
 
 const isDev = process.env.NODE_ENV === 'development'
+
+/**
+ * O que uma conta nova do Claude herda do ~/.claude do usuário, por symlink.
+ *
+ * A lista é curta de propósito: é configuração, não identidade. Entra o que o
+ * usuário espera reencontrar em qualquer conta (permissões, skills, plugins,
+ * comandos, subagentes); fica de fora tudo que amarra o diretório a UMA conta —
+ * `.credentials.json`, `.claude.json`, `projects/`, `sessions/`,
+ * `history.jsonl`, `shell-snapshots/`, `telemetry/`, `cache/`. Ligar qualquer
+ * um desses derrubaria o ponto inteiro do recurso: as duas contas voltariam a
+ * disputar as mesmas credenciais.
+ */
+const CLAUDE_INHERITED_ENTRIES = [
+  'settings.json',
+  'skills',
+  'plugins',
+  'commands',
+  'agents'
+] as const
 
 /** O workspace lido e o que o decoder observou no caminho. */
 export interface LoadedWorkspace {
@@ -145,6 +170,7 @@ class PersistenceManager {
       paths.tablesDir(id),
       paths.imagesDir(id),
       paths.terminalsDir(id),
+      paths.vaultsDir(id),
       paths.snapshotsDir(id)
     ]) {
       await mkdir(dir, { recursive: true })
@@ -276,6 +302,90 @@ class PersistenceManager {
     await rm(paths.roleFile(id), { force: true })
   }
 
+  // ─── Contas do Claude (claude-accounts.json + claude-accounts/<id>/) ────────
+  // Arquivo raiz próprio, e NÃO uma chave em preferences.json: aquele arquivo é
+  // compartilhado com o app nativo Swift, que regravaria o preferences sem a
+  // chave que ele não conhece — e as contas sumiriam no primeiro save de lá.
+
+  async loadClaudeAccounts(): Promise<ClaudeAccount[]> {
+    const raw = await this.readJSON(paths.claudeAccounts())
+    if (!Array.isArray(raw)) return []
+    return raw
+      .map((item) => asRecord(item))
+      .filter((o) => typeof o.id === 'string' && o.id.length > 0)
+      .map((o) => ({
+        id: String(o.id),
+        label: typeof o.label === 'string' && o.label ? o.label : String(o.id),
+        createdAt: typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString()
+      }))
+  }
+
+  async saveClaudeAccounts(accounts: ClaudeAccount[]): Promise<void> {
+    await this.atomicWrite(paths.claudeAccounts(), this.stringify(accounts))
+  }
+
+  /**
+   * Cria o diretório de uma conta e liga o que ela HERDA do ~/.claude do
+   * usuário: settings, skills, plugins, comandos e subagentes. O que não é
+   * ligado — credenciais, sessões, histórico, projetos — é justamente o que
+   * precisa ficar separado para duas contas coexistirem.
+   *
+   * Symlink, não cópia: settings e skills continuam sendo UM lugar só, então
+   * editar a skill no ~/.claude vale para todas as contas. No Windows o link
+   * simbólico exige privilégio; quando falha, copia e devolve o aviso, porque a
+   * diferença é visível para o usuário (a cópia congela no tempo).
+   */
+  async createClaudeAccountDir(dir: string, inheritFrom: string): Promise<string[]> {
+    await mkdir(dir, { recursive: true })
+    const warnings: string[] = []
+    for (const entry of CLAUDE_INHERITED_ENTRIES) {
+      const source = join(inheritFrom, entry)
+      const target = join(dir, entry)
+      let isDir: boolean
+      try {
+        isDir = (await stat(source)).isDirectory()
+      } catch {
+        continue // o usuário não tem esse arquivo/pasta; não há o que herdar
+      }
+      if (await this.exists(target)) continue
+      try {
+        await symlink(source, target, isDir ? 'junction' : 'file')
+      } catch {
+        try {
+          await cp(source, target, { recursive: true })
+          warnings.push(`'${entry}' foi copiado em vez de ligado (o sistema recusou o link)`)
+        } catch (err) {
+          log.warn('claude-accounts', `não deu para herdar '${entry}'`, err)
+          warnings.push(`'${entry}' não pôde ser herdado do ~/.claude`)
+        }
+      }
+    }
+    return warnings
+  }
+
+  async deleteClaudeAccountDir(dir: string): Promise<void> {
+    // `rm` não segue symlink: apaga o link, nunca o ~/.claude do outro lado.
+    await rm(dir, { recursive: true, force: true })
+  }
+
+  /**
+   * O que o `claude` já gravou naquele diretório: quem está logado e se há
+   * credencial. `configFile` é o `.claude.json` do CLAUDE_CONFIG_DIR — na conta
+   * padrão ele mora no home, e não dentro do ~/.claude (ver claudeAccountInfo).
+   */
+  async readClaudeProfile(
+    configFile: string,
+    credentialsFile: string
+  ): Promise<{ email: string | null; plan: string | null; authenticated: boolean }> {
+    const raw = asRecord(await this.readJSON(configFile))
+    const account = asRecord(raw.oauthAccount)
+    return {
+      email: typeof account.emailAddress === 'string' ? account.emailAddress : null,
+      plan: typeof account.organizationType === 'string' ? account.organizationType : null,
+      authenticated: await this.exists(credentialsFile)
+    }
+  }
+
   // ─── Índice de projetos (projects.json) ─────────────────────────────────────
   // Arquivo raiz próprio, com schema próprio: o índice é global, não pertence a
   // nenhum workspace, e não tem contraparte no app Swift — por isso fica fora
@@ -349,6 +459,95 @@ class PersistenceManager {
 
   async deleteImage(workspaceId: UUID, fileName: string): Promise<void> {
     await rm(join(paths.imagesDir(workspaceId), fileName), { force: true })
+  }
+
+  // ─── Cofres (.vault cifrado) ───────────────────────────────────────────────
+  // Mesma divisão da nota, da tabela e da imagem — um arquivo por nó, só a
+  // identidade no workspace.json —, com uma diferença que muda tudo: o que vai
+  // para o disco é o `safeStorage.encryptString` do JSON, em base64, nunca o
+  // JSON cru. Sem chaveiro do SO não se lê nem se grava: o cofre fica bloqueado,
+  // e o nó mostra esse estado em vez de o Atelier cair para texto em claro.
+
+  /** Dá para cifrar neste sistema? false = todo cofre está bloqueado. */
+  vaultAvailable(): boolean {
+    return vaultEncryptionAvailable()
+  }
+
+  /**
+   * O cofre decifrado.
+   *
+   * Distinção que importa a quem chama: cofre que ainda não existe volta VAZIO
+   * (é o estado de um nó recém-criado), enquanto cofre ilegível — chaveiro
+   * ausente, blob de outro sistema — volta null, e null é o que acende o estado
+   * bloqueado na UI. Confundir os dois faria a UI oferecer "adicionar chave"
+   * num cofre cujo conteúdo ela não conseguiu ler, e o primeiro save apagaria
+   * o que estava lá.
+   */
+  async readVault(workspaceId: UUID, vaultId: UUID): Promise<VaultFile | null> {
+    if (!vaultEncryptionAvailable()) return null
+    const file = paths.vaultFile(workspaceId, vaultId)
+    let base64: string
+    try {
+      base64 = await readFile(file, 'utf8')
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') return emptyVaultFile()
+      log.error('persistence', `falha lendo o cofre ${vaultId}`, err)
+      return null
+    }
+    const plain = decryptFromBase64(base64.trim())
+    if (plain === null) return null
+    let decoded: VaultFile | null
+    try {
+      decoded = decodeVaultFile(JSON.parse(plain))
+    } catch (err) {
+      log.error('persistence', `cofre ${vaultId} decifrou mas não é JSON`, err)
+      return null
+    }
+    // Cofre de uma versão mais nova que esta: mesmo caminho do chaveiro
+    // ausente — bloqueado na UI, e nada é regravado por cima.
+    if (!decoded) {
+      log.error('persistence', `cofre ${vaultId} é de uma versão mais nova — não será tocado`)
+      return null
+    }
+    return decoded
+  }
+
+  /** true = gravou. false = sem chaveiro; NADA foi escrito, nem em claro. */
+  async writeVault(workspaceId: UUID, vaultId: UUID, file: VaultFile): Promise<boolean> {
+    const base64 = encryptToBase64(JSON.stringify(file))
+    if (base64 === null) return false
+    await mkdir(paths.vaultsDir(workspaceId), { recursive: true })
+    await this.atomicWrite(paths.vaultFile(workspaceId, vaultId), base64)
+    return true
+  }
+
+  async deleteVault(workspaceId: UUID, vaultId: UUID): Promise<void> {
+    await rm(paths.vaultFile(workspaceId, vaultId), { force: true })
+  }
+
+  /**
+   * Uma linha na trilha de auditoria dos cofres. Append simples, como o
+   * scrollback: alta frequência não é o caso aqui, mas escrita atômica de um
+   * arquivo que só cresce seria trocar o arquivo inteiro a cada acesso.
+   *
+   * O arquivo é EM CLARO, de propósito — ele precisa ser legível sem chaveiro,
+   * para responder "quem leu o quê" mesmo num sistema onde o cofre não abre. É
+   * por isso que quem chama nunca escreve valor aqui.
+   */
+  async appendVaultAccess(workspaceId: UUID, line: string): Promise<void> {
+    await mkdir(paths.vaultsDir(workspaceId), { recursive: true })
+    await writeFile(paths.vaultAccessLog(workspaceId), line, { flag: 'a', encoding: 'utf8' })
+  }
+
+  /** As últimas linhas da trilha, mais novas primeiro. Vazio se não há arquivo. */
+  async readVaultAccess(workspaceId: UUID, limit = 20): Promise<string[]> {
+    try {
+      const text = await readFile(paths.vaultAccessLog(workspaceId), 'utf8')
+      return text.split('\n').filter(Boolean).reverse().slice(0, limit)
+    } catch {
+      return []
+    }
   }
 
   // ─── Área temporária ──────────────────────────────────────────────────────

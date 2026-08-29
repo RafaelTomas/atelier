@@ -28,6 +28,7 @@ import type {
   SecretVaultKeyRef,
   StoredAccountUsage,
   SystemStats,
+  TodoBoard,
   UUID,
   WorkspaceEntry,
   WorkspacePayload
@@ -455,6 +456,30 @@ const api = {
   editor: {
     push: (nodeId: UUID, state: EditorPush | null): void =>
       ipcRenderer.send('editor:state', nodeId, state)
+  },
+
+  /**
+   * Quadro de TODO. O quadro vive num arquivo por nó, e não no workspace.json:
+   * ele é reescrito a cada cartão movido.
+   *
+   * `apply` manda uma OPERAÇÃO, e nunca o quadro inteiro — é o que permite o
+   * usuário arrastar um cartão enquanto um agente marca outro, sem um desfazer
+   * o outro. Ver core/todo/todo-store.ts.
+   */
+  todo: {
+    read: (workspaceId: UUID, file: string): Promise<TodoBoard | null> =>
+      ipcRenderer.invoke('todo:read', workspaceId, file),
+    apply: (
+      workspaceId: UUID,
+      file: string,
+      op: unknown
+    ): Promise<{ board: TodoBoard } | { error: string }> =>
+      ipcRenderer.invoke('todo:apply', workspaceId, file, op),
+    create: (workspaceId: UUID, file: string, title: string): Promise<TodoBoard> =>
+      ipcRenderer.invoke('todo:create', workspaceId, file, title),
+    /** O agente mexeu no quadro pelo CLI: releia. */
+    onChanged: (cb: (p: { workspaceId: UUID; nodeId: UUID }) => void): Unsubscribe =>
+      on('todo:changed', cb)
   },
 
   /**

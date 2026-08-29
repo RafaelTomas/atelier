@@ -42,7 +42,7 @@ import { terminalContentFromOpts } from '../core/models/terminal-draft'
 import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import type { WorkspaceManager } from '../core/state/workspace-manager'
 import { persistence } from '../core/persistence/persistence-manager'
-import { ipcSocketPath, dataDir } from '../core/persistence/paths'
+import { ipcSocketPath, dataDir, paths } from '../core/persistence/paths'
 import { listDirectory } from '../core/projects/file-tree'
 import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../core/projects/file-ops'
 import { fileWatcher } from '../core/projects/file-watcher'
@@ -60,6 +60,8 @@ import { takenNoteFiles } from '../core/state/note-files'
 import { projectIndex } from '../core/state/project-store'
 import { roles } from '../core/state/role-store'
 import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manager'
+import { apply as applyTodo, create as createTodo, read as readTodo } from '../core/todo/todo-store'
+import type { TodoOp } from '../core/todo/todo-store'
 import { accountUsage, setTerminalAccount } from '../core/terminal/status-line'
 // `keyRefs`/`syncVaultKeys` moram no vault-manager: o `.vault` tem dois
 // escritores (esta UI e o `atelier vault set`), e o espelho dos nomes no nó
@@ -1339,6 +1341,33 @@ export function registerIPC(): void {
     if (state) setEditorState(nodeId, state)
     else clearEditorState(nodeId)
   })
+
+  // ─── Quadro de TODO ─────────────────────────────────────────────────────────
+
+  /**
+   * O quadro daquele nó. `null` = arquivo corrompido, e o painel abre com aviso
+   * em vez de sobrescrever — o arquivo pode ser o trabalho de alguém.
+   */
+  ipcMain.handle('todo:read', async (_e, workspaceId: UUID, file: string) =>
+    readTodo(paths.todoFile(workspaceId, file))
+  )
+
+  /**
+   * Toda escrita é uma OPERAÇÃO, nunca "grave este quadro".
+   *
+   * Dois agentes mexendo no mesmo quadro é o caso normal aqui. Se o renderer
+   * mandasse o quadro inteiro, uma mudança feita pelo CLI entre a leitura e a
+   * gravação seria apagada — e o usuário arrastando um cartão desfaria, sem
+   * saber, o que o agente acabou de marcar. Ver core/todo/todo-store.ts.
+   */
+  ipcMain.handle('todo:apply', async (_e, workspaceId: UUID, file: string, op: TodoOp) => {
+    const result = await applyTodo(paths.todoFile(workspaceId, file), op)
+    return result.error ? { error: result.error } : { board: result.board }
+  })
+
+  ipcMain.handle('todo:create', async (_e, workspaceId: UUID, file: string, title: string) =>
+    createTodo(paths.todoFile(workspaceId, file), title)
+  )
 
   // ─── Monitor de recursos ────────────────────────────────────────────────────
 

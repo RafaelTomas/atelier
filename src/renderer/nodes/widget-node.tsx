@@ -18,6 +18,7 @@ import { IconLock, IconUnlock } from '../icons'
 import { GitPanel } from '../panels/git-panel'
 import type { MonitorBlocks } from '../panels/monitor-panel'
 import { MonitorPanel } from '../panels/monitor-panel'
+import { TodoPanel } from '../panels/todo-panel'
 import { ProjectPanel } from '../panels/project-panel'
 import { store, useStore } from '../state/store'
 
@@ -101,6 +102,18 @@ export function WidgetNode({
             aqui faria o painel ler a seleção por um caminho torto em vez do
             direto, e as duas leituras poderiam divergir. */}
         {content.kind === 'git' && <GitPanel projectId={locked ? content.projectId : undefined} />}
+        {content.kind === 'todo' && (
+          <TodoPanel
+            nodeId={node.id}
+            file={content.view.file ?? ''}
+            // Só 'list' é explícito; qualquer outra coisa (inclusive um modo
+            // gravado por uma versão mais nova) cai no kanban, que é o padrão.
+            mode={content.view.mode === 'list' ? 'list' : 'kanban'}
+            onChangeMode={(mode) =>
+              void store.patchContent(node.id, { view: { ...content.view, mode } })
+            }
+          />
+        )}
         {content.kind === 'monitor' && (
           <MonitorPanel
             blocks={readBlocks(content.view.blocks)}
@@ -132,6 +145,10 @@ export function widgetLabel(content: WidgetContent, projectName?: string): strin
   // O botão é chromeless — este título não vai para a tela, mas vale para quem
   // lista nós (o CLI acha o botão pelo rótulo que o usuário escreveu).
   if (content.kind === 'button') return content.view.label || 'Botão'
+  // O quadro mostra o TÍTULO dele: dois quadros chamados "TODO" não se
+  // distinguem no cabeçalho nem no `atelier list`, e é por esse nome que o
+  // agente os endereça.
+  if (content.kind === 'todo') return content.view.title || 'TODO'
   const base = LABELS[content.kind] ?? content.kind
   return content.projectId && projectName ? `${base} · ${projectName}` : base
 }

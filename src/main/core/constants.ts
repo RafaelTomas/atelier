@@ -73,11 +73,16 @@ export const Constants = {
   /** Anel de histórico do sparkline: 120 × 2s = 4 minutos de gráfico. */
   systemHistorySize: 120,
   /**
+   * Quadro de TODO (widget de kind `todo`): largo, porque as colunas do kanban
    * precisam caber lado a lado — abaixo de ~420px o painel cai sozinho para a
    * vista de lista.
    */
+  todoDefaultWidth: 560,
+  todoDefaultHeight: 380,
   /** Teto de cartões por quadro. Acima disso o kanban deixa de ser legível. */
+  todoMaxItems: 500,
   /** Abaixo desta largura o quadro mostra a lista, sem mudar o `view` gravado. */
+  todoListBreakpoint: 420,
   /** Colagens de imagem no terminal com mais que isto (ms) são apagadas no boot. */
   imageTmpMaxAgeMs: 24 * 60 * 60 * 1000,
   agentIdleTimeoutMs: 2000,

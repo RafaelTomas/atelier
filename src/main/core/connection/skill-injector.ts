@@ -145,6 +145,38 @@ atelier note write "Note Name" "content"
 atelier note edit "Note Name" "old text" "new text"
 \`\`\`
 
+## TODO board
+
+A board is the work plan of this canvas, with columns and status. It is what
+lets the user WATCH a card move from *Fazendo* to *Feito* while you work,
+without you having to tell them anything.
+
+\`\`\`
+atelier todo list ["Board"] [--status doing] [--mine]
+atelier todo add "Board" "title" [--status todo] [--assign "Name"] [--notes "…"]
+atelier todo move "Board" <id|"title prefix"> <status>
+atelier todo done "Board" <id|"title prefix">
+atelier todo show "Board" <id|"title prefix">
+atelier todo create "Title" [column…]
+\`\`\`
+
+Only boards CABLED to you, like everything else here. \`create\` makes one already
+connected to you. Name the board only when more than one is connected.
+
+Address a card by id or by a prefix of its title — an ambiguous prefix is an
+error listing the candidates, never "the first one".
+
+**Mark \`done\` when you FINISH, not when you start.** A board that says a card is
+done when it is merely begun is worse than no board: the user stops checking it.
+Move it to the middle column when you pick it up, and to the last one when the
+work is actually verified.
+
+\`--mine\` filters by \`assignee\` matching YOUR terminal name, which is how the
+board distributes work between agents: each one asks what is theirs.
+
+There is no \`delete\`. Removing a card is the user's gesture, in the node — the
+same line as the vault, where you create but do not destroy.
+
 ## Code editors
 
 A code editor node is a file open on the canvas — usually the file the user is

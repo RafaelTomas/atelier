@@ -1,10 +1,24 @@
 /** `atelier list` — agentes, notas e portais conectados ao chamador. */
-import type { UUID } from '@shared/types'
+import type { CanvasNode, TodoBoard, UUID } from '@shared/types'
 import { editorState } from '../../editor/editor-registry'
 import { nodeDisplayName } from '../../models/node-content'
+import { paths } from '../../persistence/paths'
 import { roles } from '../../state/role-store'
 import { terminals } from '../../terminal/terminal-manager'
-import { connectedNodes, requireTerminalId } from './context'
+import { readBoard } from '../../todo/todo-store'
+import { connectedNodes, requireTerminalId, workspaceForTerminal } from './context'
+
+/**
+ * O quadro daquele nó, lido do disco. `null` quando o arquivo não existe ou está
+ * corrompido — e aí a linha diz `(unreadable)` em vez de mentir um zero.
+ */
+async function boardOf(node: CanvasNode): Promise<TodoBoard | null> {
+  if (node.content.type !== 'widget') return null
+  const file = node.content.value.view.file
+  const ws = workspaceForTerminal(null)
+  if (!file || !ws) return null
+  return readBoard(paths.todoFile(ws.id, file))
+}
 
 export async function handleList(_args: string[], terminalId: UUID | null): Promise<string> {
   const tid = requireTerminalId(terminalId)
@@ -53,6 +67,28 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
       const dims = t ? `${t.rowCount} rows × ${t.columnCount} cols` : ''
       lines.push(`  ${nodeDisplayName(node.content)}  ${dims}${t?.truncated ? ' (truncated)' : ''}`)
     }
+  }
+
+  // Quadros de TODO. O que sai aqui é a CONTAGEM POR COLUNA, e não os cartões:
+  // o `atelier list` responde "com o que estou cabeado", e quem quer o conteúdo
+  // chama `atelier todo list`. Um quadro de trinta cartões despejado aqui
+  // afogaria o resto da resposta.
+  const boards = nodes.filter(
+    (n) => n.content.type === 'widget' && n.content.value.kind === 'todo'
+  )
+  if (boards.length > 0) {
+    lines.push('', 'Connected boards:')
+    for (const node of boards) {
+      const view = node.content.type === 'widget' ? node.content.value.view : {}
+      const board = await boardOf(node)
+      const counts = board
+        ? board.columns
+            .map((c) => `${c.id} ${board.items.filter((i) => i.status === c.id).length}`)
+            .join('  ')
+        : '(unreadable)'
+      lines.push(`  ${view.title || 'TODO'}  ${counts}`)
+    }
+    lines.push("  Read and write them with 'atelier todo …'.")
   }
 
   // Editores: o CAMINHO ABSOLUTO é o dado que serve para algo — é o que

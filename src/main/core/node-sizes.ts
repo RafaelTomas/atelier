@@ -41,6 +41,11 @@ function isMonitor(opts: Record<string, unknown>): boolean {
   return opts.kind === 'monitor'
 }
 
+/** O quadro é mais LARGO que um painel: as colunas do kanban ficam lado a lado. */
+function isTodo(opts: Record<string, unknown>): boolean {
+  return opts.kind === 'todo'
+}
+
 /**
  * Piso por tipo. A área é desenhada pelo usuário, e um retângulo de 20px
  * criaria um terminal onde nem o cabeçalho cabe.
@@ -101,6 +106,8 @@ export function defaultSize(
         return { width: Constants.buttonDefaultWidth, height: Constants.buttonDefaultHeight }
       if (isMonitor(opts))
         return { width: Constants.monitorDefaultWidth, height: Constants.monitorDefaultHeight }
+      if (isTodo(opts))
+        return { width: Constants.todoDefaultWidth, height: Constants.todoDefaultHeight }
       return { width: Constants.widgetDefaultWidth, height: Constants.widgetDefaultHeight }
     case 'secretVault':
       return { width: Constants.vaultDefaultWidth, height: Constants.vaultDefaultHeight }

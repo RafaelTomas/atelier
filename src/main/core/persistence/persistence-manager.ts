@@ -170,6 +170,7 @@ class PersistenceManager {
       paths.notesDir(id),
       paths.tablesDir(id),
       paths.imagesDir(id),
+      paths.todosDir(id),
       paths.terminalsDir(id),
       paths.vaultsDir(id),
       paths.snapshotsDir(id)

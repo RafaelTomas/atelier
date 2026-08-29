@@ -60,6 +60,14 @@ export const paths = {
   /** Bytes dos nós de imagem. Um arquivo por nó, nomeado pelo id do conteúdo. */
   imagesDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'images'),
   /**
+   * Quadros de TODO. Um JSON por nó, pela mesma regra da nota e da tabela: o
+   * quadro é reescrito a cada cartão movido, e `WidgetContent.view` é
+   * `[String: String]` com proibição explícita de alta frequência.
+   */
+  todosDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'todos'),
+  todoFile: (id: UUID, todoId: string) =>
+    join(dataDir(), 'workspaces', id, 'todos', `${todoId}.json`),
+  /**
    * Cofres de segredos. Um `.vault` por nó, com o blob cifrado pelo
    * `safeStorage`, mais o `access.log` da auditoria — que NUNCA guarda valor.
    * Fora do workspace.json pela mesma regra da nota e da tabela.

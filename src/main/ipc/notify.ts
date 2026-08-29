@@ -8,6 +8,10 @@ export type RendererEvent =
   | 'workspace:changed'
   | 'note:changed'
   | 'table:changed'
+  // O quadro de TODO mudou POR FORA — pelo `atelier todo` de um agente. Sem
+  // este empurrão o nó mostraria o quadro de antes até alguém mexer nele, e o
+  // ponto da feature é ver o cartão andar enquanto o agente trabalha.
+  | 'todo:changed'
   | 'vault:changed'
   | 'connection:status'
   | 'terminal:data'

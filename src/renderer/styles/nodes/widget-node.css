@@ -226,3 +226,105 @@
 }
 
 
+/* ─── Quadro de TODO (kind `todo`) ─────────────────────────────────────────────
+
+   Duas vistas sobre o mesmo arquivo. O kanban rola POR COLUNA, e não no bloco
+   inteiro: uma coluna cheia não pode empurrar as outras para fora do nó.
+
+   A largura decide qual vista aparece (ResizeObserver no painel, não media
+   query — quem muda de tamanho é o nó, não a janela), mas nunca qual está
+   GRAVADA: `view.mode` é a intenção do usuário. */
+
+.todo {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  font-size: var(--fs-sm); color: var(--text);
+}
+
+.todo-bar {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 8px; flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+.todo-input {
+  flex: 1; min-width: 0;
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  padding: 3px 6px; font-size: var(--fs-sm);
+}
+.todo-mode {
+  flex-shrink: 0; background: none; border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text-dim);
+  font-size: var(--fs-2xs); padding: 2px 6px; cursor: pointer;
+}
+
+/* As colunas: rolagem horizontal no conjunto, vertical dentro de cada uma. */
+.todo-columns {
+  flex: 1; min-height: 0; display: flex; gap: 8px;
+  padding: 8px; overflow-x: auto;
+}
+.todo-column {
+  flex: 0 0 180px; min-height: 0; display: flex; flex-direction: column; gap: 4px;
+  overflow-y: auto;
+  border-radius: var(--r-md); padding: 4px;
+}
+/* Enquanto um cartão está sendo arrastado, as colunas de DESTINO acendem — sem
+   isso não há como saber onde o cartão vai cair antes de soltá-lo. */
+.todo-column.is-target { background: var(--surface-2); }
+
+.todo-column-title {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0; padding: 0 2px; flex-shrink: 0;
+  font-size: var(--fs-2xs); font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim);
+}
+.todo-count {
+  font-weight: 400; letter-spacing: 0;
+  padding: 0 4px; border-radius: var(--r-sm); background: var(--surface-2);
+}
+
+.todo-card {
+  position: relative;
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 5px 7px; border-radius: var(--r-sm);
+  background: var(--surface-2); border: 1px solid var(--border);
+  cursor: grab;
+}
+.todo-card:active { cursor: grabbing; }
+.todo-card-title { word-break: break-word; }
+
+/* Quem é o responsável, no cartão e na linha: é o que faz o quadro servir como
+   distribuição de trabalho entre agentes (`atelier todo list --mine`). */
+.todo-who {
+  align-self: flex-start;
+  font-size: var(--fs-2xs); color: var(--text-dim);
+  padding: 0 4px; border-radius: var(--r-sm); background: var(--border);
+}
+
+/* Excluir só aparece no hover: é a única ação destrutiva do painel, e o CLI
+   deliberadamente não tem equivalente. */
+.todo-remove {
+  position: absolute; top: 2px; right: 2px;
+  opacity: 0; color: var(--rope-error);
+}
+.todo-card:hover .todo-remove { opacity: 1; }
+
+.todo-list {
+  flex: 1; min-height: 0; overflow-y: auto;
+  list-style: none; margin: 0; padding: 8px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.todo-list-items { list-style: none; margin: 2px 0 0; padding: 0; }
+.todo-line { display: flex; align-items: baseline; gap: 6px; padding: 1px 0; }
+.todo-line input { flex-shrink: 0; }
+.todo-line-title { flex: 1; min-width: 0; word-break: break-word; }
+.todo-line-title.is-done { color: var(--text-dim); text-decoration: line-through; }
+
+.todo-empty {
+  flex: 1; display: flex; flex-direction: column; gap: 6px;
+  align-items: center; justify-content: center; text-align: center;
+  padding: 16px; color: var(--text-dim); font-size: var(--fs-xs);
+}
+.todo-empty p { margin: 0; }
+.todo-hint code {
+  background: var(--border); padding: 1px 4px; border-radius: var(--r-sm);
+}

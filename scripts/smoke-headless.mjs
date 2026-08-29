@@ -634,6 +634,70 @@ await test('recruit sem nome devolve o uso', async () => {
   assert.match(await cli(['recruit'], terminalId), /usage: atelier recruit/)
 })
 
+// ─── Quadro de TODO ───────────────────────────────────────────────────────────
+//
+// Pelo socket real, com o escopo de cabo que vale para todo o CLI. O que estes
+// testes protegem é a regra que faz o quadro valer num canvas multi-agente: um
+// agente só enxerga o quadro que ligaram nele, e prefixo ambíguo é erro em vez
+// de "o primeiro".
+
+await test('atelier todo create cria o quadro já cabeado ao chamador', async () => {
+  const out = await cli(['todo', 'create', 'Sprint'], terminalId)
+  assert.match(out, /Created board 'Sprint'/)
+  assert.match(out, /todo, doing, done/)
+  // Aparece na lista do chamador: o cabo é o que dá acesso ao quadro.
+  assert.match(await cli(['list'], terminalId), /Connected boards/)
+})
+
+await test('add, move e done atravessam e o quadro reflete', async () => {
+  await cli(['todo', 'add', 'Sprint', 'Etapa 3'], terminalId)
+  await cli(['todo', 'add', 'Sprint', 'Etapa 4'], terminalId)
+
+  const movido = await cli(['todo', 'move', 'Sprint', 'Etapa 3', 'doing'], terminalId)
+  assert.match(movido, /Moved 'Etapa 3' to doing/)
+
+  const feito = await cli(['todo', 'done', 'Sprint', 'Etapa 4'], terminalId)
+  assert.match(feito, /to done/)
+
+  const lista = await cli(['todo', 'list', 'Sprint'], terminalId)
+  assert.match(lista, /Fazendo \(doing\) — 1/)
+  assert.match(lista, /Feito \(done\) — 1/)
+})
+
+await test('status inexistente é erro que lista os válidos', async () => {
+  const out = await cli(['todo', 'move', 'Sprint', 'Etapa 3', 'arquivado'], terminalId)
+  assert.match(out, /unknown status/)
+  assert.match(out, /'doing'/)
+})
+
+await test('prefixo AMBÍGUO é erro que nomeia os candidatos, nunca "o primeiro"', async () => {
+  // Escolher por ele faria o agente marcar como feito um cartão que não é o dele.
+  await cli(['todo', 'add', 'Sprint', 'Revisar A'], terminalId)
+  await cli(['todo', 'add', 'Sprint', 'Revisar B'], terminalId)
+  const out = await cli(['todo', 'move', 'Sprint', 'Revisar', 'doing'], terminalId)
+  assert.match(out, /matches several items/)
+  assert.match(out, /Revisar A/)
+  assert.match(out, /Revisar B/)
+})
+
+await test('--mine filtra pelo nome do terminal chamador', async () => {
+  await cli(['todo', 'add', 'Sprint', 'Do outro', '--assign', 'Ninguem'], terminalId)
+  const meu = await cli(['todo', 'list', 'Sprint', '--mine'], terminalId)
+  assert.doesNotMatch(meu, /Do outro/, 'trouxe o cartão de outro agente')
+  assert.match(meu, /filtered to/)
+})
+
+await test('um terminal NÃO cabeado ao quadro não o enxerga', async () => {
+  // O escopo é o cabo, como em todo o resto do CLI.
+  const outro = await cli(['todo', 'list'], 'FFFFFFFF-0000-0000-0000-00000000FF01')
+  assert.match(outro, /no TODO board connected/)
+})
+
+await test('todo add num quadro que não existe é recusado', async () => {
+  const out = await cli(['todo', 'add', 'Inexistente', 'X'], terminalId)
+  assert.match(out, /no connected board named/)
+})
+
 // ─── recruit --command ────────────────────────────────────────────────────────
 //
 // A flag existe para um caso que nenhum preset expressa: recriar um agente

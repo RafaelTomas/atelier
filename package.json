@@ -30,9 +30,10 @@
     "test:claude-accounts": "node scripts/test-claude-accounts.mjs",
     "test:tokens": "node scripts/test-tokens.mjs",
     "test:monitor": "node scripts/test-monitor.mjs",
+    "test:todo": "node scripts/test-todo.mjs",
     "test:placement": "node scripts/test-placement.mjs",
     "test:css-order": "node scripts/test-css-order.mjs",
-    "test": "npm run test:codec && npm run test:data-table && npm run test:image && npm run test:git && npm run test:minimap && npm run test:groups && npm run test:vault && npm run test:editor && npm run test:claude-accounts && npm run test:tokens && npm run test:monitor && npm run test:placement && npm run test:css-order && npm run test:smoke"
+    "test": "npm run test:codec && npm run test:data-table && npm run test:image && npm run test:git && npm run test:minimap && npm run test:groups && npm run test:vault && npm run test:editor && npm run test:claude-accounts && npm run test:tokens && npm run test:monitor && npm run test:todo && npm run test:placement && npm run test:css-order && npm run test:smoke"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",

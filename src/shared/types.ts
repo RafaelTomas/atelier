@@ -528,7 +528,12 @@ export const CONNECTABLE_TYPES: NodeContentType[] = [
   'portal',
   'dataTable',
   'image',
-  'secretVault'
+  'secretVault',
+  // `widget` entrou pelo quadro de TODO: para o agente escrever num quadro, o
+  // quadro precisa aceitar cabo. Vale para TODO widget — o de git e o de
+  // projetos junto —, e é por isso que a recusa acontece por `kind` no momento
+  // de aceitar a ligação (ver connectionKindForTypes abaixo), e não aqui.
+  'widget'
 ]
 
 export function isConnectable(content: NodeContent): boolean {
@@ -738,6 +743,12 @@ export function connectionKindForTypes(
   // mais antigo ignoraria a chave nova e apagaria os cabos no primeiro
   // autosave. O ganho seria só uma cor de cabo diferente.
   if (pair.has('terminal') && pair.has('codeEditor')) return 'data'
+  // Quadro de TODO ligado a um agente: MESMO cabo `data`, pela razão escrita
+  // logo acima para o editor. Em disco cai em `dataConnections`, cujos campos
+  // são só referências de id, então nenhum documento muda de forma e o
+  // `schemaVersion` não sobe. Um `kind: 'board'` próprio custaria uma migração
+  // inteira para ganhar uma cor de cabo diferente.
+  if (pair.has('terminal') && pair.has('widget')) return 'data'
   // Um kind só para terminal↔cofre e portal↔cofre — e, mais tarde,
   // dataTable↔cofre. Em disco os campos são neutros (`nodeIdA`/`nodeIdB`),
   // como no crossFloor, justamente para o par novo não pedir lista nova.

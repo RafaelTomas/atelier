@@ -25,6 +25,7 @@ import {
   IconNote,
   IconPlay,
   IconPulse,
+  IconCheck,
   IconTerminal,
   IconText
 } from './icons'
@@ -408,6 +409,28 @@ export function Dock(): JSX.Element {
       {/* Ao lado do cofre e do botão, e não na cascata da rail com Git e
           Projetos: aqueles pedem um projeto escolhido antes de terem o que
           mostrar, e o monitor mede a MÁQUINA — não depende de nada. */}
+      {/* Ao lado do Monitor: os dois são painéis que o AGENTE alimenta, e
+          nenhum dos dois depende de um projeto selecionado. */}
+      <DockButton
+        label="TODO"
+        hint="quadro de trabalho — o agente move os cartões enquanto trabalha"
+        onClick={() =>
+          add(
+            'widget',
+            [560, 380],
+            // O nome do ARQUIVO nasce aqui: o quadro vive em
+            // `todos/<file>.json`, e sem ele o painel não teria onde gravar. O
+            // arquivo em si só passa a existir no primeiro cartão — um quadro
+            // vazio não tem nada a persistir.
+            { kind: 'todo', view: { title: 'TODO', mode: 'kanban', file: crypto.randomUUID() } },
+            undefined,
+            'quadro de TODO'
+          )
+        }
+      >
+        <IconCheck />
+      </DockButton>
+
       <DockButton
         label="Monitor"
         hint="CPU, memória, disco e o uso dos agentes deste canvas"

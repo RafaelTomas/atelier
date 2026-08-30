@@ -11,7 +11,7 @@
  * no ponto clicado dentro do canvas (ver canvas/draw-menu.tsx).
  */
 import { useEffect, useRef, useState } from 'react'
-import type { Rect } from '@shared/types'
+import type { PlacementEdge, Rect } from '@shared/types'
 import {
   IconChevronDown,
   IconClip,
@@ -24,6 +24,8 @@ import {
   IconLock,
   IconNote,
   IconPlay,
+  IconPulse,
+  IconCheck,
   IconTerminal,
   IconText
 } from './icons'
@@ -31,6 +33,9 @@ import { GROUP_MIN_HEIGHT, GROUP_MIN_WIDTH, rectContains } from './canvas/group-
 import { rectCenter } from './canvas/viewport'
 import { HOME_URL } from './nodes/portal-node'
 import { truncateStart } from './paths'
+import { PlacementTargets } from './floating/placement-targets'
+import { PillMenu } from './floating/pill-menu'
+import { usePill } from './floating/use-pill'
 import { store, useStore } from './state/store'
 import { PDF_NODE_SIZE } from './pdf-viewer'
 
@@ -47,7 +52,10 @@ const MIN_SIZE: Record<string, [number, number]> = {
   secretVault: [220, 140],
   text: [80, 32],
   // Espelha Constants.buttonMin* — o main aplica o mesmo piso ao criar.
-  button: [56, 56]
+  button: [56, 56],
+  // Espelha Constants.widgetMin*: o monitor nasce menor que o painel padrão,
+  // mas o PISO continua o do widget — abaixo disso o bloco IA não cabe.
+  widget: [240, 180]
 }
 
 interface MenuItem {
@@ -58,7 +66,10 @@ interface MenuItem {
 }
 
 export function Dock(): JSX.Element {
-  const { tool, workspace } = useStore()
+  const { tool, workspace, monitorDockVisible } = useStore()
+  // Arrastar, menu de contexto e troca de borda: o mesmo comportamento da rail,
+  // e por isso num hook compartilhado em vez de duplicado nas duas.
+  const pill = usePill('dock')
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const dockRef = useRef<HTMLDivElement>(null)
 
@@ -86,7 +97,7 @@ export function Dock(): JSX.Element {
    * peso) é campo de conteúdo e vai por patchContent.
    */
   const create = (
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault' | 'widget',
     frame: Rect,
     opts: Record<string, unknown> = {},
     patch?: Record<string, unknown>
@@ -103,7 +114,7 @@ export function Dock(): JSX.Element {
    * canvas vale como "tamanho padrão aqui" (ver CLICK_SLOP no canvas-view).
    */
   const add = (
-    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault',
+    kind: 'terminal' | 'note' | 'text' | 'portal' | 'fileTree' | 'secretVault' | 'widget',
     size: [number, number],
     opts: Record<string, unknown> = {},
     patch?: Record<string, unknown>,
@@ -270,6 +281,35 @@ export function Dock(): JSX.Element {
     }
   ]
 
+  /**
+   * O nó e a tira, no mesmo ícone — o `IconPulse` já é o do monitor.
+   *
+   * A alternância da tira mora AQUI, e não só no menu de contexto dela: uma
+   * peça que se esconde sem deixar como trazê-la de volta é o estado ruim que
+   * o plano das docks móveis listou em "Ficou para depois". Aqui ele era
+   * inevitável — a tira consome recurso, então desligá-la é um pedido legítimo
+   * —, então as duas pontas nasceram no mesmo passo. Nunca só a segunda.
+   */
+  const MONITOR_MENU: MenuItem[] = [
+    {
+      id: 'monitor-strip',
+      label: monitorDockVisible ? 'Ocultar a tira da borda' : 'Mostrar a tira na borda',
+      hint: monitorDockVisible
+        ? 'para de amostrar a cada 2s'
+        : 'leituras sempre à vista, custa uma amostra a cada 2s',
+      run: () => {
+        setOpenMenu(null)
+        void store.setMonitorDockVisible(!monitorDockVisible)
+      }
+    },
+    {
+      id: 'monitor-node',
+      label: 'Monitor no canvas',
+      hint: 'o painel inteiro, ancorado a uma região',
+      run: () => add('widget', [340, 300], { kind: 'monitor' }, undefined, 'monitor de recursos')
+    }
+  ]
+
   const TEXT_MENU: MenuItem[] = [
     {
       id: 'text',
@@ -292,7 +332,21 @@ export function Dock(): JSX.Element {
   ]
 
   return (
-    <div className="floating dock" ref={dockRef} onMouseDown={(e) => e.stopPropagation()}>
+    <>
+    {/* Os alvos só existem durante o gesto: fora dele são quatro retângulos
+        pintados sobre o canvas sem motivo. */}
+    {pill.dragging && <PlacementTargets hot={pill.hot} />}
+    <div
+      className={pill.dragging ? 'floating pill dock is-dragging' : 'floating pill dock'}
+      data-edge={pill.placement.edge}
+      // A posição AO LONGO da borda é contínua: vai por CSS var, não por um
+      // atributo de três valores (ver styles/floating.css).
+      style={{ '--pill-offset': String(pill.placement.offset) } as React.CSSProperties}
+      ref={dockRef}
+      onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={pill.onPointerDown}
+      onContextMenu={pill.onContextMenu}
+    >
       {/* Um botão, dois modos: ponteiro seleciona, mão move o quadro. Clicar
           de novo volta ao ponteiro — o ícone é o que diz em qual dos dois se
           está, então ele troca junto. */}
@@ -331,6 +385,7 @@ export function Dock(): JSX.Element {
         items={NOTE_MENU}
         open={openMenu === 'note'}
         onToggle={() => setOpenMenu((v) => (v === 'note' ? null : 'note'))}
+        edge={pill.placement.edge}
       >
         <IconNote />
       </DockMenuButton>
@@ -356,6 +411,7 @@ export function Dock(): JSX.Element {
         items={FILE_MENU}
         open={openMenu === 'files'}
         onToggle={() => setOpenMenu((v) => (v === 'files' ? null : 'files'))}
+        edge={pill.placement.edge}
       >
         <IconFolder />
       </DockMenuButton>
@@ -378,6 +434,41 @@ export function Dock(): JSX.Element {
       >
         <IconLock />
       </DockButton>
+
+      {/* Ao lado do cofre e do botão, e não na cascata da rail com Git e
+          Projetos: aqueles pedem um projeto escolhido antes de terem o que
+          mostrar, e o monitor mede a MÁQUINA — não depende de nada. */}
+      {/* Ao lado do Monitor: os dois são painéis que o AGENTE alimenta, e
+          nenhum dos dois depende de um projeto selecionado. */}
+      <DockButton
+        label="Tarefas"
+        hint="quadro de trabalho — o agente move os cartões enquanto trabalha"
+        onClick={() =>
+          add(
+            'widget',
+            [560, 380],
+            // O nome do ARQUIVO nasce aqui: o quadro vive em
+            // `todos/<file>.json`, e sem ele o painel não teria onde gravar. O
+            // arquivo em si só passa a existir no primeiro cartão — um quadro
+            // vazio não tem nada a persistir.
+            { kind: 'todo', view: { title: 'Tarefas', mode: 'kanban', file: crypto.randomUUID() } },
+            undefined,
+            'quadro de Tarefas'
+          )
+        }
+      >
+        <IconCheck />
+      </DockButton>
+
+      <DockMenuButton
+        label="Monitor"
+        items={MONITOR_MENU}
+        open={openMenu === 'monitor'}
+        onToggle={() => setOpenMenu((v) => (v === 'monitor' ? null : 'monitor'))}
+        edge={pill.placement.edge}
+      >
+        <IconPulse />
+      </DockMenuButton>
 
       <DockButton
         label="Botão"
@@ -402,6 +493,7 @@ export function Dock(): JSX.Element {
         items={TEXT_MENU}
         open={openMenu === 'text'}
         onToggle={() => setOpenMenu((v) => (v === 'text' ? null : 'text'))}
+        edge={pill.placement.edge}
       >
         <IconText />
       </DockMenuButton>
@@ -442,6 +534,18 @@ export function Dock(): JSX.Element {
         <IconDraw />
       </DockButton>
     </div>
+
+    {pill.menu && (
+      <PillMenu
+        x={pill.menu.x}
+        y={pill.menu.y}
+        current={pill.placement}
+        fallback={pill.fallback}
+        onPick={pill.apply}
+        onClose={pill.closeMenu}
+      />
+    )}
+    </>
   )
 }
 
@@ -521,10 +625,23 @@ interface DockMenuButtonProps {
   items: MenuItem[]
   open: boolean
   onToggle: () => void
+  /**
+   * Borda em que a dock está. O menu abre para o lado do CANVAS — com a dock na
+   * base ele sobe, no topo desce, e nas verticais sai de lado. A regra é uma por
+   * borda e mora no CSS (`.dock-menu[data-edge]`); o componente só a informa.
+   */
+  edge: PlacementEdge
   children: React.ReactNode
 }
 
-function DockMenuButton({ label, items, open, onToggle, children }: DockMenuButtonProps): JSX.Element {
+function DockMenuButton({
+  label,
+  items,
+  open,
+  onToggle,
+  edge,
+  children
+}: DockMenuButtonProps): JSX.Element {
   return (
     <div className="dock-item">
       <button
@@ -543,7 +660,7 @@ function DockMenuButton({ label, items, open, onToggle, children }: DockMenuButt
       </button>
 
       {open && (
-        <div className="dock-menu" role="menu">
+        <div className="dock-menu" role="menu" data-edge={edge}>
           <div className="dock-menu-title">{label}</div>
           {items.map((item) => (
             <button key={item.id} type="button" role="menuitem" onClick={item.run}>

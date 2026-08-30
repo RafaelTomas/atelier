@@ -41,6 +41,14 @@ export const paths = {
   /** Lista das contas do Claude (rótulo + id). Os segredos não estão aqui. */
   claudeAccounts: () => join(dataDir(), 'claude-accounts.json'),
   claudeAccountsDir: () => join(dataDir(), 'claude-accounts'),
+  /**
+   * Última leitura de limite (5h/7d) de cada conta. Arquivo próprio, e não uma
+   * chave do claude-accounts.json: aquele é a LISTA de contas, escrita quando o
+   * usuário cria ou renomeia uma; este é reescrito enquanto os agentes rodam, e
+   * misturar as duas cadências arriscaria a lista por causa da telemetria.
+   */
+  claudeUsage: () => join(dataDir(), 'claude-usage.json'),
+  codexUsage: () => join(dataDir(), 'codex-usage.json'),
   /** O `CLAUDE_CONFIG_DIR` de uma conta — um ~/.claude só dela. */
   claudeAccountDir: (id: string) => join(dataDir(), 'claude-accounts', id),
   /** Arquivos efêmeros — hoje só as imagens coladas dentro de um terminal. */
@@ -52,6 +60,22 @@ export const paths = {
   tablesDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'tables'),
   /** Bytes dos nós de imagem. Um arquivo por nó, nomeado pelo id do conteúdo. */
   imagesDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'images'),
+  /**
+   * Quadros de TODO. Um JSON por nó, pela mesma regra da nota e da tabela: o
+   * quadro é reescrito a cada cartão movido, e `WidgetContent.view` é
+   * `[String: String]` com proibição explícita de alta frequência.
+   */
+  todosDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'todos'),
+  todoFile: (id: UUID, todoId: string) =>
+    join(dataDir(), 'workspaces', id, 'todos', `${todoId}.json`),
+  /**
+   * Planos dos cartões daquele quadro — um JSON por nó, com o MESMO nome de
+   * arquivo do quadro. Separado dele porque versões e eventos crescem sem
+   * limite: juntá-los faria cada cartão arrastado reescrever todo o histórico.
+   */
+  plansDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'plans'),
+  planFile: (id: UUID, todoId: string) =>
+    join(dataDir(), 'workspaces', id, 'plans', `${todoId}.json`),
   /**
    * Cofres de segredos. Um `.vault` por nó, com o blob cifrado pelo
    * `safeStorage`, mais o `access.log` da auditoria — que NUNCA guarda valor.
@@ -66,7 +90,18 @@ export const paths = {
   /** Capturas de portal pedidas pelo agente (`atelier portal shot`). */
   shotsDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'shots'),
   scrollback: (workspaceId: UUID, terminalId: UUID) =>
-    join(dataDir(), 'workspaces', workspaceId, 'terminals', `${terminalId}.scrollback`)
+    join(dataDir(), 'workspaces', workspaceId, 'terminals', `${terminalId}.scrollback`),
+  /**
+   * O id da sessão do agente daquele nó, para o `--resume` do boot seguinte.
+   *
+   * Ao lado do `.scrollback` e FORA do workspace.json, pela mesma regra da nota,
+   * da tabela, da imagem e do cofre: o que é derivado e descartável não entra no
+   * conteúdo do nó. Aqui há uma razão a mais — o app nativo Swift descarta
+   * chave que não conhece dentro de `TerminalContent`, e um campo novo ali seria
+   * perdido em silêncio no primeiro save de quem abrisse o canvas de lá.
+   */
+  terminalSession: (workspaceId: UUID, terminalId: UUID) =>
+    join(dataDir(), 'workspaces', workspaceId, 'terminals', `${terminalId}.session.json`)
 }
 
 /**

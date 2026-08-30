@@ -67,16 +67,7 @@ export function NodeActionBar({ node }: Props): JSX.Element {
       >
         <IconPencil size={16} />
       </button>
-      {isTerminal && (
-        <button
-          type="button"
-          className="icon-btn action-btn"
-          title="Recarregar — mata o processo e sobe outro"
-          onClick={() => void store.restartTerminal(node.id)}
-        >
-          <IconReload size={16} />
-        </button>
-      )}
+      {isTerminal && <SessionButton node={node} />}
       <ClaudeAccountButton node={node} />
       <span className="action-sep" />
       <button
@@ -88,6 +79,83 @@ export function NodeActionBar({ node }: Props): JSX.Element {
         <IconTrash size={16} />
       </button>
     </div>
+  )
+}
+
+/**
+ * O ↻ com as duas maneiras de reiniciar um agente.
+ *
+ * Antes era um botão só, e ele fazia a única coisa possível: matar o processo e
+ * subir outro, virgem. Com o id da sessão gravado por nó (ver
+ * core/terminal/session-store.ts), reiniciar passou a ter DUAS respostas
+ * legítimas, e nenhuma delas é o padrão óbvio da outra:
+ *
+ *  - **Sessão nova** é o gesto de desistir do estado atual — o que o ↻ sempre
+ *    significou. Continua sendo o clique direto, e apaga o id.
+ *  - **Retomar sessão** ressuscita a conversa. Só aparece quando existe um id
+ *    gravado, e diz QUAL sessão vai voltar: uma ação que traz de volta um
+ *    contexto sem dizer qual é pior que nenhuma ação.
+ *
+ * A sessão é consultada ao ABRIR o menu, não a cada render: é um round-trip por
+ * nó, e o dado só interessa no instante em que alguém vai escolher.
+ */
+function SessionButton({ node }: Props): JSX.Element {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [session, setSession] = useState<{ sessionId: string; startedAt: string } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  const open = (): void => {
+    const rect = btnRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setSession(null)
+    void store.terminalSession(node.id).then(setSession)
+    setMenu({ x: rect.right, y: rect.bottom + 4 })
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className="icon-btn action-btn"
+        title="Reiniciar o agente — sessão nova ou retomando a anterior"
+        onClick={() => (menu ? setMenu(null) : open())}
+      >
+        <IconReload size={16} />
+      </button>
+
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} align="right">
+          <span className="context-menu-label">Reiniciar agente</span>
+          <button
+            type="button"
+            onClick={() => {
+              setMenu(null)
+              void store.restartTerminal(node.id)
+            }}
+          >
+            Sessão nova <span className="dock-menu-hint">descarta o contexto atual</span>
+          </button>
+          {/* Ausente, e não desabilitado, quando não há o que retomar: um item
+              permanentemente cinza só ensina o usuário a ignorar o menu. */}
+          {session && (
+            <button
+              type="button"
+              onClick={() => {
+                setMenu(null)
+                void store.resumeTerminal(node.id)
+              }}
+            >
+              Retomar sessão{' '}
+              <span className="dock-menu-hint">
+                {session.sessionId.slice(0, 8)}
+                {session.startedAt ? ` · ${session.startedAt.slice(0, 10)}` : ''}
+              </span>
+            </button>
+          )}
+        </ContextMenu>
+      )}
+    </>
   )
 }
 

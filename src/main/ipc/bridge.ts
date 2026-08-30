@@ -6,7 +6,7 @@
  */
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, sep } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { extForImageMime, isSupportedImageName, mimeForImageName, pngDimensions } from '@shared/image'
@@ -26,6 +26,7 @@ import type {
   WorkspacePayload
 } from '@shared/types'
 import { claudeAccounts } from '../core/claude/accounts'
+import { codexTelemetry } from '../core/codex/codex-telemetry'
 import { Constants } from '../core/constants'
 import { log } from '../core/logger'
 import {
@@ -43,7 +44,7 @@ import { terminalContentFromOpts } from '../core/models/terminal-draft'
 import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import type { WorkspaceManager } from '../core/state/workspace-manager'
 import { persistence } from '../core/persistence/persistence-manager'
-import { ipcSocketPath, dataDir } from '../core/persistence/paths'
+import { ipcSocketPath, dataDir, paths } from '../core/persistence/paths'
 import { listDirectory } from '../core/projects/file-tree'
 import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../core/projects/file-ops'
 import { fileWatcher } from '../core/projects/file-watcher'
@@ -61,6 +62,14 @@ import { takenNoteFiles } from '../core/state/note-files'
 import { projectIndex } from '../core/state/project-store'
 import { roles } from '../core/state/role-store'
 import { ptyUnavailableReason, terminals } from '../core/terminal/terminal-manager'
+import { supportsResume } from '../core/terminal/agent-resume'
+import { listClaudeSessions } from '../core/terminal/claude-sessions'
+import { apply as applyTodo, create as createTodo, read as readTodo } from '../core/todo/todo-store'
+import type { TodoOp } from '../core/todo/todo-store'
+import { apply as applyPlan, read as readPlans } from '../core/todo/plan-store'
+import type { PlanOp } from '../core/todo/plan-store'
+import { clearSession, readSession } from '../core/terminal/session-store'
+import { accountUsage, setTerminalAccount } from '../core/terminal/status-line'
 // `keyRefs`/`syncVaultKeys` moram no vault-manager: o `.vault` tem dois
 // escritores (esta UI e o `atelier vault set`), e o espelho dos nomes no nó
 // precisa ser exatamente o mesmo código nos dois caminhos.
@@ -73,11 +82,17 @@ import {
 import { interAgentServer } from '../core/interagent/server'
 import { onConnectionCreated, restoreConnections } from '../core/connection/connection-manager'
 import { forgetTerminal } from '../core/connection/skill-injector'
+import {
+  cancelImageDelete,
+  scheduleImageDelete
+} from '../core/persistence/pending-image-delete'
+import type { RemovedNodeSnapshot } from '@shared/node-undo'
 import { registerGuest, unregisterGuest } from '../core/portal/portal-registry'
 import { closeSession, openSession } from '../core/portal/portal-cdp'
 import { spawnPortal } from '../core/portal/portal-spawn'
 import { notifyRenderer } from './notify'
 import { defaultSize, minSize, type NewNodeKind } from '../core/node-sizes'
+import { SystemStatsMonitor } from '../core/system/system-stats'
 
 /** Só as entradas de texto de um mapa vindo do renderer (ver decodeWidget). */
 function stringMap(value: unknown): Record<string, string> {
@@ -288,6 +303,18 @@ function allowReveal(vaultId: UUID): boolean {
   return true
 }
 
+/**
+ * O amostrador de recursos da janela — UM, para todos os nós de monitor.
+ *
+ * Fica aqui, no módulo que já é singleton por natureza, e não dentro do
+ * `registerIPC`: o ref-count precisa sobreviver a cada assinatura e cada
+ * desmonte, e um objeto criado dentro da função morreria com o escopo dela.
+ */
+const systemStats = new SystemStatsMonitor(
+  (stats) => notifyRenderer('system:stats', stats),
+  Constants.systemSampleIntervalMs
+)
+
 export function registerIPC(): void {
   // ─── App ────────────────────────────────────────────────────────────────────
 
@@ -436,13 +463,40 @@ export function registerIPC(): void {
     if (!ws) return
     terminals.kill(nodeId)
     forgetTerminal(nodeId)
+    // O `.session.json` NÃO é apagado aqui, e isso é o que faz o undo de um
+    // terminal valer a pena: o nó volta parado, e o boot seguinte retoma a
+    // conversa pelo id gravado. Só `clearSession` (o "sessão nova" do ↻) apaga.
+    //
     // Imagem carrega um arquivo de bytes (pode ser grande): apaga junto, ao
-    // contrário da nota/tabela, cujos arquivos-texto são leves e ficam.
+    // contrário da nota/tabela, cujos arquivos-texto são leves e ficam. Mas
+    // só DEPOIS da janela de undo — ver pending-image-delete.
     const node = ws.node(nodeId)
     if (node?.content.type === 'image' && node.content.value.fileName) {
-      void persistence.deleteImage(ws.id, node.content.value.fileName).catch(() => undefined)
+      scheduleImageDelete(nodeId, ws.id, node.content.value.fileName, (id, file) =>
+        persistence.deleteImage(id, file)
+      )
     }
     ws.removeNode(nodeId)
+  })
+
+  /**
+   * Desfazer o remove: os nós voltam com o MESMO id, com os cabos que morreram
+   * junto e para dentro da moldura de onde saíram.
+   *
+   * Não é `node:add` com outro nome — `node:add` cria um id novo, e os arquivos
+   * que vivem por nodeId (scrollback, `.session.json`, o `.md` da nota, a
+   * tabela, a imagem) ficariam órfãos ao lado de um nó vazio.
+   *
+   * O PTY não sobe junto: um terminal restaurado volta parado, de propósito.
+   * Ressuscitar processo sem o usuário pedir é decisão demais para um ⌘Z, e a
+   * conversa não se perde — o `--resume` do próximo boot a recupera.
+   */
+  ipcMain.handle('node:restore', (_e, workspaceId: UUID, snapshots: RemovedNodeSnapshot[]) => {
+    const ws = appState.workspaces.get(workspaceId)
+    if (!ws) return []
+    const restored = ws.restoreNodes(snapshots ?? [])
+    for (const nodeId of restored) cancelImageDelete(nodeId)
+    return restored
   })
 
   ipcMain.handle('node:set-frame', (_e, workspaceId: UUID, nodeId: UUID, frame: Rect) => {
@@ -499,6 +553,17 @@ export function registerIPC(): void {
   // ─── Contas do Claude ───────────────────────────────────────────────────────
 
   ipcMain.handle('claude-account:list', () => claudeAccounts.list())
+
+  // A última leitura de limite (5h/7d) de cada conta — o bloco "Perfis" do
+  // monitor. Vem separado do `list` porque muda numa cadência completamente
+  // outra: a lista muda quando o usuário cria uma conta, isto a cada mensagem
+  // que um agente manda.
+  ipcMain.handle('claude-account:usage', () => accountUsage())
+
+  ipcMain.handle('codex:subscribe', () => codexTelemetry.subscribe())
+  ipcMain.handle('codex:unsubscribe', () => codexTelemetry.unsubscribe())
+  ipcMain.handle('codex:refresh-account', () => codexTelemetry.refreshAccount())
+  ipcMain.handle('codex:account-usage', () => codexTelemetry.accountUsage())
 
   ipcMain.handle('claude-account:create', async (_e, label: string) => {
     const { account, warnings } = await claudeAccounts.create(String(label ?? ''))
@@ -828,11 +893,24 @@ export function registerIPC(): void {
       // padrão (e a conta apagada) para null, que é "não definir a variável".
       const claudeConfigDir = claudeAccounts.configDirFor(tc.claudeAccountId)
 
+      // Em que conta este terminal está subindo. A `statusLine` chega ao main
+      // só com o id do terminal, e é este vínculo que deixa a leitura de limite
+      // ser creditada à conta certa no painel de perfis.
+      setTerminalAccount(nodeId, tc.claudeAccountId)
+
       const session = await terminals.spawn({
         nodeId,
         workspaceId,
         shellPath: tc.shellPath,
         command: resolved.command,
+        // O tipo do agente decide se o comando ganha `--session-id`/`--resume`,
+        // e a decisão tem que acontecer antes de o comando ser digitado — por
+        // isso ele vem aqui, e não só no `setAgentInfo` logo abaixo.
+        agentType: tc.agentType,
+        // Sessão anterior escolhida no diálogo. O manager só a honra se o nó
+        // ainda não tem sessão gravada utilizável; usada ou não, o campo é
+        // limpo logo abaixo, para valer uma única vez.
+        ...(tc.resumeSessionId ? { resumeSessionId: tc.resumeSessionId } : {}),
         extraEnv: vaultEnv.env,
         ...(claudeConfigDir ? { claudeConfigDir } : {}),
         workingDirectory: tc.workingDirectory || ws.payload.workingDirectory,
@@ -841,6 +919,17 @@ export function registerIPC(): void {
         role: role ? { id: role.id, name: role.name } : null
       })
       if (!session) return { error: ptyUnavailableReason() ?? 'não foi possível abrir o PTY' }
+
+      // A escolha do diálogo vale uma vez: o PTY subiu, então ou ela virou a
+      // sessão gravada do nó (retomada), ou não servia (id sem transcrição) —
+      // nos dois casos o campo tem que sumir, senão todo boot seguinte tentaria
+      // retomá-la de novo e o "Sessão nova" nunca zeraria nada.
+      if (tc.resumeSessionId) {
+        ws.updateContent(nodeId, (n) => {
+          if (n.content.type === 'terminal') n.content.value.resumeSessionId = null
+        })
+        notifyRenderer('workspace:changed', { workspaceId })
+      }
 
       terminals.setAgentInfo(nodeId, { agentType: tc.agentType, agentName: tc.name })
       // O status volta junto para a UI reabrir já com os números certos — o
@@ -852,6 +941,50 @@ export function registerIPC(): void {
   ipcMain.handle('terminal:write', (_e, nodeId: UUID, data: string) =>
     terminals.write(nodeId, data)
   )
+
+  /**
+   * Há sessão gravada para este nó? É o que habilita "Retomar sessão" no menu.
+   *
+   * Devolve o id e a data para o menu poder dizer QUAL sessão seria retomada —
+   * uma ação que ressuscita uma conversa sem dizer qual é pior que nenhuma.
+   */
+  ipcMain.handle('terminal:session', async (_e, workspaceId: UUID, nodeId: UUID) => {
+    const ws = appState.workspaces.get(workspaceId)
+    const node = ws?.node(nodeId)
+    if (!node || node.content.type !== 'terminal') return null
+    if (!supportsResume(node.content.value.agentType)) return null
+    const session = await readSession(workspaceId, nodeId)
+    return session ? { sessionId: session.sessionId, startedAt: session.startedAt } : null
+  })
+
+  /**
+   * As sessões anteriores do Claude Code num diretório — alimenta o select
+   * "Retomar sessão" do diálogo de terminal.
+   *
+   * O `configDir` vem da conta escolhida, como no spawn: `configDirFor` devolve
+   * `null` para a conta padrão, e aí é `~/.claude`. Sempre devolve uma lista,
+   * nunca lança — a leitura é de um diretório de outro app.
+   */
+  ipcMain.handle(
+    'claude:sessions',
+    async (_e, cwd: string, claudeAccountId: string | null) => {
+      if (typeof cwd !== 'string' || !cwd.trim()) return []
+      const configDir =
+        claudeAccounts.configDirFor(claudeAccountId ?? null) ?? join(homedir(), '.claude')
+      return listClaudeSessions(configDir, cwd)
+    }
+  )
+
+  /**
+   * Esquece a sessão deste nó — é o que faz "Sessão nova" começar limpo.
+   *
+   * O renderer chama isto ANTES de derrubar o PTY e remontar o nó: sem apagar o
+   * id, o spawn seguinte encontraria o arquivo e retomaria justamente a conversa
+   * que o usuário acabou de descartar.
+   */
+  ipcMain.handle('terminal:forget-session', async (_e, workspaceId: UUID, nodeId: UUID) => {
+    await clearSession(workspaceId, nodeId)
+  })
 
   /**
    * Imagem colada dentro de um terminal. O `xterm` só trata texto, e o Claude
@@ -1342,6 +1475,96 @@ export function registerIPC(): void {
     if (state) setEditorState(nodeId, state)
     else clearEditorState(nodeId)
   })
+
+  // ─── Quadro de TODO ─────────────────────────────────────────────────────────
+
+  /**
+   * O quadro daquele nó. `null` = arquivo corrompido, e o painel abre com aviso
+   * em vez de sobrescrever — o arquivo pode ser o trabalho de alguém.
+   */
+  ipcMain.handle('todo:read', async (_e, workspaceId: UUID, file: string) =>
+    readTodo(paths.todoFile(workspaceId, file))
+  )
+
+  /**
+   * Toda escrita é uma OPERAÇÃO, nunca "grave este quadro".
+   *
+   * Dois agentes mexendo no mesmo quadro é o caso normal aqui. Se o renderer
+   * mandasse o quadro inteiro, uma mudança feita pelo CLI entre a leitura e a
+   * gravação seria apagada — e o usuário arrastando um cartão desfaria, sem
+   * saber, o que o agente acabou de marcar. Ver core/todo/todo-store.ts.
+   */
+  ipcMain.handle('todo:apply', async (_e, workspaceId: UUID, file: string, op: TodoOp) => {
+    const result = await applyTodo(paths.todoFile(workspaceId, file), op)
+    return result.error ? { error: result.error } : { board: result.board }
+  })
+
+  ipcMain.handle('todo:create', async (_e, workspaceId: UUID, file: string, title: string) =>
+    createTodo(paths.todoFile(workspaceId, file), title)
+  )
+
+  // ─── Planos dos cartões ─────────────────────────────────────────────────────
+
+  /**
+   * Os planos daquele quadro. Um arquivo só para o quadro inteiro: o painel
+   * precisa do progresso de TODOS os cartões para desenhar a lista, e um arquivo
+   * por plano viraria dezenas de leituras a cada render.
+   *
+   * `null` = arquivo corrompido, e o painel avisa em vez de sobrescrever — ali
+   * está o histórico inteiro, que ninguém reconstrói.
+   */
+  ipcMain.handle('plans:read', async (_e, workspaceId: UUID, file: string) =>
+    readPlans(paths.planFile(workspaceId, file))
+  )
+
+  /** Mesma disciplina do quadro: operação, nunca "grave este arquivo". */
+  ipcMain.handle('plans:apply', async (_e, workspaceId: UUID, file: string, op: PlanOp) => {
+    const result = await applyPlan(paths.planFile(workspaceId, file), op)
+    return result.error
+      ? { error: result.error }
+      : { book: result.book, plan: result.plan, version: result.version }
+  })
+
+  // ─── Monitor de recursos ────────────────────────────────────────────────────
+
+  /**
+   * Assinatura ref-contada do amostrador.
+   *
+   * `ipcMain.on`, não `handle`: é notificação, e o renderer não tem o que fazer
+   * com a resposta. As amostras voltam pelo push `system:stats`, e NÃO pela
+   * store — escrevê-las lá re-renderizaria o canvas inteiro a cada segundo (é a
+   * mesma regra que mantém o progresso da varredura fora da store).
+   *
+   * O volume observado vem do renderer porque é ele que sabe qual widget está
+   * na tela: `view.disk` do nó, ou o `workingDirectory` do workspace quando
+   * vazio. Com vários monitores abertos vence o último que assinou — um
+   * amostrador só não tem como observar dois volumes, e o alternativo (uma
+   * amostra por caminho) é um `statfs` por nó a cada 2s para uma diferença que
+   * quase nunca existe.
+   */
+  ipcMain.on('system:subscribe', (_e, diskPath?: string, intervalMs?: number) => {
+    systemStats.setDiskPath(
+      typeof diskPath === 'string' && diskPath
+        ? diskPath
+        : (appState.activeWorkspace?.payload.workingDirectory ?? '')
+    )
+    systemStats.subscribe(typeof intervalMs === 'number' ? intervalMs : undefined)
+  })
+
+  /**
+   * O período volta no `unsubscribe` porque é ele que identifica a entrada a
+   * remover: com dois monitores em cadências diferentes, sair pela cadência
+   * errada afrouxaria o timer do que continua na tela.
+   */
+  ipcMain.on('system:unsubscribe', (_e, intervalMs?: number) =>
+    systemStats.unsubscribe(typeof intervalMs === 'number' ? intervalMs : undefined)
+  )
+
+  /**
+   * Recarga da janela: os `unsubscribe` dos nós que estavam montados nunca
+   * chegam, e o timer ficaria rodando para ninguém pelo resto da sessão.
+   */
+  ipcMain.on('system:reset', () => systemStats.reset())
 
   // ─── Streams do PTY para a UI ───────────────────────────────────────────────
 

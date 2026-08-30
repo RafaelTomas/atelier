@@ -8,11 +8,14 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AgentRole,
   AgentStatus,
+  AgentUsage,
   BootInfo,
   FileOpError,
   CanvasNode,
   ClaudeAccount,
   ClaudeAccountInfo,
+  ClaudeSessionSummary,
+  CodexAccountUsage,
   DiscoveredProject,
   Connection,
   Drawing,
@@ -25,11 +28,18 @@ import type {
   Preferences,
   Rect,
   SecretVaultKeyRef,
+  StoredAccountUsage,
+  Plan,
+  PlanBook,
+  PlanVersion,
+  SystemStats,
+  TodoBoard,
   UUID,
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
 import type { DataTablePayload } from '@shared/data-table'
+import type { RemovedNodeSnapshot } from '@shared/node-undo'
 
 /** O que a UI manda ao gravar uma chave. `value` sobe; nunca desce de volta. */
 interface VaultEntryInput {
@@ -126,6 +136,9 @@ const api = {
       ipcRenderer.invoke('node:add', workspaceId, kind, position, opts ?? {}, size),
     remove: (workspaceId: UUID, nodeId: UUID): Promise<void> =>
       ipcRenderer.invoke('node:remove', workspaceId, nodeId),
+    /** Desfazer o remove: os nós voltam com o mesmo id. Devolve os que voltaram. */
+    restore: (workspaceId: UUID, snapshots: RemovedNodeSnapshot[]): Promise<UUID[]> =>
+      ipcRenderer.invoke('node:restore', workspaceId, snapshots),
     setFrame: (workspaceId: UUID, nodeId: UUID, frame: Rect): Promise<void> =>
       ipcRenderer.invoke('node:set-frame', workspaceId, nodeId, frame),
     /** Commit de um arrasto de seleção múltipla: um IPC em vez de N. */
@@ -148,6 +161,11 @@ const api = {
    */
   claudeAccount: {
     list: (): Promise<ClaudeAccountInfo[]> => ipcRenderer.invoke('claude-account:list'),
+    /**
+     * A última leitura de limite de cada conta, viva ou guardada em disco. Quem
+     * decide se ainda vale é a UI (`activeWindows`, em shared/agent-usage).
+     */
+    usage: (): Promise<StoredAccountUsage[]> => ipcRenderer.invoke('claude-account:usage'),
     /** `warnings` traz o que não deu para herdar do ~/.claude (símlink recusado). */
     create: (
       label: string
@@ -158,6 +176,15 @@ const api = {
     /** `deleteFiles` leva junto a credencial — o login precisa ser refeito. */
     remove: (id: string, deleteFiles: boolean): Promise<ClaudeAccountInfo[]> =>
       ipcRenderer.invoke('claude-account:remove', id, deleteFiles)
+  },
+
+  codex: {
+    subscribe: (): Promise<CodexAccountUsage> => ipcRenderer.invoke('codex:subscribe'),
+    unsubscribe: (): Promise<void> => ipcRenderer.invoke('codex:unsubscribe'),
+    refreshAccount: (): Promise<CodexAccountUsage> => ipcRenderer.invoke('codex:refresh-account'),
+    accountUsage: (): Promise<unknown | null> => ipcRenderer.invoke('codex:account-usage'),
+    onAccount: (cb: (usage: CodexAccountUsage) => void): Unsubscribe =>
+      on('codex:account', cb)
   },
 
   role: {
@@ -216,6 +243,34 @@ const api = {
     onData: (cb: (p: { id: UUID; data: string }) => void): Unsubscribe => on('terminal:data', cb),
     onExit: (cb: (p: { id: UUID; code: number }) => void): Unsubscribe => on('terminal:exit', cb),
     /** Linha de status do agente (tokens, contexto, limites); muda pouco. */
+    /**
+      * A leitura que o próprio agente publica pela `statusLine`. Canal separado
+      * do `onStatus` de propósito: são fontes diferentes, com qualidade
+      * diferente, e o painel precisa saber de qual delas veio o número.
+      */
+    onUsage: (cb: (p: { id: UUID; usage: AgentUsage }) => void): Unsubscribe =>
+      on('terminal:usage', cb),
+    /**
+     * A sessão gravada deste nó, quando o agente sabe retomar. `null` = não há
+     * o que retomar, e o menu desabilita a ação em vez de oferecê-la à toa.
+     */
+    session: (
+      workspaceId: UUID,
+      nodeId: UUID
+    ): Promise<{ sessionId: UUID; startedAt: string } | null> =>
+      ipcRenderer.invoke('terminal:session', workspaceId, nodeId),
+    /** "Sessão nova": apaga o id antes de o nó remontar. */
+    forgetSession: (workspaceId: UUID, nodeId: UUID): Promise<void> =>
+      ipcRenderer.invoke('terminal:forget-session', workspaceId, nodeId),
+    /**
+     * As sessões anteriores do Claude Code num diretório, para o select
+     * "Retomar sessão" do diálogo. Lista vazia = não oferecer a opção.
+     */
+    resumableSessions: (
+      cwd: string,
+      claudeAccountId: string | null
+    ): Promise<ClaudeSessionSummary[]> =>
+      ipcRenderer.invoke('claude:sessions', cwd, claudeAccountId),
     onStatus: (cb: (p: { id: UUID; status: AgentStatus }) => void): Unsubscribe =>
       on('terminal:status', cb)
   },
@@ -455,6 +510,68 @@ const api = {
   editor: {
     push: (nodeId: UUID, state: EditorPush | null): void =>
       ipcRenderer.send('editor:state', nodeId, state)
+  },
+
+  /**
+   * Quadro de TODO. O quadro vive num arquivo por nó, e não no workspace.json:
+   * ele é reescrito a cada cartão movido.
+   *
+   * `apply` manda uma OPERAÇÃO, e nunca o quadro inteiro — é o que permite o
+   * usuário arrastar um cartão enquanto um agente marca outro, sem um desfazer
+   * o outro. Ver core/todo/todo-store.ts.
+   */
+  todo: {
+    read: (workspaceId: UUID, file: string): Promise<TodoBoard | null> =>
+      ipcRenderer.invoke('todo:read', workspaceId, file),
+    apply: (
+      workspaceId: UUID,
+      file: string,
+      op: unknown
+    ): Promise<{ board: TodoBoard } | { error: string }> =>
+      ipcRenderer.invoke('todo:apply', workspaceId, file, op),
+    create: (workspaceId: UUID, file: string, title: string): Promise<TodoBoard> =>
+      ipcRenderer.invoke('todo:create', workspaceId, file, title),
+    /** O agente mexeu no quadro pelo CLI: releia. */
+    onChanged: (cb: (p: { workspaceId: UUID; nodeId: UUID }) => void): Unsubscribe =>
+      on('todo:changed', cb)
+  },
+
+  /**
+   * Planos dos cartões daquele quadro — mesmo `file` do quadro, outro arquivo.
+   *
+   * A UI não recebe progresso pronto: ele é derivado por `planSnapshot`
+   * (`@shared/task-status`) a partir do plano e da versão atual. Persistir o
+   * número criaria um segundo lugar onde a verdade mora, e os dois divergiriam
+   * no primeiro arquivo editado à mão.
+   */
+  plans: {
+    read: (workspaceId: UUID, file: string): Promise<PlanBook | null> =>
+      ipcRenderer.invoke('plans:read', workspaceId, file),
+    apply: (
+      workspaceId: UUID,
+      file: string,
+      op: unknown
+    ): Promise<{ book: PlanBook; plan?: Plan; version?: PlanVersion } | { error: string }> =>
+      ipcRenderer.invoke('plans:apply', workspaceId, file, op)
+  },
+
+  /**
+   * Monitor de recursos. Assinatura ref-contada do lado do main: cada nó de
+   * monitor montado chama `subscribe`, cada desmonte chama `unsubscribe`, e o
+   * timer só existe enquanto houver pelo menos um.
+   *
+   * `send`, não `invoke`: são notificações, e a resposta chega pelo push
+   * `onStats`. As amostras NÃO entram na store — ver use-system-stats.ts.
+   */
+  system: {
+    subscribe: (diskPath?: string, intervalMs?: number): void =>
+      ipcRenderer.send('system:subscribe', diskPath ?? '', intervalMs),
+    /** O mesmo `intervalMs` da assinatura: é ele que diz qual entrada sai. */
+    unsubscribe: (intervalMs?: number): void =>
+      ipcRenderer.send('system:unsubscribe', intervalMs),
+    /** Recarga da janela: os desmontes não chegam, e o timer ficaria órfão. */
+    reset: (): void => ipcRenderer.send('system:reset'),
+    onStats: (cb: (stats: SystemStats) => void): Unsubscribe => on('system:stats', cb)
   },
 
   events: {

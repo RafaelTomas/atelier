@@ -7,7 +7,14 @@ import type {
   WorkspaceEntry,
   WorkspaceManifest
 } from '@shared/types'
-import { PORTAL_POPUP_MODES } from '@shared/types'
+import {
+  DOCK_PLACEMENT_DEFAULT,
+  MONITOR_PLACEMENT_DEFAULT,
+  PORTAL_POPUP_MODES,
+  RAIL_PLACEMENT_DEFAULT,
+  formatPlacement,
+  parsePlacement
+} from '@shared/types'
 import { asRecord, bool, decodeDate, decodeOptionalDate, normalizeUUID, num, str } from '../coding'
 import { nowISO, uuid } from '../coding'
 
@@ -113,7 +120,11 @@ export function makePreferences(): Preferences {
     sidebarWidth: 220,
     autoScanOnLaunch: true,
     terminalThemes: [],
-    portalPopups: 'node'
+    portalPopups: 'node',
+    dockPlacement: formatPlacement(DOCK_PLACEMENT_DEFAULT),
+    railPlacement: formatPlacement(RAIL_PLACEMENT_DEFAULT),
+    monitorPlacement: formatPlacement(MONITOR_PLACEMENT_DEFAULT),
+    monitorDockVisible: true
   }
 }
 
@@ -147,6 +158,17 @@ export function decodePreferences(value: unknown): Preferences {
     // Ausente em preferences.json escrito antes do popup virar nó
     portalPopups: PORTAL_POPUP_MODES.includes(o.portalPopups as PortalPopupMode)
       ? (o.portalPopups as PortalPopupMode)
-      : base.portalPopups
+      : base.portalPopups,
+    // Ausentes em preferences.json escrito antes das pílulas móveis — e também
+    // depois de um save do app nativo, que não conhece estas chaves e as apaga.
+    // Os dois casos caem no padrão pelo mesmo caminho, que é o ponto de
+    // `parsePlacement` nunca lançar: nenhum estado em disco pode esconder a dock.
+    dockPlacement: formatPlacement(parsePlacement(o.dockPlacement, DOCK_PLACEMENT_DEFAULT)),
+    railPlacement: formatPlacement(parsePlacement(o.railPlacement, RAIL_PLACEMENT_DEFAULT)),
+    monitorPlacement: formatPlacement(parsePlacement(o.monitorPlacement, MONITOR_PLACEMENT_DEFAULT)),
+    // O padrão aqui é `true` de propósito: chave ausente, apagada pelo app
+    // nativo ou com lixo dentro deixa a tira VISÍVEL. O contrário esconderia a
+    // peça sem deixar como trazê-la de volta.
+    monitorDockVisible: bool(o.monitorDockVisible, base.monitorDockVisible)
   }
 }

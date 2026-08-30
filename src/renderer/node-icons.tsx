@@ -52,7 +52,10 @@ export const ICON_NAMES = [
   'download',
   'link',
   'check',
-  'plus-circle'
+  'plus-circle',
+  // Entrou com o monitor de recursos: um traço de eletrocardiograma diz
+  // "isto está medindo alguma coisa agora" sem precisar de rótulo.
+  'pulse'
 ] as const
 
 export type IconName = (typeof ICON_NAMES)[number]
@@ -71,6 +74,7 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M7.5 9.5 10.5 12.5 7.5 15.5M13 15.5h4" />
     </>
   ),
+  pulse: <path d="M3 12h3.5l2-5.5 3.5 11 2.5-7 1.8 3.5H21" />,
   sparkle: <path d="M12 3.2 13.8 8.4 19 10.2 13.8 12 12 17.2 10.2 12 5 10.2 10.2 8.4z" />,
   brain: (
     <>

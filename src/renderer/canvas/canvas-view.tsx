@@ -20,6 +20,7 @@ import { NodeShell } from '../nodes/node-shell'
 import { FormatBar } from '../nodes/format-bar'
 import { NodeActionBar } from '../nodes/node-action-bar'
 import { Dock } from '../dock'
+import { MonitorDock } from '../monitor-dock'
 import { CanvasBackground } from './background'
 import { DrawingsLayer, type LiveDrawingTransform, type LiveStroke } from './drawings-layer'
 import { DrawingSelection } from './drawing-selection'
@@ -164,7 +165,9 @@ export function CanvasView(): JSX.Element {
     roles,
     prefs,
     terminalStatus,
-    projects
+    projects,
+    platform,
+    monitorDockVisible
   } = useStore()
   const hostRef = useRef<HTMLDivElement>(null)
   const nodesRef = useRef<HTMLDivElement>(null)
@@ -1162,19 +1165,27 @@ export function CanvasView(): JSX.Element {
       const el = document.activeElement as HTMLElement | null
       if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA'].includes(el.tagName))) return
 
-      if (e.key === 'Delete' && selection.length > 0) {
+      // Backspace NÃO apaga — a tecla é grande demais e fica no caminho de quem
+      // só queria corrigir o que digitou. A exceção é o macOS: num MacBook não
+      // existe `Delete` dedicado (é fn+delete), e sem ela o atalho ficaria sem
+      // gesto naquele teclado. Ver `platform`, que vem do bootInfo.
+      const apaga = e.key === 'Delete' || (platform === 'darwin' && e.key === 'Backspace')
+
+      if (apaga && selection.length > 0) {
         e.preventDefault()
-        for (const id of selection) void store.removeNode(id)
+        // Um IPC e UM retrato de undo para a seleção inteira: apagar cinco nós
+        // e ter de desfazer cinco vezes não é desfazer o que se fez.
+        void store.removeNodes(selection)
       }
       // Delete com a moldura selecionada DESAGRUPA: some o retângulo, ficam os
       // nós. Apagar os membros junto existe, mas só pelo menu de contexto e com
       // confirmação — é o único caminho destrutivo do grupo, e uma tecla é
       // barata demais para ele.
-      if (e.key === 'Delete' && selectedGroupId) {
+      if (apaga && selectedGroupId) {
         e.preventDefault()
         void store.removeGroup(selectedGroupId)
       }
-      if (e.key === 'Delete' && selectedDrawingId) {
+      if (apaga && selectedDrawingId) {
         e.preventDefault()
         void store.removeDrawing(selectedDrawingId)
       }
@@ -1191,6 +1202,13 @@ export function CanvasView(): JSX.Element {
       }
 
       // Desfazer/refazer, no atalho que todo editor usa — Shift inverte o sentido.
+      //
+      // É UM histórico só, delete incluído: este bloco era disparado junto com
+      // um segundo, que desfazia o último delete por outra pilha, e o mesmo
+      // ⌘Z rodava os dois. Refazer não apaga de novo — o store para no delete
+      // em vez de atravessá-lo, e quem quiser mesmo apagar aperta Delete. A
+      // guarda lá de cima já protege quem está digitando: dentro de uma nota ou
+      // do editor o ⌘Z é do texto, e nem chega aqui.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         if (e.shiftKey) void store.redo()
@@ -1264,7 +1282,7 @@ export function CanvasView(): JSX.Element {
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [selection, selectedGroupId, selectedDrawingId])
+  }, [selection, selectedGroupId, selectedDrawingId, platform])
 
   /**
    * Botão direito no canvas não CRIA nada.
@@ -1531,6 +1549,12 @@ export function CanvasView(): JSX.Element {
       )}
 
       <Dock />
+
+      {/* Condicionada à preferência, e não escondida por CSS: desligada, a tira
+          não é MONTADA, e com ela não existe o `useSystemStats` que assina o
+          amostrador. É isso que faz "desligar" custar zero de verdade — ver a
+          abertura de monitor-dock.tsx. */}
+      {monitorDockVisible && <MonitorDock />}
 
       <div className="canvas-hud">
         {visibleNodes.length}/{nodes.length} nós · {Math.round(viewport.zoom * 100)}%

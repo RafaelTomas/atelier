@@ -54,6 +54,35 @@ export const Constants = {
   buttonMinHeight: 56,
   buttonDefaultWidth: 88,
   buttonDefaultHeight: 88,
+  /**
+   * Monitor (widget de kind `monitor`): três blocos empilhados, não uma coluna
+   * de painel — nasce menor que o `widgetDefault*`, como o botão.
+   *
+   * A altura cresceu com o bloco de perfis: são uma linha de título e uma por
+   * conta do Claude. Com 300 o painel nascia já rolando na configuração padrão
+   * (PC + IA + contas), e um monitor que precisa de scroll para ser lido não é
+   * um monitor.
+   */
+  monitorDefaultWidth: 340,
+  monitorDefaultHeight: 380,
+  /**
+   * Período de amostragem do monitor. 2s é o meio-termo: 1s deixa a barra
+   * nervosa demais para ler, 5s perde o pico de um build.
+   */
+  systemSampleIntervalMs: 2000,
+  /** Anel de histórico do sparkline: 120 × 2s = 4 minutos de gráfico. */
+  systemHistorySize: 120,
+  /**
+   * Quadro de TODO (widget de kind `todo`): largo, porque as colunas do kanban
+   * precisam caber lado a lado — abaixo de ~420px o painel cai sozinho para a
+   * vista de lista.
+   */
+  todoDefaultWidth: 560,
+  todoDefaultHeight: 380,
+  /** Teto de cartões por quadro. Acima disso o kanban deixa de ser legível. */
+  todoMaxItems: 500,
+  /** Abaixo desta largura o quadro mostra a lista, sem mudar o `view` gravado. */
+  todoListBreakpoint: 420,
   /** Colagens de imagem no terminal com mais que isto (ms) são apagadas no boot. */
   imageTmpMaxAgeMs: 24 * 60 * 60 * 1000,
   agentIdleTimeoutMs: 2000,

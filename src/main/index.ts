@@ -15,6 +15,7 @@ import { log } from './core/logger'
 import { Constants } from './core/constants'
 import { persistence } from './core/persistence/persistence-manager'
 import { dataDir, isOverriddenHome } from './core/persistence/paths'
+import { flushImageDeletes } from './core/persistence/pending-image-delete'
 import { installCLI } from './core/interagent/cli-install'
 import { interAgentServer } from './core/interagent/server'
 import { installSkillsIfNeeded } from './core/connection/skill-injector'
@@ -180,6 +181,9 @@ app.on('before-quit', (event) => {
       interAgentServer.stop()
       terminals.killAll()
       await fileWatcher.closeAll()
+      // Fechar o app fecha a janela de undo: o que estava condenado a sumir
+      // some agora, senão o arquivo ficaria em disco sem nó que o aponte.
+      await flushImageDeletes()
       await appState.shutdown()
     } catch (err) {
       log.error('boot', 'erro no shutdown', err)

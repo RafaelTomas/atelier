@@ -112,7 +112,12 @@ class InterAgentServer {
       return
     }
 
-    log.debug('ipc', `cli ${args.join(' ')} (tid=${parsed.terminalId?.slice(0, 8) ?? 'none'})`)
+    // O `statusline` sai resumido: ele chega a cada mensagem de cada agente, e o
+    // argumento dele é o payload INTEIRO da sessão — diretório de trabalho,
+    // id de sessão, caminho do transcript. Despejar isso no log a cada mensagem
+    // encheria o arquivo e deixaria lá dados da sessão do usuário sem motivo.
+    const logged = args[0] === 'statusline' ? 'statusline <payload>' : args.join(' ')
+    log.debug('ipc', `cli ${logged} (tid=${parsed.terminalId?.slice(0, 8) ?? 'none'})`)
 
     try {
       const output = await routeCLI(args, parsed.terminalId)

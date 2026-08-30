@@ -108,8 +108,25 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .canvas-hint.is-notice {
-  background: var(--rope-error); border: 0; cursor: pointer; font-family: inherit;
+  background: var(--rope-error); border: 0; cursor: default; font-family: inherit;
+  display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 12px;
 }
+/* Os dois alvos do aviso herdam a cor e a fonte da pílula: são texto que
+   responde ao clique, não botões desenhados por cima do aviso. */
+.canvas-hint.is-notice button {
+  background: none; border: 0; padding: 0; color: inherit;
+  font: inherit; cursor: pointer;
+}
+.canvas-hint.is-notice .notice-text {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* A ação é o único elemento com peso: ela precisa se distinguir do relato do
+   que aconteceu, que é o resto da pílula. */
+.canvas-hint.is-notice .notice-action {
+  flex: none; font-weight: 600; text-decoration: underline;
+  padding: 2px 8px; border-radius: var(--r-pill);
+}
+.canvas-hint.is-notice .notice-action:hover { background: rgba(255, 255, 255, 0.18); }
 
 /* ─── Canvas ───────────────────────────────────────────────────────────────── */
 
@@ -403,19 +420,10 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 
 /* Pill ancorada na base do canvas. z-index acima dos nós e das guias, abaixo
    do .context-menu (1000) — o menu de contexto do canvas passa por cima. */
-.dock {
-  position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
-  z-index: 200;
-  display: flex; align-items: center; gap: 2px;
-  padding: 7px 10px;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--dock-border);
-  box-shadow: 0 10px 30px rgb(0 0 0 / .22);
-  /* Vidro: deixa a grade aparecer por baixo sem competir com os ícones. */
-  --floating-blur: 14px;
-  --floating-saturate: 1.4;
-  user-select: none;
-}
+/* A dock compõe `.pill` (styles/floating.css), que traz posição, orientação,
+   vidro, borda e sombra. Aqui fica só o que é da dock — e hoje isso é nada além
+   do cursor de arrasto, porque a peça inteira é a pílula. */
+.dock { cursor: grab; }
 
 .dock-item { position: relative; display: flex; }
 
@@ -448,16 +456,45 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 
 /* ─── Menus da dock ───────────────────────────────────────────────────────── */
 
-/* Abre PARA CIMA: a dock está na base, um menu para baixo sairia da janela. */
+/* O menu abre para o lado do CANVAS, nunca para fora da janela.
+   Era `bottom: calc(100% + 10px)` fixo, com o comentário "a dock está na base,
+   um menu para baixo sairia da janela" — a regra continua valendo, só deixou de
+   ser constante. O `data-edge` vem do `Placement` da dock. */
 .dock-menu {
-  position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+  position: absolute;
   z-index: 300; min-width: 210px;
   padding: 5px;
   border-radius: var(--r-lg);
   border: 1px solid var(--dock-border);
   background: var(--surface);
   box-shadow: 0 12px 32px rgb(0 0 0 / .26);
+  /* Dock nas horizontais: o menu sobe (ou desce) e se alinha ao botão pela
+     MESMA conta que ancora a pílula na borda — `--pill-offset` no inset e a
+     mesma fração do tamanho próprio no translate (ver floating.css). No centro
+     dá o menu centrado de sempre; com a dock encostada no começo da borda o
+     menu abre para dentro em vez de vazar pela lateral da janela, que é o que
+     `left: 50%` fazia assim que a dock deixou de ter só três paradas.
+     A var vem por herança: o menu é descendente da pílula. */
+  bottom: calc(100% + 10px);
+  left: calc(var(--pill-offset) * 100%);
+  transform: translateX(calc(var(--pill-offset) * -100%));
 }
+
+.dock-menu[data-edge='top'] {
+  bottom: auto; top: calc(100% + 10px);
+}
+
+/* Nas bordas verticais o menu sai PARA O LADO, e a mesma conta troca de eixo:
+   com a dock no alto ele desce a partir do botão, embaixo ele sobe. Antes era
+   `top: 0` fixo, que saía pela base da janela com a dock no fim da borda. */
+.dock-menu[data-edge='left'],
+.dock-menu[data-edge='right'] {
+  bottom: auto;
+  top: calc(var(--pill-offset) * 100%);
+  transform: translateY(calc(var(--pill-offset) * -100%));
+}
+.dock-menu[data-edge='left'] { left: calc(100% + 10px); }
+.dock-menu[data-edge='right'] { left: auto; right: calc(100% + 10px); }
 
 .dock-menu-title {
   padding: 5px 9px 6px;

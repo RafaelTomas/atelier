@@ -17,12 +17,14 @@ import { handlePortal } from './handlers/portal'
 import { handleProjects } from './handlers/projects'
 import { handleRecruit } from './handlers/recruit'
 import { handleRole } from './handlers/role'
+import { handleStatusLine } from './handlers/statusline'
 import { handleTable } from './handlers/table'
+import { handleTodo } from './handlers/todo'
 import { handleVault } from './handlers/vault'
 import { interAgentServer } from './server'
 
 const COMMANDS =
-  'list ask check recruit dismiss note portal editor table image vault button role projects debug'
+  'list ask check recruit dismiss note portal editor table image todo vault button role projects debug'
 
 export async function routeCLI(args: string[], terminalId: UUID | null): Promise<string> {
   const command = args[0]
@@ -47,6 +49,8 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
       return handleEditor(args, terminalId)
     case 'table':
       return handleTable(args, terminalId)
+    case 'todo':
+      return handleTodo(args, terminalId)
     case 'image':
       return handleImage(args, terminalId)
     case 'vault':
@@ -57,6 +61,12 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
       return handleRole(args, terminalId)
     case 'projects':
       return handleProjects(args, terminalId)
+    // Fora de COMMANDS de propósito: não é um verbo que um agente digita. Quem
+    // o chama é o Claude Code, a cada mensagem, pelo `statusLine` que o Atelier
+    // instala no terminal — listá-lo no help só ofereceria ao agente um comando
+    // que não faz nada útil na mão dele.
+    case 'statusline':
+      return handleStatusLine(args, terminalId)
     case 'debug':
       return buildDebugInfo(terminalId)
 

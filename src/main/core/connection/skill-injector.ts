@@ -59,7 +59,8 @@ agent that is still working, and do not edit files another agent is modifying.
 ## Recruit another agent
 
 \`\`\`
-atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd /path] [--role "Role"] [--account "Account"]
+atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd /path] [--role "Role"] [--account "Account"] [--model opus|sonnet|haiku|luna|terra|sol|model-id]
+atelier recruit "Name" --command "claude --resume <session-id>" [--cwd /path]
 \`\`\`
 
 Creates a terminal node already cabled to you, so you can hand work to it with
@@ -72,6 +73,53 @@ wait for it to leave \`[not started]\` before asking it anything.
 Recruit when the work is genuinely parallel or belongs to a different
 responsibility — not to split a task you can finish yourself. The canvas refuses
 to go past a dozen terminals.
+
+\`--command\` runs an arbitrary command instead of one of the five presets, and is
+mutually exclusive with \`--preset\`. **Prefer \`--preset\`**: it gives the new node
+the right icon, colour and agent type, and those are what the canvas uses to know
+what is running. \`--command\` exists for the case that has no preset — bringing an
+agent back on a session that already has context.
+
+## If you wake up with no memory of your own work
+
+A restart of the app — a crash, or the dev watcher noticing a file change —
+kills every agent on the canvas. Atelier now brings Claude Code nodes back with
+\`--resume\`, so this should be rare, but it is not guaranteed: an older CLI, or a
+session file that is gone, drops you into a fresh conversation.
+
+**The work on disk survived; only the conversation did not.** So before redoing
+anything: read the files, run \`git status\` and \`git diff\`, check the test suite.
+Assume the previous you got further than you remember, and verify instead of
+starting over — redoing finished work is how a restart turns into a regression.
+
+### Pick the model for the work, not the biggest one
+
+Before recruiting, run \`atelier list\`. Reuse a connected agent whose role
+already covers the work; do not create a duplicate. Recruit only when the task
+can advance independently or needs truly separate context or expertise. For
+Codex, use \`luna\` for focused/routine/high-volume work, \`terra\` for everyday
+implementation, analysis and review, and \`sol\` only for difficult, ambiguous,
+architectural or high-risk problems. Do not use Sol by default.
+
+\`--model\` sets which model the recruit runs. It applies to \`claude\` and
+\`codex\`: Claude accepts its usual aliases and ids; Codex accepts \`luna\`,
+\`terra\`, \`sol\`, or full ids like \`gpt-5.6-terra\`. Choose it deliberately every time you recruit:
+
+- \`--model haiku\` — mechanical, verifiable work: run the tests and report,
+  find every occurrence of X, apply a patch that is already decided, rename
+  across files, summarize a log, check formatting.
+- \`--model sonnet\` — ordinary implementation inside a scope you already
+  defined: write a handler modeled on an existing one, cover code with tests,
+  fix a bug that is already localized.
+- No \`--model\` — architecture judgment, security review, or debugging a cause
+  nobody has found yet.
+
+For Codex, do not leave difficult work implicit: pass \`--model sol\` only when
+the scope really needs it.
+
+When two levels both look defensible, **take the cheaper one and escalate if the
+recruit struggles**: re-running a task on a bigger model costs less than running
+everything on the biggest one out of caution.
 
 ## Dismiss an agent you recruited
 
@@ -107,6 +155,45 @@ atelier note read "Note Name" [offset] [limit]
 atelier note write "Note Name" "content"
 atelier note edit "Note Name" "old text" "new text"
 \`\`\`
+
+## TODO board
+
+A board is the work plan of this canvas, with columns and status. It is what
+lets the user WATCH a card move from *Fazendo* to *Feito* while you work,
+without you having to tell them anything.
+
+\`\`\`
+atelier todo list ["Board"] [--status doing] [--mine]
+atelier todo add "Board" "title" [--status todo] [--assign "Name"] [--notes "…"]
+atelier todo move "Board" <id|"title prefix"> <status>
+atelier todo done "Board" <id|"title prefix">
+atelier todo show "Board" <id|"title prefix">
+atelier todo create "Title" [column…]
+atelier todo plan "Board" <id|"title prefix"> [--title "…"] [--objective "…"] [--step "…"]…
+atelier todo step "Board" <id|"title prefix"> <step number> <pending|in_progress|done|blocked|skipped>
+\`\`\`
+
+Only boards CABLED to you, like everything else here. \`create\` makes one already
+connected to you. Name the board only when more than one is connected.
+
+Address a card by id or by a prefix of its title — an ambiguous prefix is an
+error listing the candidates, never "the first one".
+
+A card may also carry a **plan** — how the work will be done. \`plan\` with
+\`--step\` creates it, or REVISES it into a new version with the old one kept in
+the history; \`plan\` with no flags just shows it. \`step\` marks one step and
+creates no version — that is what keeps the history readable.
+
+**Mark \`done\` when you FINISH, not when you start.** A board that says a card is
+done when it is merely begun is worse than no board: the user stops checking it.
+Move it to the middle column when you pick it up, and to the last one when the
+work is actually verified.
+
+\`--mine\` filters by \`assignee\` matching YOUR terminal name, which is how the
+board distributes work between agents: each one asks what is theirs.
+
+There is no \`delete\`. Removing a card is the user's gesture, in the node — the
+same line as the vault, where you create but do not destroy.
 
 ## Code editors
 

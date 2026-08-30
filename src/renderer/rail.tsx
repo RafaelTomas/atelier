@@ -20,11 +20,15 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { Project } from '@shared/types'
+import { isVerticalEdge } from '@shared/types'
 import { viewport } from './canvas/viewport'
 import { IconBranch, IconCube, IconFolder } from './icons'
 import { FilesPanel } from './panels/files-panel'
 import { GitPanel } from './panels/git-panel'
 import { ProjectPanel } from './panels/project-panel'
+import { PlacementTargets } from './floating/placement-targets'
+import { PillMenu } from './floating/pill-menu'
+import { usePill } from './floating/use-pill'
 import { store, useStore, type RailTab } from './state/store'
 import { useGit } from './state/use-git'
 
@@ -76,6 +80,9 @@ const LIST_WIDTH = 220
 
 export function Rail(): JSX.Element {
   const { prefs, projects, selectedProjectId, railRequest, workspace } = useStore()
+  // Mesmo hook da dock: as duas pílulas são irmãs por design, e o gesto de
+  // mover uma é literalmente o mesmo da outra.
+  const pill = usePill('rail')
   const [open, setOpen] = useState<RailTab | null>(null)
   // Mostrar o seletor de projeto ao lado do conteúdo. Não é "qual projeto" —
   // isso é global; é só a geometria da cascata.
@@ -350,7 +357,18 @@ export function Rail(): JSX.Element {
 
   return (
     <div ref={hostRef}>
-      <div className="floating rail" role="toolbar" aria-label="Painéis" aria-orientation="vertical">
+      {pill.dragging && <PlacementTargets hot={pill.hot} />}
+      <div
+        className={pill.dragging ? 'floating pill rail is-dragging' : 'floating pill rail'}
+        data-edge={pill.placement.edge}
+        // Contínua ao longo da borda, como na dock: CSS var, não atributo.
+        style={{ '--pill-offset': String(pill.placement.offset) } as React.CSSProperties}
+        role="toolbar"
+        aria-label="Painéis"
+        aria-orientation={isVerticalEdge(pill.placement.edge) ? 'vertical' : 'horizontal'}
+        onPointerDown={pill.onPointerDown}
+        onContextMenu={pill.onContextMenu}
+      >
         {ITEMS.map(({ id, icon: Icon, label }) => (
           <button
             key={id}
@@ -383,7 +401,34 @@ export function Rail(): JSX.Element {
         )}
       </div>
 
-      {columns.length > 0 && <div className="rail-cascade">{columns}</div>}
+      {/* A cascata cresce para o lado do CANVAS: à direita quando a rail está na
+          esquerda, à esquerda quando ela está na direita, e para baixo/para
+          cima nas bordas horizontais. O `data-edge` é o que o CSS lê para
+          decidir — a regra é uma por borda, e não um cálculo de colisão a cada
+          abertura, que é o preço que a posição livre teria cobrado.
+
+          AO LONGO da borda ela acompanha a rail, e por isso repete a var: a
+          cascata é IRMÃ da pílula no DOM, não filha, e a herança não a alcança. */}
+      {columns.length > 0 && (
+        <div
+          className="rail-cascade"
+          data-edge={pill.placement.edge}
+          style={{ '--pill-offset': String(pill.placement.offset) } as React.CSSProperties}
+        >
+          {columns}
+        </div>
+      )}
+
+      {pill.menu && (
+        <PillMenu
+          x={pill.menu.x}
+          y={pill.menu.y}
+          current={pill.placement}
+          fallback={pill.fallback}
+          onPick={pill.apply}
+          onClose={pill.closeMenu}
+        />
+      )}
     </div>
   )
 }

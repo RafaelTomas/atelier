@@ -32,6 +32,11 @@ async function loadCodec() {
       contents: `
         export * from './src/main/core/models/workspace.ts'
         export { connectionKindForTypes } from './src/shared/types.ts'
+        // As preferências entram aqui porque a posição das pílulas é gravada num
+        // arquivo COMPARTILHADO com o app nativo Swift, que não conhece as
+        // chaves novas e as apaga no save dele. O que este teste protege é que
+        // essa perda devolva o padrão em vez de esconder a dock.
+        export { decodePreferences, makePreferences } from './src/main/core/models/app-state.ts'
       `,
       resolveDir: ROOT,
       loader: 'ts'
@@ -64,6 +69,7 @@ function test(name, fn) {
 
 const { mod, cleanup } = await loadCodec()
 const { decodeWorkspaceDocument, encodeWorkspaceDocument, connectionKindForTypes } = mod
+const { decodePreferences, makePreferences } = mod
 
 const raw = JSON.parse(readFileSync(join(ROOT, 'fixtures/full-workspace.json'), 'utf8'))
 const { payload } = decodeWorkspaceDocument(raw)
@@ -544,6 +550,75 @@ test('conexão terminal↔image vira kind "data" e volta para dataConnections', 
   assert.equal(back.payload.dataConnections.length, 1)
 })
 
+// ─── preferences.json: a posição das pílulas ─────────────────────────────────
+//
+// O arquivo é compartilhado com o app nativo Swift, cujo decoder IGNORA chave
+// desconhecida — então o save dele apaga `dockPlacement` e `railPlacement`. A
+// decisão foi gravar ali mesmo, de olhos abertos: perder isto devolve o padrão,
+// que é a posição histórica, e o prejuízo é ínfimo. O que NÃO pode acontecer é
+// a perda deixar a dock inalcançável.
+
+test('preferences.json SEM as chaves novas carrega no padrão', () => {
+  // É o arquivo de uma versão anterior — e também o que sobra depois de um save
+  // do app nativo.
+  const prefs = decodePreferences({ theme: 'dark', fontSize: 14 })
+  assert.equal(prefs.dockPlacement, 'bottom/center')
+  assert.equal(prefs.railPlacement, 'left/center')
+  // E o resto do arquivo continua sendo lido normalmente.
+  assert.equal(prefs.theme, 'dark')
+  assert.equal(prefs.fontSize, 14)
+})
+
+test('sem as chaves da tira do monitor, ela nasce VISÍVEL no topo', () => {
+  // O arquivo de uma versão anterior à tira — e o que sobra de um save do app
+  // nativo. O padrão de `monitorDockVisible` é `true` de propósito: a tira
+  // custa uma amostra a cada 2s, então desligá-la é um pedido legítimo, mas
+  // nenhum estado em disco pode escondê-la sem deixar como trazê-la de volta.
+  const prefs = decodePreferences({ theme: 'dark' })
+  assert.equal(prefs.monitorPlacement, 'top/0.850')
+  assert.equal(prefs.monitorDockVisible, true)
+  // E o arquivo volta ao disco COM elas: quem regravar já persiste a posição.
+  assert.ok('monitorPlacement' in prefs && 'monitorDockVisible' in prefs)
+})
+
+test('lixo nas chaves da tira também cai no padrão visível', () => {
+  for (const ruim of ['', 'cima/meio', null, 42, { edge: 'top' }]) {
+    const prefs = decodePreferences({ monitorPlacement: ruim, monitorDockVisible: ruim })
+    assert.equal(prefs.monitorPlacement, 'top/0.850', `${JSON.stringify(ruim)} passou`)
+    assert.equal(prefs.monitorDockVisible, true, `${JSON.stringify(ruim)} escondeu a tira`)
+  }
+})
+
+test('desligada em disco, a tira CONTINUA desligada — é uma escolha do usuário', () => {
+  // O contrapeso do teste acima: só o `false` explícito desliga, e ele
+  // sobrevive ao round-trip.
+  const prefs = decodePreferences({ monitorDockVisible: false, monitorPlacement: 'left/end' })
+  assert.equal(prefs.monitorDockVisible, false)
+  assert.equal(prefs.monitorPlacement, 'left/end')
+})
+
+test('com as chaves, carrega e regrava o que estava lá', () => {
+  const prefs = decodePreferences({ dockPlacement: 'right/end', railPlacement: 'top/start' })
+  assert.equal(prefs.dockPlacement, 'right/end')
+  assert.equal(prefs.railPlacement, 'top/start')
+})
+
+test('valor inválido em disco NÃO esconde a dock', () => {
+  // Um arquivo editado à mão, ou escrito por uma versão que não existe.
+  for (const lixo of ['', 'cima/meio', 'bottom', null, 42, { edge: 'top' }]) {
+    const prefs = decodePreferences({ dockPlacement: lixo })
+    assert.equal(prefs.dockPlacement, 'bottom/center', `${JSON.stringify(lixo)} passou`)
+  }
+})
+
+test('makePreferences nasce com a posição histórica das duas peças', () => {
+  const base = makePreferences()
+  assert.equal(base.dockPlacement, 'bottom/center')
+  assert.equal(base.railPlacement, 'left/center')
+  assert.equal(base.monitorPlacement, 'top/0.850')
+  assert.equal(base.monitorDockVisible, true)
+})
+
 // ─── Widget (v6) ─────────────────────────────────────────────────────────────
 // O caso de enum que hospeda painéis no canvas. O que estes testes protegem não
 // é a renderização — é o formato: um `kind` que este binário não conhece tem de
@@ -597,6 +672,95 @@ test('kind desconhecido atravessa intacto em vez de virar outro widget', () => {
   assert.equal(doc.payload.nodes[0].content.value.kind, 'tarefas')
   const back = encodeWorkspaceDocument(doc.payload)
   assert.equal(back.payload.nodes[0].content.widget._0.kind, 'tarefas')
+})
+
+test('monitor faz round-trip como widget/kind, sem subir a schemaVersion', () => {
+  // O monitor é a segunda prova da promessa do widget ("todo painel futuro cabe
+  // sem tocar no formato"): um kind a mais, nenhum passo em migrations.ts, e um
+  // Atelier mais velho — ou o app nativo Swift — abre o arquivo sem lançar.
+  const view = { blocks: 'both', interval: '2000', disk: '/Volumes/Work' }
+  const doc = decodeWorkspaceDocument(widgetDoc({ kind: 'monitor', projectId: null, view }))
+  assert.equal(doc.droppedNodes, 0)
+  assert.equal(doc.payload.nodes[0].content.value.kind, 'monitor')
+
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.equal(back.widget._0.kind, 'monitor')
+  assert.deepEqual(back.widget._0.view, view)
+  assert.equal(back.widget._0.projectId, null, 'o monitor não pertence a projeto nenhum')
+})
+
+test('a amostra NÃO entra em view — só a configuração é persistida', () => {
+  // Um monitor que gravasse cpuPct sujaria o autosave sessenta vezes por minuto
+  // com dado que morre com a janela. `view` é [String: String], então um número
+  // vindo de fora é descartado na leitura — e é a mesma guarda que impede o
+  // acidente de alguém decidir gravar a amostra ali.
+  const doc = decodeWorkspaceDocument(
+    widgetDoc({ kind: 'monitor', projectId: null, view: { blocks: 'pc', cpuPct: 47.2 } })
+  )
+  const view = doc.payload.nodes[0].content.value.view
+  assert.equal(view.blocks, 'pc')
+  assert.equal('cpuPct' in view, false, 'uma amostra foi parar no workspace')
+})
+
+test('quadro de TODO faz round-trip como widget/kind, sem subir a versão', () => {
+  // Terceira prova da promessa do widget. O que vai no `view` é só o PONTEIRO
+  // para o arquivo — o quadro em si mora em `todos/<file>.json`, porque ele é
+  // reescrito a cada cartão movido e `view` proíbe alta frequência.
+  const view = { title: 'Sprint do editor', file: 'abc-123', mode: 'kanban' }
+  const doc = decodeWorkspaceDocument(widgetDoc({ kind: 'todo', projectId: null, view }))
+  assert.equal(doc.droppedNodes, 0)
+  assert.equal(doc.payload.nodes[0].content.value.kind, 'todo')
+
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.equal(back.widget._0.kind, 'todo')
+  assert.deepEqual(back.widget._0.view, view)
+})
+
+test('os CARTÕES não entram no workspace.json — só o nome do arquivo', () => {
+  // Um quadro serializado em `view` seria um campo de vários KB reescrito a cada
+  // arrasto, dentro do arquivo que o app nativo Swift também grava. `view` é
+  // [String: String], então um array de itens é descartado na leitura — e é a
+  // mesma guarda que impede alguém de decidir gravá-los ali.
+  const doc = decodeWorkspaceDocument(
+    widgetDoc({
+      kind: 'todo',
+      projectId: null,
+      view: { file: 'abc', items: [{ id: 'x', title: 'nao deveria estar aqui' }] }
+    })
+  )
+  const view = doc.payload.nodes[0].content.value.view
+  assert.equal(view.file, 'abc')
+  assert.equal('items' in view, false, 'os cartões foram parar no workspace.json')
+})
+
+test('nem a origem externa nem o plano entram no workspace.json', () => {
+  // Origem e plano são do CARTÃO, e o cartão mora em `todos/<file>.json`; o
+  // plano, em `plans/<file>.json`. A guarda é a mesma dos cartões: `view` é
+  // [String: String] compartilhado com o app Swift, que descartaria um objeto
+  // aninhado no primeiro save de lá — e a perda seria silenciosa. O que
+  // sobrevive ao round-trip é só o PONTEIRO para o arquivo, e é ele que faz a
+  // exportação/importação do workspace não perder a origem externa: ela viaja
+  // junto com o arquivo do quadro, e não com o documento.
+  const doc = decodeWorkspaceDocument(
+    widgetDoc({
+      kind: 'todo',
+      projectId: null,
+      view: {
+        file: 'abc',
+        title: 'Sprint',
+        origin: { type: 'jira', externalId: 'PROJ-123' },
+        activePlanId: 'PLANO-1'
+      }
+    })
+  )
+  const view = doc.payload.nodes[0].content.value.view
+  assert.equal(view.file, 'abc')
+  assert.equal('origin' in view, false, 'a origem foi parar no workspace.json')
+  // `activePlanId` é string, então ele ATRAVESSA — e atravessar não é o mesmo
+  // que ser a fonte: quem manda é o campo do cartão no arquivo do quadro.
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.equal(back.widget._0.view.file, 'abc')
+  assert.equal(back.widget._0.kind, 'todo')
 })
 
 test('view descarta o que não é string — o Swift lê [String: String]', () => {

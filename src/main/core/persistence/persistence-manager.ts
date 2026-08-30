@@ -26,12 +26,15 @@ import {
 import { dirname, join } from 'node:path'
 import type { VaultFile } from '@shared/vault'
 import { decodeVaultFile, emptyVaultFile } from '@shared/vault'
+import { decodeStoredCodexUsage } from '@shared/agent-usage'
 import type {
   AgentRole,
   AppStateData,
   ClaudeAccount,
   Preferences,
   ProjectIndex,
+  StoredCodexUsage,
+  StoredAccountUsage,
   UUID,
   WorkspaceManifest,
   WorkspacePayload
@@ -169,6 +172,7 @@ class PersistenceManager {
       paths.notesDir(id),
       paths.tablesDir(id),
       paths.imagesDir(id),
+      paths.todosDir(id),
       paths.terminalsDir(id),
       paths.vaultsDir(id),
       paths.snapshotsDir(id)
@@ -322,6 +326,46 @@ class PersistenceManager {
 
   async saveClaudeAccounts(accounts: ClaudeAccount[]): Promise<void> {
     await this.atomicWrite(paths.claudeAccounts(), this.stringify(accounts))
+  }
+
+  /**
+   * A última leitura de limites de cada conta (claude-usage.json).
+   *
+   * Leitura defensiva como a das contas: o arquivo é telemetria, e um campo
+   * torto nele não pode derrubar o boot. Entrada sem `accountId` ou sem janela
+   * nenhuma é descartada — ela não descreveria conta alguma.
+   */
+  async loadClaudeUsage(): Promise<StoredAccountUsage[]> {
+    const raw = await this.readJSON(paths.claudeUsage())
+    if (!Array.isArray(raw)) return []
+    return raw
+      .map((item) => asRecord(item))
+      .filter((o) => typeof o.accountId === 'string' && o.accountId.length > 0)
+      .map((o) => ({
+        accountId: String(o.accountId),
+        at: typeof o.at === 'string' ? o.at : '',
+        limits: (Array.isArray(o.limits) ? o.limits : [])
+          .map((l) => asRecord(l))
+          .filter((l) => typeof l.window === 'string' && num(l.pct) !== null)
+          .map((l) => ({
+            window: String(l.window),
+            pct: num(l.pct) ?? 0,
+            resetsAt: num(l.resetsAt)
+          }))
+      }))
+      .filter((entry) => entry.limits.length > 0)
+  }
+
+  async saveClaudeUsage(entries: StoredAccountUsage[]): Promise<void> {
+    await this.atomicWrite(paths.claudeUsage(), this.stringify(entries))
+  }
+
+  async loadCodexUsage(): Promise<StoredCodexUsage | null> {
+    return decodeStoredCodexUsage(await this.readJSON(paths.codexUsage()))
+  }
+
+  async saveCodexUsage(entry: StoredCodexUsage): Promise<void> {
+    await this.atomicWrite(paths.codexUsage(), this.stringify(entry))
   }
 
   /**

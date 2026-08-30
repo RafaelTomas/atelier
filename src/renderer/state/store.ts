@@ -11,22 +11,37 @@ import { useSyncExternalStore } from 'react'
 import type {
   AgentRole,
   AgentStatus,
+  AgentUsage,
   ButtonConfig,
   CanvasNode,
   ClaudeAccountInfo,
+  CodexAccountUsage,
   Connection,
   DiscoveredProject,
   Drawing,
   NodeGroup,
+  Placement as PillPlacement,
   Preferences,
   Project,
   Rect,
+  StoredAccountUsage,
   TerminalDraft,
   UUID,
   WorkspaceEntry,
   WorkspacePayload
 } from '@shared/types'
-import { DEFAULT_CLAUDE_ACCOUNT_ID, readButtonConfig, writeButtonConfig } from '@shared/types'
+import type { RemovedNodeSnapshot } from '@shared/node-undo'
+import { UNDO_WINDOW_MS, captureRemoval } from '@shared/node-undo'
+import {
+  DEFAULT_CLAUDE_ACCOUNT_ID,
+  DOCK_PLACEMENT_DEFAULT,
+  MONITOR_PLACEMENT_DEFAULT,
+  RAIL_PLACEMENT_DEFAULT,
+  formatPlacement,
+  parsePlacement,
+  readButtonConfig,
+  writeButtonConfig
+} from '@shared/types'
 import { normalizeURL } from '@shared/portal-url'
 import { viewport } from '../canvas/viewport'
 import { boundsForNodes, groupOf } from '../canvas/group-geometry'
@@ -34,6 +49,24 @@ import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { quoteForShell } from '../paths'
 import { PDF_NODE_SIZE, isPdf } from '../pdf-viewer'
 import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
+import type { PillId } from '../floating/use-pill'
+
+/**
+ * Qual chave de `preferences.json` guarda cada pílula.
+ *
+ * Um mapa, e não o ternário que servia a duas: com três pílulas um ternário
+ * aninhado deixa de ser legível, e — pior — o compilador para de reclamar
+ * quando um `PillId` novo não tem chave, porque o ramo final vira o pega-tudo.
+ * O `Record` obriga a decidir.
+ *
+ * A importação de `PillId` é SÓ DE TIPO: em runtime o hook importa a store, e
+ * um import de valor fecharia o ciclo.
+ */
+const PILL_PREF_KEY: Record<PillId, 'dockPlacement' | 'railPlacement' | 'monitorPlacement'> = {
+  dock: 'dockPlacement',
+  rail: 'railPlacement',
+  monitor: 'monitorPlacement'
+}
 
 /**
  * Ferramenta ativa do canvas. 'select' é o comportamento de sempre (arrastar
@@ -138,6 +171,21 @@ export interface AppSnapshot {
   roles: AgentRole[]
   /** Contas do Claude, com a padrão (~/.claude) sempre na primeira posição. */
   claudeAccounts: ClaudeAccountInfo[]
+  /**
+   * A última leitura de limite (5h/7d) de cada conta, vinda do disco.
+   *
+   * É o FUNDO do bloco de perfis, não a leitura corrente: quando há terminal
+   * aberto naquela conta, quem vale é o `terminalUsage` dele, que é de agora
+   * (ver `groupByAccount`). Isto responde pelas contas que estão paradas — sem
+   * ele, a conta sem terminal aberto apareceria vazia, que é justamente a conta
+   * sobre a qual o usuário está decidindo.
+   *
+   * Só é relido no boot e no botão de recarregar do painel: o ledger em disco
+   * muda quando um agente publica, e nesse instante a leitura viva dele já está
+   * na store por outro caminho.
+   */
+  claudeAccountUsage: StoredAccountUsage[]
+  codexAccountUsage: CodexAccountUsage
   /** Diálogo "Novo Terminal" aberto — a dock dispara, o App renderiza. */
   newTerminalOpen: boolean
   /** Área desenhada antes do diálogo abrir — o terminal nasce nela. */
@@ -167,6 +215,15 @@ export interface AppSnapshot {
   terminalEpoch: Record<UUID, number>
   /** Linha de status lida da tela de cada agente — o que o rodapé do nó mostra. */
   terminalStatus: Record<UUID, AgentStatus>
+  /**
+   * A leitura que o próprio agente PUBLICA (statusLine do Claude Code): modelo,
+   * contexto com o tamanho da janela, custo em dólares e os limites com hora de
+   * reset. Separado do `terminalStatus` de propósito — são fontes distintas, e
+   * o painel mostra de qual delas o número veio (ver shared/agent-usage.ts).
+   *
+   * Como o status raspado, é estado de SESSÃO: nunca vai para o workspace.
+   */
+  terminalUsage: Record<UUID, AgentUsage>
   /**
    * Diretório com que o próximo "Novo Terminal" nasce. É assim que um projeto
    * passa o cwd para o agente: no momento da criação, não por cabo — o formato
@@ -201,7 +258,7 @@ export interface AppSnapshot {
   /** Espelho de preferences.json — hoje lido para os temas de terminal. */
   prefs: Preferences | null
   /** Aviso passageiro na barra — some sozinho. */
-  notice: string | null
+  notice: Notice | null
   /**
    * Integridade do arquivo do workspace aberto. `safeMode` significa que o
    * decoder descartou nós que não entendeu: o autosave está desligado e salvar
@@ -211,12 +268,52 @@ export interface AppSnapshot {
   /** Nó de editor com alteração pendente, esperando resposta antes de fechar. */
   closingEditor: UUID | null
   /**
+   * Onde ficam a dock e a rail. DERIVADO de `prefs`, e guardado aqui já
+   * parseado porque as duas pílulas o leem a cada render — reparsear a string
+   * em cada um seria trabalho repetido por um valor que muda uma vez por gesto.
+   *
+   * Um valor inválido no disco (um save do app nativo, que não conhece estas
+   * chaves, as apaga) cai no padrão dentro de `parsePlacement`: nenhum estado
+   * gravado pode esconder a dock.
+   */
+  dockPlacement: PillPlacement
+  railPlacement: PillPlacement
+  monitorPlacement: PillPlacement
+  /**
+   * A tira do monitor está na borda? DERIVADO de `prefs`, como as posições.
+   *
+   * Ela é a única pílula que se desliga, porque é a única que custa: assina o
+   * amostrador enquanto existe. O padrão é `true` em todos os caminhos —
+   * ausente, apagada pelo app nativo ou com lixo dentro —, senão um estado
+   * gravado esconderia a peça sem deixar como trazê-la de volta.
+   */
+  monitorDockVisible: boolean
+  /**
    * Plataforma, vinda do bootInfo. O renderer não tem `process`, e quem cola um
    * caminho no terminal precisa saber com que aspas o shell de lá se entende.
    */
   platform: string
   loading: boolean
   bootError: string | null
+}
+
+/**
+ * O aviso da barra, com uma ação OPCIONAL.
+ *
+ * O aviso nasceu só com texto, para dar destino a uma falha de IPC que o
+ * renderer engoliria. A ação entrou com o desfazer: "apaguei sem querer" é um
+ * arrependimento de um segundo, e mandar a pessoa caçar um atalho enquanto o
+ * aviso do que ela fez está na tela é perder o único momento em que a correção
+ * é óbvia. O botão é o mesmo gesto do ⌘Z, no lugar em que o olho já está.
+ */
+export interface Notice {
+  text: string
+  action?: { label: string; run: () => void }
+}
+
+/** "1 nó apagado" / "4 nós apagados" — o aviso diz o tamanho do estrago. */
+function noticeForRemoval(snapshots: RemovedNodeSnapshot[]): string {
+  return snapshots.length === 1 ? 'nó apagado' : `${snapshots.length} nós apagados`
 }
 
 const initial: AppSnapshot = {
@@ -235,6 +332,20 @@ const initial: AppSnapshot = {
   pen: { color: '#e0245e', lineWidth: 3 },
   roles: [],
   claudeAccounts: [],
+  claudeAccountUsage: [],
+  codexAccountUsage: {
+    authMode: null,
+    planType: null,
+    limits: [],
+    credits: null,
+    individualLimit: null,
+    spendControlReached: null,
+    rateLimitReachedType: null,
+    resetCreditsAvailable: null,
+    tokenUsage: null,
+    at: '',
+    source: 'none'
+  },
   newTerminalOpen: false,
   newTerminalFrame: null,
   editTerminalId: null,
@@ -242,6 +353,7 @@ const initial: AppSnapshot = {
   buttonRuns: {},
   terminalEpoch: {},
   terminalStatus: {},
+  terminalUsage: {},
   newTerminalCwd: null,
   projects: [],
   projectQuery: '',
@@ -254,6 +366,10 @@ const initial: AppSnapshot = {
   notice: null,
   integrity: null,
   closingEditor: null,
+  dockPlacement: DOCK_PLACEMENT_DEFAULT,
+  railPlacement: RAIL_PLACEMENT_DEFAULT,
+  monitorPlacement: MONITOR_PLACEMENT_DEFAULT,
+  monitorDockVisible: true,
   platform: 'linux',
   loading: true,
   bootError: null
@@ -262,6 +378,38 @@ const initial: AppSnapshot = {
 /** O que o undo/redo grava e restaura — o resto do payload (nome, viewport,
  * datas) não é "conteúdo editável" e fica de fora de propósito. */
 type HistorySnapshot = Pick<WorkspacePayload, 'nodes' | 'connections' | 'groups' | 'drawings'>
+
+/**
+ * O que morreu num delete, e quando.
+ *
+ * Um retrato do grafo bastaria para redesenhar a tela, mas não para devolver o
+ * NÓ: os arquivos que vivem por nodeId (scrollback, `.session.json`, o `.md` da
+ * nota, os bytes da imagem) são do processo principal, e só ele sabe cancelar a
+ * exclusão que já estava marcada. Por isso a entrada de um delete carrega, além
+ * do retrato, o que `node:restore` precisa receber.
+ */
+interface RemovalMark {
+  snapshots: RemovedNodeSnapshot[]
+  /** Quando o delete aconteceu — a janela de `UNDO_WINDOW_MS` conta daqui. */
+  at: number
+}
+
+/**
+ * Um passo do histórico: o grafo ANTES da edição e, se a edição foi um delete,
+ * o que ele levou junto.
+ *
+ * Uma pilha só, e não duas. Antes havia o Ctrl+Z genérico (retratos do grafo) e
+ * um desfazer só do delete (snapshots + restore pelo main) vivendo lado a lado,
+ * e o preço era alto: o mesmo Ctrl+Z disparava os dois, o genérico ressuscitava
+ * um nó de imagem sem avisar o main (que apagava os bytes assim que a janela
+ * fechava, deixando a moldura vazia), e nenhum dos dois sabia da existência do
+ * outro para se manter em ordem. `removal` é o que faltava para o histórico
+ * único conseguir tratar o delete sem deixar de ser um histórico só.
+ */
+interface HistoryEntry {
+  snapshot: HistorySnapshot
+  removal: RemovalMark | null
+}
 
 /** Além disso o app não guarda mais passos — histórico não é o arquivo. */
 const MAX_HISTORY = 100
@@ -273,9 +421,16 @@ class Store {
   /** Esta varredura pediu descrição automática? Ver startScan/finishScan. */
   private armedAutoDescribe = false
 
-  /** Pilhas do Ctrl+Z/Ctrl+Shift+Z — uma por workspace aberto, zeradas ao trocar. */
-  private past: HistorySnapshot[] = []
-  private future: HistorySnapshot[] = []
+  /**
+   * Pilhas do Ctrl+Z/Ctrl+Shift+Z — uma por workspace aberto, zeradas ao trocar.
+   *
+   * Em MEMÓRIA, fora do snapshot do React e fora do `workspace.json`: nada na
+   * tela depende delas a não ser o aviso, que já é estado, e um histórico
+   * persistido seria um campo que o app nativo Swift descartaria no primeiro
+   * save — além de ressuscitar, na sessão seguinte, um nó que ⌘Z não prometeu.
+   */
+  private past: HistoryEntry[] = []
+  private future: HistoryEntry[] = []
 
   getSnapshot = (): AppSnapshot => this.state
 
@@ -293,22 +448,27 @@ class Store {
 
   async load(): Promise<void> {
     try {
-      const [{ entries, activeId }, prefs, roles, claudeAccounts, projects] = await Promise.all([
-        window.atelier.workspace.list(),
-        window.atelier.prefs.get(),
-        window.atelier.role.list(),
-        // As contas entram no boot pelo mesmo motivo das responsabilidades: o
-        // nó de terminal mostra em qual conta está antes de qualquer diálogo
-        // abrir, e o seletor da barra de ações não pode piscar vazio.
-        window.atelier.claudeAccount.list(),
-        // O índice entra no BOOT, e não só quando o painel de projetos monta.
-        // Um widget de git fixado num projeto precisa resolver esse id para
-        // saber de que repositório ele é — e ele pode estar na tela sem que a
-        // cascata da rail tenha sido aberta uma única vez. Enquanto o índice
-        // dependia da montagem do painel, o widget reabria dizendo "nenhum
-        // projeto selecionado" para um projeto que estava lá.
-        window.atelier.project.list()
-      ])
+      const [{ entries, activeId }, prefs, roles, claudeAccounts, claudeAccountUsage, projects] =
+        await Promise.all([
+          window.atelier.workspace.list(),
+          window.atelier.prefs.get(),
+          window.atelier.role.list(),
+          // As contas entram no boot pelo mesmo motivo das responsabilidades: o
+          // nó de terminal mostra em qual conta está antes de qualquer diálogo
+          // abrir, e o seletor da barra de ações não pode piscar vazio.
+          window.atelier.claudeAccount.list(),
+          // E o quanto cada uma já consumiu na janela corrente. Vem do disco: a
+          // leitura é da conta, não da sessão, e sobrevive ao app fechado até a
+          // hora do reset dela.
+          window.atelier.claudeAccount.usage(),
+          // O índice entra no BOOT, e não só quando o painel de projetos monta.
+          // Um widget de git fixado num projeto precisa resolver esse id para
+          // saber de que repositório ele é — e ele pode estar na tela sem que a
+          // cascata da rail tenha sido aberta uma única vez. Enquanto o índice
+          // dependia da montagem do painel, o widget reabria dizendo "nenhum
+          // projeto selecionado" para um projeto que estava lá.
+          window.atelier.project.list()
+        ])
       const id = activeId ?? entries[0]?.id ?? null
       const workspace = id ? await window.atelier.workspace.open(id) : null
       const integrity = id ? await window.atelier.workspace.integrity(id) : null
@@ -322,9 +482,18 @@ class Store {
         integrity,
         roles,
         claudeAccounts,
+        claudeAccountUsage,
         prefs,
         projects,
         theme,
+        // A posição das pílulas é derivada de `prefs`, e sai da string uma vez
+        // aqui em vez de a cada render das duas peças.
+        dockPlacement: parsePlacement(prefs.dockPlacement, DOCK_PLACEMENT_DEFAULT),
+        railPlacement: parsePlacement(prefs.railPlacement, RAIL_PLACEMENT_DEFAULT),
+        monitorPlacement: parsePlacement(prefs.monitorPlacement, MONITOR_PLACEMENT_DEFAULT),
+        // `!== false` e não `Boolean(...)`: a chave ausente (versão anterior,
+        // ou save do app nativo) tem de deixar a tira VISÍVEL.
+        monitorDockVisible: prefs.monitorDockVisible !== false,
         loading: false
       })
     } catch (err) {
@@ -416,11 +585,17 @@ class Store {
    * isto) — empilha o retrato de ANTES no undo. As demais (status de conexão
    * piscando, z-index de "trouxe pra frente") deixam o padrão `false`: entram
    * no Ctrl+Z e o usuário nunca pediu para desfazer aquilo.
+   *
+   * `removal` só vem do delete, e é o que distingue aquele passo dos outros na
+   * hora de desfazer — ver `HistoryEntry`.
    */
-  private mutateWorkspace(fn: (ws: WorkspacePayload) => void, opts: { history?: boolean } = {}): void {
+  private mutateWorkspace(
+    fn: (ws: WorkspacePayload) => void,
+    opts: { history?: boolean; removal?: RemovalMark } = {}
+  ): void {
     const ws = this.state.workspace
     if (!ws) return
-    if (opts.history) this.pushHistory(ws)
+    if (opts.history) this.pushHistory(ws, opts.removal ?? null)
     const next = {
       ...ws,
       nodes: [...ws.nodes],
@@ -442,14 +617,28 @@ class Store {
     })
   }
 
-  private pushSnapshot(snap: HistorySnapshot): void {
-    this.past.push(snap)
+  private pushSnapshot(entry: HistoryEntry): void {
+    this.past.push(entry)
     if (this.past.length > MAX_HISTORY) this.past.shift()
     this.future = []
   }
 
-  private pushHistory(ws: WorkspacePayload): void {
-    this.pushSnapshot(this.snapshotOf(ws))
+  private pushHistory(ws: WorkspacePayload, removal: RemovalMark | null = null): void {
+    this.pushSnapshot({ snapshot: this.snapshotOf(ws), removal })
+  }
+
+  /**
+   * O delete de uma imagem tem prazo — os outros não.
+   *
+   * Passada a janela, o main já apagou os bytes (ver
+   * core/persistence/pending-image-delete.ts) e o nó que voltasse voltaria
+   * vazio: a moldura certa, no lugar certo, sem imagem. Nó de texto, terminal,
+   * nota ou tabela não tem esse prazo — os arquivos deles ficam no disco, e
+   * desfazer meia hora depois devolve o nó inteiro.
+   */
+  private expired(removal: RemovalMark): boolean {
+    if (Date.now() - removal.at <= UNDO_WINDOW_MS) return false
+    return removal.snapshots.some((s) => s.node.content.type === 'image')
   }
 
   private resetHistory(): void {
@@ -462,25 +651,70 @@ class Store {
   }
 
   get canRedo(): boolean {
-    return this.future.length > 0
+    const top = this.future[this.future.length - 1]
+    return top !== undefined && top.removal === null
   }
 
+  /**
+   * Desfaz o último passo — inclusive quando esse passo foi um delete.
+   *
+   * O delete não volta só pelo retrato. Ele passa ANTES por `node:restore`,
+   * que é quem cancela a exclusão dos bytes da imagem e recoloca o nó com o
+   * MESMO id, para os arquivos por nodeId não ficarem órfãos ao lado de um nó
+   * vazio. O retrato vem depois e alinha o resto do grafo (desenhos, e o que
+   * mais tenha mudado no mesmo passo) — as duas chamadas descrevem o mesmo
+   * estado final, então a ordem entre elas é a única coisa que importa.
+   */
   async undo(): Promise<void> {
     const ws = this.state.workspace
-    const prev = this.past.pop()
-    if (!ws || !prev) return
-    this.future.push(this.snapshotOf(ws))
-    await window.atelier.workspace.restore(ws.id, prev)
-    this.set({ workspace: { ...ws, ...prev } })
+    const entry = this.past[this.past.length - 1]
+    if (!ws || !entry) return
+
+    // Fora da janela, o retrato ANTERIOR a este também aponta para bytes que já
+    // saíram do disco — desfazer mais fundo devolveria outra moldura vazia. O
+    // histórico inteiro cai junto, e dizer isso é melhor que restaurar um nó
+    // que mente sobre o próprio conteúdo.
+    if (entry.removal && this.expired(entry.removal)) {
+      this.past = []
+      this.future = []
+      this.showNotice('a imagem apagada já saiu do disco — não dá para desfazer')
+      return
+    }
+
+    this.past.pop()
+    this.future.push({ snapshot: this.snapshotOf(ws), removal: entry.removal })
+    if (entry.removal) await window.atelier.node.restore(ws.id, entry.removal.snapshots)
+    await window.atelier.workspace.restore(ws.id, entry.snapshot)
+    this.set({ workspace: { ...ws, ...entry.snapshot } })
+    // Selecionar o que voltou responde "onde ele foi parar" sem procurar. O
+    // terminal volta PARADO: o `.session.json` sobreviveu à remoção, então quem
+    // quiser a conversa de volta liga o nó e o boot retoma pelo id gravado.
+    if (entry.removal) {
+      this.set({ selection: entry.removal.snapshots.map((s) => s.node.id) })
+      this.dismissNotice()
+    }
   }
 
+  /**
+   * Refaz — mas PARA no delete, em vez de atravessá-lo.
+   *
+   * Refazer uma remoção é apagar de novo, e um gesto destrutivo atrás do
+   * atalho que a pessoa usa justamente para corrigir engano é caro demais. O
+   * passo fica onde está: quem quiser mesmo apagar aperta Delete, que é
+   * explícito e deixa o próprio desfazer para trás.
+   */
   async redo(): Promise<void> {
     const ws = this.state.workspace
-    const next = this.future.pop()
-    if (!ws || !next) return
-    this.past.push(this.snapshotOf(ws))
-    await window.atelier.workspace.restore(ws.id, next)
-    this.set({ workspace: { ...ws, ...next } })
+    const entry = this.future[this.future.length - 1]
+    if (!ws || !entry) return
+    if (entry.removal) {
+      this.showNotice('refazer não apaga de novo')
+      return
+    }
+    this.future.pop()
+    this.past.push({ snapshot: this.snapshotOf(ws), removal: null })
+    await window.atelier.workspace.restore(ws.id, entry.snapshot)
+    this.set({ workspace: { ...ws, ...entry.snapshot } })
   }
 
   async addNode(
@@ -520,34 +754,70 @@ class Store {
     return node
   }
 
-  async removeNode(nodeId: UUID, opts?: { force?: boolean }): Promise<void> {
+  removeNode(nodeId: UUID, opts?: { force?: boolean }): Promise<void> {
+    return this.removeNodes([nodeId], opts)
+  }
+
+  /**
+   * Apaga N nós COMO UM GESTO SÓ — é o que a tecla Delete faz com uma seleção.
+   *
+   * O laço de fora (um `removeNode` por id) foi para dentro por causa do undo:
+   * apagar cinco nós e ter de desfazer cinco vezes não é desfazer o que se fez,
+   * é desfazer cinco coisas que aconteceram juntas. Um retrato, um ⌘Z.
+   */
+  async removeNodes(nodeIds: UUID[], opts?: { force?: boolean }): Promise<void> {
     const id = this.workspaceId
-    if (!id) return
-    // Editor com alteração pendente não fecha calado: pergunta primeiro.
-    if (!opts?.force && this.dirtyEditors.has(nodeId)) {
-      this.set({ closingEditor: nodeId })
-      return
+    const ws = this.state.workspace
+    if (!id || !ws) return
+
+    const existing = nodeIds.filter((n) => ws.nodes.some((node) => node.id === n))
+    // Editor com alteração pendente não fecha calado: pergunta primeiro — e um
+    // por vez, na fila, porque a resposta é sobre ESTE arquivo. Os outros nós da
+    // seleção não esperam pela pergunta: eles não têm nada a perder.
+    const asking = opts?.force ? [] : existing.filter((n) => this.dirtyEditors.has(n))
+    const targets = existing.filter((n) => !asking.includes(n))
+    if (asking.length > 0) {
+      this.closingQueue = asking.slice(1)
+      this.set({ closingEditor: asking[0] })
     }
-    await window.atelier.node.remove(id, nodeId)
+    if (targets.length === 0) return
+
+    // O retrato vem ANTES da poda: depois dela os cabos e a moldura já não
+    // sabem que o nó existiu.
+    const snapshots = captureRemoval(ws, targets)
+    await Promise.all(targets.map((nodeId) => window.atelier.node.remove(id, nodeId)))
+    const dead = new Set(targets)
+    // UM passo no histórico para o gesto inteiro: apagar cinco nós e ter de
+    // desfazer cinco vezes não é desfazer o que se fez.
     this.mutateWorkspace(
-      (ws) => {
-        ws.nodes = ws.nodes.filter((n) => n.id !== nodeId)
-        ws.connections = ws.connections.filter((c) => c.nodeIdA !== nodeId && c.nodeIdB !== nodeId)
+      (w) => {
+        w.nodes = w.nodes.filter((n) => !dead.has(n.id))
+        w.connections = w.connections.filter((c) => !dead.has(c.nodeIdA) && !dead.has(c.nodeIdB))
         // A moldura fica, só perde o membro — espelha o WorkspaceManager. Sem
         // isto o contador da faixa continuaria contando um nó que já não existe.
-        ws.groups = ws.groups.map((g) =>
-          g.nodeIds.includes(nodeId) ? { ...g, nodeIds: g.nodeIds.filter((n) => n !== nodeId) } : g
+        w.groups = w.groups.map((g) =>
+          g.nodeIds.some((n) => dead.has(n))
+            ? { ...g, nodeIds: g.nodeIds.filter((n) => !dead.has(n)) }
+            : g
         )
       },
-      { history: true }
+      { history: true, removal: { snapshots, at: Date.now() } }
     )
-    this.set({ selection: this.state.selection.filter((s) => s !== nodeId) })
+    this.set({ selection: this.state.selection.filter((sel) => !dead.has(sel)) })
+    // O botão do aviso e o ⌘Z são o MESMO gesto agora — os dois desfazem o
+    // topo do histórico, que acabou de ser este delete.
+    this.showNotice(noticeForRemoval(snapshots), {
+      label: 'Desfazer',
+      run: () => void this.undo()
+    })
   }
 
   // ─── Editor de código ───────────────────────────────────────────────────────
 
   /** Nós de editor com alteração pendente. Fora do snapshot: muda a cada tecla. */
   private dirtyEditors = new Set<UUID>()
+  /** Editores com alteração pendente ainda por perguntar, na ordem. */
+  private closingQueue: UUID[] = []
   /** path → quem quer saber que o arquivo mudou em disco. */
   private fileListeners = new Map<string, Set<(text: string) => void>>()
 
@@ -589,17 +859,24 @@ class Store {
     return this.dirtyEditors.has(nodeId)
   }
 
-  /** Fechar com alteração pendente pergunta; o diálogo mora no App. */
+  /**
+   * Fechar com alteração pendente pergunta; o diálogo mora no App.
+   *
+   * Cancelar cancela a FILA inteira: quem desistiu de perder um arquivo não
+   * quer responder a mesma pergunta mais três vezes.
+   */
   cancelCloseEditor(): void {
+    this.closingQueue = []
     this.set({ closingEditor: null })
   }
 
   async confirmCloseEditor(): Promise<void> {
     const id = this.state.closingEditor
     if (!id) return
-    this.set({ closingEditor: null })
+    const next = this.closingQueue.shift() ?? null
+    this.set({ closingEditor: next })
     this.dirtyEditors.delete(id)
-    await this.removeNode(id, { force: true })
+    await this.removeNodes([id], { force: true })
   }
 
   /**
@@ -1086,7 +1363,8 @@ class Store {
         fontFamily: null,
         fontSize: null,
         assignedRoleId: null,
-        claudeAccountId: null
+        claudeAccountId: null,
+        resumeSessionId: null
       },
       at,
       { width: 560, height: 360 }
@@ -1315,14 +1593,60 @@ class Store {
     this.set({ editTerminalId: null })
   }
 
-  /** Mata o PTY e sobe outro no lugar, com o conteúdo atual do nó. */
+  /**
+   * Retoma a sessão do agente: mata o PTY e deixa o boot seguinte encontrar o
+   * id gravado.
+   *
+   * É o MESMO gesto do recarregar, menos o esquecimento — a diferença entre os
+   * dois é exatamente uma linha, e é a linha que decide se a conversa anterior
+   * volta. Ver core/terminal/session-store.ts.
+   */
+  async resumeTerminal(nodeId: UUID): Promise<void> {
+    return this.restartTerminalKeepingSession(nodeId)
+  }
+
+  /**
+   * A sessão gravada deste nó, ou null quando não há o que retomar (agente sem
+   * suporte, primeiro boot, id apagado por um "Sessão nova").
+   */
+  async terminalSession(
+    nodeId: UUID
+  ): Promise<{ sessionId: UUID; startedAt: string } | null> {
+    const wsId = this.workspaceId
+    if (!wsId) return null
+    return window.atelier.terminal.session(wsId, nodeId)
+  }
+
+  /**
+   * Sessão nova: mata o PTY, ESQUECE o id e sobe outro no lugar.
+   *
+   * Recarregar é o gesto de desistir do estado atual — quem clica ali quer
+   * começar limpo, e ressuscitar a conversa anterior seria o oposto do pedido.
+   * Por isso o esquecimento acontece ANTES da remontagem: sem ele o spawn
+   * seguinte encontraria o arquivo e retomaria o que o usuário descartou.
+   */
   async restartTerminal(nodeId: UUID): Promise<void> {
+    const wsId = this.workspaceId
+    if (wsId) await window.atelier.terminal.forgetSession(wsId, nodeId)
+    return this.restartTerminalKeepingSession(nodeId)
+  }
+
+  private async restartTerminalKeepingSession(nodeId: UUID): Promise<void> {
     await window.atelier.terminal.kill(nodeId)
     const epoch = this.state.terminalEpoch
-    // Sessão nova, contadores zerados: os do processo velho não valem mais.
+    // Contadores zerados nos DOIS caminhos: eles são do processo que acabou de
+    // morrer. Um agente retomado republica os dele nos primeiros segundos.
     const status = { ...this.state.terminalStatus }
     delete status[nodeId]
-    this.set({ terminalEpoch: { ...epoch, [nodeId]: (epoch[nodeId] ?? 0) + 1 }, terminalStatus: status })
+    // A leitura publicada é da sessão que acabou de morrer: custo e contexto do
+    // processo velho não valem para o novo.
+    const usage = { ...this.state.terminalUsage }
+    delete usage[nodeId]
+    this.set({
+      terminalEpoch: { ...epoch, [nodeId]: (epoch[nodeId] ?? 0) + 1 },
+      terminalStatus: status,
+      terminalUsage: usage
+    })
   }
 
   /**
@@ -1332,8 +1656,8 @@ class Store {
    * chamada que rejeita vira `void` engolido e o usuário fica achando que o
    * clique não fez nada.
    */
-  showNotice(text: string): void {
-    this.set({ notice: text })
+  showNotice(text: string, action?: Notice['action']): void {
+    this.set({ notice: { text, action } })
     if (this.noticeTimer) clearTimeout(this.noticeTimer)
     this.noticeTimer = setTimeout(() => this.set({ notice: null }), 7000)
   }
@@ -1347,12 +1671,48 @@ class Store {
     this.set({ terminalStatus: { ...this.state.terminalStatus, [nodeId]: status } })
   }
 
+  setTerminalUsage(nodeId: UUID, usage: AgentUsage): void {
+    this.set({ terminalUsage: { ...this.state.terminalUsage, [nodeId]: usage } })
+  }
+
   // ─── Contas do Claude ───────────────────────────────────────────────────────
 
+  /**
+   * Relê a lista de contas E o consumo guardado de cada uma — é o botão de
+   * recarregar do bloco de perfis. As duas coisas juntas porque a pergunta do
+   * clique é uma só ("como estão minhas contas agora"), e o login feito num
+   * terminal muda as duas: aparece o e-mail e começa a aparecer o limite.
+   *
+   * Não vai buscar uso NOVO na API: o percentual só existe quando um agente o
+   * publica, e sondar a Anthropic para preencher a tela gastaria da mesma
+   * janela que este painel está medindo.
+   */
   async refreshClaudeAccounts(): Promise<ClaudeAccountInfo[]> {
-    const claudeAccounts = await window.atelier.claudeAccount.list()
-    this.set({ claudeAccounts })
+    const [claudeAccounts, claudeAccountUsage] = await Promise.all([
+      window.atelier.claudeAccount.list(),
+      window.atelier.claudeAccount.usage()
+    ])
+    this.set({ claudeAccounts, claudeAccountUsage })
     return claudeAccounts
+  }
+
+  async subscribeCodexAccount(): Promise<void> {
+    const usage = await window.atelier.codex.subscribe()
+    this.set({ codexAccountUsage: usage })
+  }
+
+  async unsubscribeCodexAccount(): Promise<void> {
+    await window.atelier.codex.unsubscribe()
+  }
+
+  setCodexAccountUsage(usage: CodexAccountUsage): void {
+    this.set({ codexAccountUsage: usage })
+  }
+
+  async refreshCodexAccount(): Promise<CodexAccountUsage> {
+    const usage = await window.atelier.codex.refreshAccount()
+    this.set({ codexAccountUsage: usage })
+    return usage
   }
 
   /**
@@ -1474,7 +1834,7 @@ class Store {
     const before = this.state.workspace ? this.snapshotOf(this.state.workspace) : null
     const group = await window.atelier.group.create(id, title, frame, nodeIds)
     if (!group) return null
-    if (before) this.pushSnapshot(before)
+    if (before) this.pushSnapshot({ snapshot: before, removal: null })
     // Substitui a lista inteira em vez de só empurrar o novo: o main pode ter
     // tirado membros de outros grupos para honrar a regra de um dono por nó, e
     // a cópia daqui ficaria mostrando o nó nos dois lugares.
@@ -1561,8 +1921,10 @@ class Store {
     const id = this.workspaceId
     if (!id) return
     if (opts.withNodes) {
+      // Um retrato só para os N membros: desfazer devolve os nós (SOLTOS — a
+      // moldura foi embora no mesmo gesto e não faz parte do retrato).
       const group = this.group(groupId)
-      for (const nodeId of group?.nodeIds ?? []) await this.removeNode(nodeId, { force: true })
+      await this.removeNodes(group?.nodeIds ?? [], { force: true })
     }
     await window.atelier.group.remove(id, groupId)
     this.mutateWorkspace(
@@ -1637,6 +1999,37 @@ class Store {
   async setRailWidth(sidebarWidth: number): Promise<void> {
     const prefs = await window.atelier.prefs.set({ sidebarWidth })
     this.set({ prefs })
+  }
+
+  /**
+   * Move uma pílula flutuante e grava a posição.
+   *
+   * UMA gravação, no fim do gesto — como `setRailWidth`, e pelo mesmo motivo:
+   * gravar durante o arrasto escreveria `preferences.json` sessenta vezes por
+   * segundo por uma posição da qual só a última importa.
+   */
+  async setPillPlacement(id: PillId, placement: PillPlacement): Promise<void> {
+    const key = PILL_PREF_KEY[id]
+    this.set({ [key]: placement } as Partial<AppSnapshot>)
+    this.mirrorPrefs({ [key]: formatPlacement(placement) })
+    await window.atelier.prefs.set({ [key]: formatPlacement(placement) })
+  }
+
+  /**
+   * Liga e desliga a tira do monitor na borda.
+   *
+   * Desligada, ela não é escondida: deixa de ser MONTADA (ver canvas-view), e
+   * com ela vai embora o `useSystemStats` que assina o amostrador. É o que faz
+   * "não quero pagar por isso" custar zero de fato, e não zero de aparência.
+   *
+   * Quem liga de volta é o item da dock — a alternância nasceu com as duas
+   * pontas de propósito. Um "Ocultar" no menu da pílula sem caminho de volta é
+   * exatamente o estado ruim que o plano das docks móveis deixou registrado.
+   */
+  async setMonitorDockVisible(monitorDockVisible: boolean): Promise<void> {
+    this.set({ monitorDockVisible })
+    this.mirrorPrefs({ monitorDockVisible })
+    await window.atelier.prefs.set({ monitorDockVisible })
   }
 
   setTheme(theme: ThemeMode): void {

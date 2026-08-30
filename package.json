@@ -28,9 +28,19 @@
     "test:vault": "node scripts/test-vault.mjs",
     "test:editor": "node scripts/test-editor.mjs",
     "test:claude-accounts": "node scripts/test-claude-accounts.mjs",
+    "test:codex-protocol": "node scripts/test-codex-protocol.mjs",
+    "test:recruit": "node scripts/test-recruit.mjs",
     "test:tokens": "node scripts/test-tokens.mjs",
+    "test:monitor": "node scripts/test-monitor.mjs",
+    "test:session": "node scripts/test-session-resume.mjs",
+    "test:spawn": "node scripts/test-spawn-reentrante.mjs",
+    "test:todo": "node scripts/test-todo.mjs",
+    "test:plans": "node scripts/test-plans.mjs",
+    "test:task-ui": "node scripts/test-task-ui.mjs",
+    "test:placement": "node scripts/test-placement.mjs",
+    "test:undo": "node scripts/test-undo-delete.mjs",
     "test:css-order": "node scripts/test-css-order.mjs",
-    "test": "npm run test:codec && npm run test:data-table && npm run test:image && npm run test:git && npm run test:minimap && npm run test:groups && npm run test:vault && npm run test:editor && npm run test:claude-accounts && npm run test:tokens && npm run test:css-order && npm run test:smoke"
+    "test": "npm run test:codec && npm run test:data-table && npm run test:image && npm run test:git && npm run test:minimap && npm run test:groups && npm run test:vault && npm run test:editor && npm run test:claude-accounts && npm run test:codex-protocol && npm run test:recruit && npm run test:tokens && npm run test:monitor && npm run test:session && npm run test:spawn && npm run test:todo && npm run test:plans && npm run test:task-ui && npm run test:placement && npm run test:undo && npm run test:css-order && npm run test:smoke"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",

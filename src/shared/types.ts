@@ -67,6 +67,13 @@ export interface TerminalContent {
    * agente apagar o trabalho em andamento de outro — inclusive o do usuário.
    */
   recruitedBy: UUID | null
+  /**
+   * Sessão anterior do Claude Code a retomar no PRÓXIMO boot deste nó, escolhida
+   * no diálogo. `null` no caso normal. É consumido uma vez: assim que o boot a
+   * usa, ela vira a sessão gravada do nó (`session.json`) e este campo volta a
+   * `null`, para o "Sessão nova" poder zerar tudo depois.
+   */
+  resumeSessionId: UUID | null
 }
 
 export type StorageMode = { kind: 'managed' } | { kind: 'custom'; path: string }
@@ -228,12 +235,259 @@ export interface WidgetContent {
  * canvas em que o próprio nó estava. Ele vive no chip do topo, que é global à
  * janela e não pertence a canvas nenhum.
  */
-export type WidgetKind = 'projects' | 'git' | 'button'
+export type WidgetKind = 'projects' | 'git' | 'button' | 'monitor' | 'todo'
 
-export const WIDGET_KINDS: WidgetKind[] = ['projects', 'git', 'button']
+export const WIDGET_KINDS: WidgetKind[] = ['projects', 'git', 'button', 'monitor', 'todo']
 
 export function isKnownWidgetKind(kind: string): kind is WidgetKind {
   return (WIDGET_KINDS as string[]).includes(kind)
+}
+
+/**
+ * Quadro de TODO — o plano de trabalho de um canvas, com status.
+ *
+ * Hoje isso mora numa nota, e nota é texto: ninguém sabe o que está EM ANDAMENTO
+ * sem ler tudo, o agente que marca `[x]` reescreve o arquivo inteiro, e dois
+ * agentes marcando ao mesmo tempo se sobrescrevem. Com status e colunas, o
+ * usuário vê o cartão andar enquanto o agente trabalha.
+ *
+ * O nó é `widget` com `kind: 'todo'` — nenhum caso novo em `NodeContent`. Os
+ * DADOS, porém, não cabem em `WidgetContent.view`: ele é `[String: String]` e o
+ * comentário do campo proíbe alta frequência. Um quadro serializado ali seria um
+ * campo de vários KB reescrito a cada arrasto de cartão, dentro do
+ * `workspace.json` que o app nativo Swift também grava. Então o quadro vive num
+ * arquivo por nó (`workspaces/<ws>/todos/<id>.json`), como a nota, a tabela, a
+ * imagem e o cofre já fazem; `view.file` guarda só o nome.
+ */
+export interface TodoColumn {
+  id: string
+  title: string
+}
+
+export interface TodoItem {
+  id: UUID
+  title: string
+  /** O `id` de uma coluna. Status órfão cai na primeira — ver `readBoard`. */
+  status: string
+  /**
+   * Posição dentro da coluna. Fracionário e ESPARSO (1000, 2000, 3000): mover um
+   * cartão entre dois vizinhos é a média dos dois, sem reescrever a coluna
+   * inteira — que é o que permite dois agentes mexerem no quadro sem se
+   * atropelarem. Reindexa só quando a distância cai abaixo de 1.
+   */
+  order: number
+  /** Nome do terminal responsável, quando há um. É o que `--mine` filtra. */
+  assignee: string
+  notes: string
+  tags: string[]
+  createdAt: string
+  updatedAt: string
+  /** Preenchido ao entrar na última coluna; limpo ao sair dela. */
+  doneAt: string | null
+  /**
+   * De onde este trabalho veio. Manual é EXPLÍCITO (`{ type: 'manual' }`), e não
+   * ausência de origem: um cartão sem origem é um cartão de quadro antigo, ainda
+   * não migrado, e a migração da leitura o marca como manual. `null` só
+   * sobrevive em memória entre o parse e a primeira operação.
+   */
+  origin: TaskOrigin | null
+  /**
+   * O plano ativo deste cartão, se houver. O plano em si NÃO mora aqui — ele
+   * vive em `plans/<file>.json`, ao lado do quadro, pela mesma razão que o
+   * quadro não mora no `workspace.json`: versões e eventos crescem sem limite e
+   * são reescritos por conta própria. Aqui fica só o ponteiro.
+   */
+  activePlanId: string | null
+}
+
+export interface TodoBoard {
+  version: number
+  title: string
+  columns: TodoColumn[]
+  items: TodoItem[]
+}
+
+/** As três colunas de um quadro novo. */
+export const TODO_DEFAULT_COLUMNS: TodoColumn[] = [
+  { id: 'todo', title: 'A fazer' },
+  { id: 'doing', title: 'Fazendo' },
+  { id: 'done', title: 'Feito' }
+]
+
+/**
+ * Origem de uma Tarefa — de onde o trabalho veio.
+ *
+ * Tudo aqui, exceto `type`, é dado de TERCEIRO: veio de um Jira, de um Slack,
+ * de um webhook. Nada disso é confiável. Daí os três cuidados que o resto do
+ * código impõe: `externalUrl` só vira link depois de passar por
+ * `safeExternalUrl` (ver `@shared/task-status`), `metadata` nunca é lido por
+ * campo fixo pela UI, e origem externa NÃO controla o status local do cartão —
+ * quem manda no status é a coluna em que o usuário o deixou.
+ *
+ * `metadata` é `unknown` de propósito: quem escreve integração é obrigado a
+ * checar o tipo antes de usar, em vez de confiar num `any` do provedor.
+ */
+export type TaskOriginType = 'manual' | 'jira' | 'slack' | 'github' | 'email' | 'api'
+
+export const TASK_ORIGIN_TYPES: TaskOriginType[] = [
+  'manual',
+  'jira',
+  'slack',
+  'github',
+  'email',
+  'api'
+]
+
+export interface TaskOrigin {
+  type: TaskOriginType
+  externalId: string | null
+  externalUrl: string | null
+  sourceName: string | null
+  importedAt: string | null
+  metadata: Record<string, unknown> | null
+}
+
+/**
+ * Plano — o "como vamos fazer" de uma Tarefa.
+ *
+ * Entidade SEPARADA do cartão de propósito: uma tarefa importada do Jira não
+ * pode ser obrigada a carregar etapas, versões e histórico só para existir. Um
+ * cartão pode viver sem plano, e concluir o cartão não apaga o plano dele.
+ *
+ * `currentVersionId` sempre aponta para uma `PlanVersion` DESTE plano. Quando
+ * não aponta (arquivo mexido à mão, versão perdida), o plano é lido como
+ * inconsistente e a UI deve impedir edição destrutiva em vez de recriar a
+ * versão por conta própria — recriar apagaria o histórico que o usuário ainda
+ * pode consertar.
+ */
+export type PlanStatus = 'draft' | 'active' | 'paused' | 'completed' | 'abandoned'
+
+export const PLAN_STATUSES: PlanStatus[] = ['draft', 'active', 'paused', 'completed', 'abandoned']
+
+export interface Plan {
+  id: string
+  /** O `TodoItem.id` dono deste plano. */
+  taskId: string
+  title: string
+  objective: string
+  status: PlanStatus
+  currentVersionId: string | null
+  /**
+   * O status VIVO de cada etapa, por id de etapa.
+   *
+   * Fica no plano, e não dentro da versão, porque versão é imutável e marcar uma
+   * etapa como feita não é mudança estrutural: se o status morasse na versão,
+   * cada clique em checkbox criaria uma versão nova e o histórico viraria ruído.
+   * O que a versão guarda em `PlanStep.status` é o status DECLARADO quando
+   * aquela versão foi escrita; este mapa é a camada de cima. Ids de etapas que
+   * não existem mais são ignorados na leitura.
+   */
+  stepStatus: Record<string, PlanStepStatus>
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * Uma versão do plano. IMUTÁVEL depois de criada — é isso que faz o histórico
+ * valer alguma coisa. Editar estrutura cria a próxima; nunca reescreve esta.
+ */
+export interface PlanVersion {
+  id: string
+  planId: string
+  versionNumber: number
+  content: PlanContent
+  changeSummary: string | null
+  createdBy: string | null
+  createdAt: string
+}
+
+export interface PlanContent {
+  steps: PlanStep[]
+  assumptions: string[]
+  risks: string[]
+  dependencies: string[]
+  notes: string | null
+}
+
+export type PlanStepStatus = 'pending' | 'in_progress' | 'done' | 'blocked' | 'skipped'
+
+export const PLAN_STEP_STATUSES: PlanStepStatus[] = [
+  'pending',
+  'in_progress',
+  'done',
+  'blocked',
+  'skipped'
+]
+
+export interface PlanStep {
+  id: string
+  title: string
+  description: string | null
+  /** O status declarado NESTA versão. O vivo está em `Plan.stepStatus`. */
+  status: PlanStepStatus
+  order: number
+}
+
+/**
+ * Progresso derivado. NÃO é persistido: é recalculado a partir do plano e da
+ * versão atual (ver `planSnapshot` em `@shared/task-status`). Gravá-lo criaria
+ * um segundo lugar onde a verdade mora, e os dois divergiriam no primeiro
+ * arquivo editado à mão.
+ */
+export interface PlanStatusSnapshot {
+  planId: string
+  versionId: string
+  totalSteps: number
+  completedSteps: number
+  blockedSteps: number
+  skippedSteps: number
+  progressPercent: number
+  lastActivityAt: string | null
+  computedAt: string
+}
+
+/**
+ * Evento de plano — a timeline e a auditoria.
+ *
+ * Eventos NUNCA são a fonte do estado atual: o estado atual está no `Plan`, na
+ * `PlanVersion` e em `Plan.stepStatus`, e continua legível mesmo que a lista de
+ * eventos seja truncada, perdida ou reordenada. Reconstruir estado por replay
+ * faria um arquivo de log corrompido apagar o trabalho do usuário.
+ */
+export type PlanStatusEventType =
+  | 'task_created'
+  | 'task_origin_attached'
+  | 'plan_created'
+  | 'plan_version_created'
+  | 'plan_activated'
+  | 'plan_paused'
+  | 'plan_completed'
+  | 'step_started'
+  | 'step_completed'
+  | 'step_blocked'
+  | 'step_skipped'
+
+export interface PlanStatusEvent {
+  id: string
+  taskId: string
+  planId: string
+  versionId: string | null
+  type: PlanStatusEventType
+  payload: Record<string, unknown> | null
+  createdAt: string
+}
+
+/**
+ * O arquivo `plans/<file>.json` inteiro — planos, versões e eventos do quadro
+ * daquele nó. Um arquivo por quadro, e não um por plano: o painel precisa dos
+ * planos de TODOS os cartões para desenhar o progresso na lista, e um arquivo
+ * por plano viraria dezenas de leituras a cada render.
+ */
+export interface PlanBook {
+  version: number
+  plans: Plan[]
+  versions: PlanVersion[]
+  events: PlanStatusEvent[]
 }
 
 /**
@@ -471,7 +725,12 @@ export const CONNECTABLE_TYPES: NodeContentType[] = [
   'portal',
   'dataTable',
   'image',
-  'secretVault'
+  'secretVault',
+  // `widget` entrou pelo quadro de TODO: para o agente escrever num quadro, o
+  // quadro precisa aceitar cabo. Vale para TODO widget — o de git e o de
+  // projetos junto —, e é por isso que a recusa acontece por `kind` no momento
+  // de aceitar a ligação (ver connectionKindForTypes abaixo), e não aqui.
+  'widget'
 ]
 
 export function isConnectable(content: NodeContent): boolean {
@@ -488,7 +747,149 @@ export interface AgentStatus {
   /** Percentual de contexto usado. */
   contextPct: number | null
   /** Janelas de limite de uso: `5h` 80%, `7d` 58%. */
-  limits: { window: string; pct: number }[]
+  limits: UsageLimit[]
+}
+
+export type AgentUsageSource = 'statusline' | 'app-server' | 'screen' | 'none'
+export type AgentProvider = 'claude' | 'codex'
+
+export interface UsageLimit {
+  provider?: AgentProvider
+  bucketId?: string | null
+  bucketName?: string | null
+  window: string
+  windowMinutes?: number | null
+  pct: number
+  resetsAt?: number | null
+}
+
+/**
+ * O que o agente publica sobre a PRÓPRIA sessão, em vez do que dá para raspar
+ * da tela dele.
+ *
+ * O Claude Code chama um comando a cada mensagem nova e entrega um JSON no
+ * stdin — é o mecanismo da `statusLine`. `atelier statusline` é esse comando:
+ * ele devolve o payload ao main pelo mesmo socket do resto do CLI, e o que
+ * chega aqui é estruturado, na unidade certa e com o tamanho da janela junto.
+ *
+ * A diferença para `AgentStatus` não é de precisão, é de natureza. O raspador
+ * lê "103 tok" e não sabe se a janela é de 200k ou de 1M; não sabe qual modelo
+ * está rodando; e só enxerga uma janela de limite quando o CLI resolve
+ * imprimi-la. Aqui tudo isso é campo.
+ *
+ * Os dois convivem: `statusLine` é do Claude Code, e o Atelier sobe cinco
+ * presets. Codex, Antigravity, OpenCode e shell continuam no raspador, que por
+ * isso não sai de cena — ver `mergeReading` em shared/agent-usage.ts.
+ */
+export interface AgentUsage {
+  provider?: AgentProvider | null
+  /** `model.display_name` — qual Claude está de fato rodando neste nó. */
+  model: string | null
+  modelId: string | null
+  /** Tokens NA JANELA agora (entrada, incluindo leitura e escrita de cache). */
+  inputTokens: number | null
+  outputTokens: number | null
+  /** 200000, ou 1000000 nos modelos de contexto estendido. */
+  contextWindowSize: number | null
+  /** Já calculado pelo CLI, sobre tokens de entrada. */
+  usedPercentage: number | null
+  sessionTokens?: number | null
+  cachedInputTokens?: number | null
+  cacheWriteInputTokens?: number | null
+  reasoningOutputTokens?: number | null
+  /**
+   * Custo estimado da SESSÃO, em dólares. Diferente de tokens, esta unidade é
+   * a mesma para todo agente — é o único número deste tipo que dá para somar
+   * entre nós do canvas.
+   */
+  costUsd: number | null
+  linesAdded: number | null
+  linesRemoved: number | null
+  /**
+   * Janelas de limite de uso, com a hora do reset em segundos de época. O
+   * `resetsAt` é o que o raspador nunca teve: sem ele, "7d 58%" é um número
+   * sem prazo.
+   */
+  limits: UsageLimit[]
+  effort: string | null
+  fastMode: boolean | null
+  sessionId: string | null
+  version: string | null
+  /** Quando o agente publicou isto. */
+  at: string
+}
+
+/**
+ * A última leitura de limites de uma CONTA do Claude, guardada entre sessões.
+ *
+ * É o único pedaço da telemetria que sobrevive ao fechamento do app, e a
+ * exceção tem razão: `AgentUsage` é estado de SESSÃO (custo e contexto de um
+ * processo que já morreu não valem nada na próxima abertura), mas as janelas de
+ * limite são da CONTA e trazem a própria validade — `resetsAt` diz até quando
+ * aquele percentual continua sendo verdade. Uma leitura vencida é descartada na
+ * hora de mostrar, não guardada como se ainda valesse.
+ *
+ * Sem isto, a conta em que o usuário não tem terminal aberto AGORA apareceria
+ * sempre vazia no painel de perfis — que é justamente a conta sobre a qual ele
+ * precisa decidir se pode abrir mais um agente.
+ *
+ * Custo NÃO entra aqui: ele é da sessão, e somar dólares de sessões mortas
+ * responderia outra pergunta (o gasto histórico) com a cara desta.
+ */
+export interface StoredAccountUsage {
+  /** `DEFAULT_CLAUDE_ACCOUNT_ID` para a conta padrão (~/.claude). */
+  accountId: string
+  limits: UsageLimit[]
+  /** Quando o agente publicou. ISO 8601. */
+  at: string
+}
+
+export interface CodexAccountUsage {
+  authMode: string | null
+  planType: string | null
+  limits: UsageLimit[]
+  credits: {
+    hasCredits: boolean
+    unlimited: boolean
+    balance: string | null
+  } | null
+  individualLimit: {
+    limit: string
+    used: string
+    remainingPct: number
+    resetsAt: number
+  } | null
+  spendControlReached: boolean | null
+  rateLimitReachedType: string | null
+  resetCreditsAvailable: number | null
+  tokenUsage: CodexAccountTokenUsage | null
+  at: string
+  source: 'live' | 'stored' | 'none'
+}
+
+export interface CodexAccountTokenUsage {
+  summary: {
+    lifetimeTokens: number | null
+    peakDailyTokens: number | null
+    longestRunningTurnSec: number | null
+    currentStreakDays: number | null
+    longestStreakDays: number | null
+  }
+  dailyUsageBuckets: Array<{
+    startDate: string
+    tokens: number
+  }>
+}
+
+export interface StoredCodexUsage {
+  limits: UsageLimit[]
+  planType: string | null
+  credits: CodexAccountUsage['credits']
+  individualLimit: CodexAccountUsage['individualLimit']
+  spendControlReached: boolean | null
+  rateLimitReachedType: string | null
+  tokenUsage: CodexAccountTokenUsage | null
+  at: string
 }
 
 /**
@@ -499,6 +900,57 @@ export function formatTokens(count: number): string {
   if (count >= 1e6) return `${(count / 1e6).toFixed(1)}M`
   if (count >= 1e3) return `${(count / 1e3).toFixed(1)}k`
   return String(count)
+}
+
+/**
+ * Uma amostra do estado da máquina — bloco PC do monitor.
+ *
+ * Exportado do módulo compartilhado porque quem PRODUZ é o main
+ * (core/system/system-stats) e quem FORMATA é o renderer, exatamente como
+ * `AgentStatus` e `formatTokens`.
+ *
+ * Nada disto é persistido: a amostra vive em memória e morre com a janela. Um
+ * monitor que gravasse no workspace sujaria o autosave 60 vezes por minuto com
+ * dado descartável — é a mesma razão pela qual `WidgetContent.view` só guarda a
+ * CONFIGURAÇÃO do painel (blocos, intervalo, volume).
+ */
+export interface SystemStats {
+  /** null enquanto não há DUAS amostras: CPU% é derivada de um delta, não lida. */
+  cpuPct: number | null
+  /** `os.loadavg()[0]`. null no Windows, onde o Node devolve 0 sem significado. */
+  loadAvg: number | null
+  memUsed: number
+  memTotal: number
+  diskUsed: number
+  diskTotal: number
+  /** Volume observado. Vazio quando `statfs` falhou (caminho fora do ar). */
+  diskPath: string
+  /** O "quanto EU custo": processo principal + renderers + PTYs filhos. */
+  appCpuPct: number
+  appMemBytes: number
+  at: string
+}
+
+/**
+ * 999 -> "999 B", 1536 -> "1,5 KB", 1.5e9 -> "1,4 GB".
+ *
+ * Mora aqui pela mesma razão de `formatTokens`: quem produz o número é o main e
+ * quem o mostra é o renderer. Base 1024 (o que os sistemas chamam de GB na
+ * barra de memória) e vírgula decimal, como o resto da interface.
+ */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  let n = bytes
+  let u = 0
+  while (n >= 1024 && u < units.length - 1) {
+    n /= 1024
+    u++
+  }
+  // Bytes não têm casa decimal: "999,0 B" é ruído. A partir de KB, uma casa —
+  // duas fariam a linha dançar a cada amostra sem dizer nada a mais.
+  const text = u === 0 ? String(Math.round(n)) : n.toFixed(1).replace('.', ',')
+  return `${text} ${units[u]}`
 }
 
 // ─── Nó ───────────────────────────────────────────────────────────────────────
@@ -554,6 +1006,12 @@ export function connectionKindForTypes(
   // mais antigo ignoraria a chave nova e apagaria os cabos no primeiro
   // autosave. O ganho seria só uma cor de cabo diferente.
   if (pair.has('terminal') && pair.has('codeEditor')) return 'data'
+  // Quadro de TODO ligado a um agente: MESMO cabo `data`, pela razão escrita
+  // logo acima para o editor. Em disco cai em `dataConnections`, cujos campos
+  // são só referências de id, então nenhum documento muda de forma e o
+  // `schemaVersion` não sobe. Um `kind: 'board'` próprio custaria uma migração
+  // inteira para ganhar uma cor de cabo diferente.
+  if (pair.has('terminal') && pair.has('widget')) return 'data'
   // Um kind só para terminal↔cofre e portal↔cofre — e, mais tarde,
   // dataTable↔cofre. Em disco os campos são neutros (`nodeIdA`/`nodeIdB`),
   // como no crossFloor, justamente para o par novo não pedir lista nova.
@@ -708,6 +1166,141 @@ export interface Preferences {
   terminalThemes: TerminalTheme[]
   /** O que fazer com um popup aberto de dentro de um portal. */
   portalPopups: PortalPopupMode
+  /**
+   * Onde ficam as duas pílulas flutuantes — `"bottom/center"`, `"left/center"`.
+   *
+   * STRINGS, e não um objeto, pela mesma razão do `view` do widget: um objeto
+   * aninhado é o que o decoder do app nativo tem mais chance de REJEITAR em vez
+   * de ignorar.
+   *
+   * Chaves DESTE binário: o app nativo Swift não as conhece, e um save de lá as
+   * apaga. Aceito com os olhos abertos — perder isto devolve o padrão, que é a
+   * posição histórica, e o prejuízo é ínfimo comparado ao de perder a
+   * configuração de um botão do usuário. Valor inválido ou ausente cai no
+   * padrão SEMPRE: ver `parsePlacement`.
+   */
+  dockPlacement: string
+  railPlacement: string
+  monitorPlacement: string
+  /**
+   * A tira do monitor na borda. Padrão `true`.
+   *
+   * É a única das pílulas que se pode desligar, e a razão é o custo: ela é
+   * assinante PERMANENTE do amostrador (ver monitor-dock.tsx), então "não
+   * quero pagar por isso" é um pedido legítimo. Perder a chave devolve o
+   * padrão, que é a tira VISÍVEL — nenhum estado em disco pode escondê-la sem
+   * deixar como trazê-la de volta.
+   */
+  monitorDockVisible: boolean
+}
+
+// ─── Posição das pílulas flutuantes ───────────────────────────────────────────
+
+/**
+ * Ancoragem em BORDA, com posição LIVRE ao longo dela.
+ *
+ * A borda não é negociável: uma pílula em `x/y` livre pode ser largada em cima
+ * de um nó (e aí rouba cliques do canvas para sempre) ou ficar fora da janela
+ * num redimensionamento, sem como voltar sem editar as preferências à mão.
+ *
+ * Ao LONGO da borda, porém, não havia razão para só três paradas: quem arrasta
+ * a dock para um ponto qualquer da base espera que ela fique ali, e não que
+ * salte para o terço mais próximo. `offset` é a fração desse percurso — 0 é o
+ * começo da borda, 1 é o fim, 0.5 é o centro —, e é fração e não pixels para
+ * sobreviver ao redimensionamento da janela: a pílula guarda a POSIÇÃO
+ * relativa, não uma coordenada que a janela pode deixar para trás.
+ */
+export type PlacementEdge = 'top' | 'bottom' | 'left' | 'right'
+
+/** As três paradas nomeadas — o que o menu de contexto oferece. */
+export type PlacementAlign = 'start' | 'center' | 'end'
+
+export interface Placement {
+  edge: PlacementEdge
+  /** 0 = início da borda, 0.5 = centro, 1 = fim. Sempre dentro de [0, 1]. */
+  offset: number
+}
+
+export const PLACEMENT_EDGES: PlacementEdge[] = ['top', 'bottom', 'left', 'right']
+export const PLACEMENT_ALIGNS: PlacementAlign[] = ['start', 'center', 'end']
+
+/** A fração de cada parada nomeada. É a ponte entre o menu e o `offset`. */
+export const ALIGN_OFFSET: Record<PlacementAlign, number> = {
+  start: 0,
+  center: 0.5,
+  end: 1
+}
+
+/** As doze posições NOMEADAS, na ordem em que o menu de contexto as oferece. */
+export const PLACEMENTS: Placement[] = PLACEMENT_EDGES.flatMap((edge) =>
+  PLACEMENT_ALIGNS.map((align) => ({ edge, offset: ALIGN_OFFSET[align] }))
+)
+
+export const DOCK_PLACEMENT_DEFAULT: Placement = { edge: 'bottom', offset: 0.5 }
+export const RAIL_PLACEMENT_DEFAULT: Placement = { edge: 'left', offset: 0.5 }
+/**
+ * A base é da dock e a esquerda é da rail: o topo é a borda que sobrou, e nela
+ * a tira assenta abaixo do chip e dos controles de vista pelo `--pill-safe-top`
+ * que já existe. O 0.85 é à direita de propósito — nascer no centro do topo é
+ * nascer em cima de qualquer uma das outras duas que o usuário tenha mudado
+ * para lá.
+ */
+export const MONITOR_PLACEMENT_DEFAULT: Placement = { edge: 'top', offset: 0.85 }
+
+/** Borda esquerda/direita → pílula vertical; topo/base → horizontal. */
+export function isVerticalEdge(edge: PlacementEdge): boolean {
+  return edge === 'left' || edge === 'right'
+}
+
+export function clampOffset(n: number): number {
+  return Math.min(1, Math.max(0, n))
+}
+
+/**
+ * `{ edge, offset }` → `"bottom/center"` ou `"bottom/0.317"`.
+ *
+ * As três frações nomeadas voltam a ser PALAVRAS. Não é cosmético: o formato em
+ * disco é lido por versões mais velhas deste binário, e as posições que elas
+ * conhecem continuam sendo exatamente as strings que elas sabem ler. Só uma
+ * posição de fato nova — que nenhuma versão anterior saberia representar —
+ * grava um número, e lá a versão velha cai no padrão em vez de quebrar.
+ */
+export function formatPlacement(p: Placement): string {
+  const offset = clampOffset(p.offset)
+  for (const align of PLACEMENT_ALIGNS) {
+    if (ALIGN_OFFSET[align] === offset) return `${p.edge}/${align}`
+  }
+  // Três casas: sub-pixel em qualquer janela real, e o arquivo continua legível.
+  return `${p.edge}/${offset.toFixed(3)}`
+}
+
+/**
+ * `"bottom/center"` → `{ edge, offset }`. NUNCA lança.
+ *
+ * Um valor gravado que não faça sentido — lixo, uma versão mais nova, um save do
+ * app nativo que passou por cima — cai no padrão. É a garantia de que a dock
+ * continua alcançável: nenhum estado em disco pode escondê-la.
+ */
+export function parsePlacement(raw: unknown, fallback: Placement): Placement {
+  if (typeof raw !== 'string') return fallback
+  const parts = raw.split('/')
+  if (parts.length !== 2) return fallback
+  const [edge, at] = parts
+  if (!PLACEMENT_EDGES.includes(edge as PlacementEdge)) return fallback
+
+  if (PLACEMENT_ALIGNS.includes(at as PlacementAlign)) {
+    return { edge: edge as PlacementEdge, offset: ALIGN_OFFSET[at as PlacementAlign] }
+  }
+  // Fração explícita. `Number('')` é 0 e `Number(' ')` também: sem o teste de
+  // formato, `"bottom/"` viraria uma posição válida em vez de cair no padrão.
+  if (!/^\d+(\.\d+)?$/.test(at)) return fallback
+  const offset = Number(at)
+  if (!Number.isFinite(offset) || offset > 1) return fallback
+  return { edge: edge as PlacementEdge, offset }
+}
+
+export function samePlacement(a: Placement, b: Placement): boolean {
+  return a.edge === b.edge && a.offset === b.offset
 }
 
 /**
@@ -783,6 +1376,22 @@ export interface AgentRole {
   lastModifiedAt: string
 }
 
+/**
+ * Uma sessão anterior do Claude Code num diretório, candidata a `--resume`.
+ * Alimenta o select "Retomar sessão" do diálogo de novo terminal.
+ */
+export interface ClaudeSessionSummary {
+  /** Id da sessão (nome do `.jsonl` sem extensão) — vai direto no `--resume`. */
+  sessionId: UUID
+  /** `mtime` do arquivo, em ISO. É o critério de ordenação da lista. */
+  modifiedAt: string
+  /**
+   * A primeira mensagem do usuário na transcrição, encurtada. Vazio quando não
+   * há nenhuma ainda ou nada legível saiu do arquivo — a UI cai na data.
+   */
+  label: string
+}
+
 /** O que o diálogo de novo terminal entrega ao main. */
 export interface TerminalDraft {
   name: string
@@ -799,6 +1408,12 @@ export interface TerminalDraft {
   assignedRoleId: UUID | null
   /** Conta do Claude escolhida no diálogo. null = padrão (~/.claude). */
   claudeAccountId: string | null
+  /**
+   * Sessão anterior do Claude Code escolhida no select "Retomar sessão". `null`
+   * = sessão nova. Vale UMA vez: o primeiro boot a grava como a sessão do nó e
+   * o campo é zerado — daí em diante manda o `session.json`.
+   */
+  resumeSessionId: UUID | null
 }
 
 // ─── Ponte renderer ⇄ main ────────────────────────────────────────────────────
@@ -824,6 +1439,29 @@ export interface TerminalSpawnOptions {
    * sequestrar o canal do CLI.
    */
   extraEnv?: Record<string, string>
+  /**
+   * Tipo do agente daquele nó. Chega no spawn, e não só no `setAgentInfo`
+   * depois dele, porque é ele que decide se o comando ganha as flags de sessão
+   * — e essa decisão precisa acontecer ANTES de o comando ser digitado.
+   */
+  agentType?: string
+  /**
+   * O que fazer com a sessão gravada deste nó:
+   *
+   *  - `auto` (padrão) — retoma se houver id válido. É o boot do app, o caso que
+   *    dói depois de um crash ou de um restart do watcher.
+   *  - `clean` — ignora e apaga o id. É o "Sessão nova": quem clica ali quer
+   *    começar limpo, e ressuscitar a conversa anterior seria o oposto do pedido.
+   *  - `resume` — retoma explicitamente, pedido pelo menu do nó.
+   */
+  sessionMode?: 'auto' | 'clean' | 'resume'
+  /**
+   * Sessão anterior escolhida no diálogo de terminal. Só é honrada quando não há
+   * `session.json` utilizável para o nó: uma escolha feita na criação nunca
+   * ganha da sessão que o próprio nó já acumulou. Usada, ela é gravada como a
+   * sessão do nó e o `bridge` limpa o campo do conteúdo.
+   */
+  resumeSessionId?: UUID
 }
 
 export interface BootInfo {

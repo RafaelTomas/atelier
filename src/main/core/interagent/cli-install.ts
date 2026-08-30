@@ -5,6 +5,13 @@
  * executado pelo runtime do próprio Electron (ELECTRON_RUN_AS_NODE=1), o que
  * evita exigir Node instalado na máquina do usuário. Wrappers: `atelier` (sh)
  * e `atelier.cmd` (Windows).
+ *
+ * No Windows os DOIS são escritos, e não só o `.cmd`. Quem chama o CLI nem
+ * sempre é o shell do PTY: o Claude Code executa a `statusLine` e os hooks por
+ * um shell POSIX (o Git Bash da máquina), e o `sh` não conhece `PATHEXT` — um
+ * `atelier statusline` ali resolvia para nada, em silêncio, e o monitor ficava
+ * sem nenhuma leitura de consumo da conta. O `.cmd` continua sendo o
+ * `ATELIER_CLI`, porque é ele que o `cmd.exe` e o PowerShell sabem chamar.
  */
 import { chmod, copyFile, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -57,17 +64,21 @@ export async function installCLI(): Promise<void> {
       'endlocal'
     ].join('\r\n')
     await writeFile(join(dir, 'atelier.cmd'), cmd, 'utf8')
-  } else {
-    const sh = [
-      '#!/bin/sh',
-      '# gerado pelo Atelier — não editar',
-      `ELECTRON_RUN_AS_NODE=1 exec "${electronBin}" "${target}" "$@"`,
-      ''
-    ].join('\n')
-    const wrapper = join(dir, 'atelier')
-    await writeFile(wrapper, sh, 'utf8')
-    await chmod(wrapper, 0o755)
   }
+
+  // O wrapper `sh` sai em TODA plataforma — ver o cabeçalho. Fim de linha `\n`
+  // mesmo no Windows: um `\r` depois do shebang faz o sh procurar um
+  // interpretador chamado `/bin/sh\r`, e o comando morre sem dizer por quê.
+  const sh = [
+    '#!/bin/sh',
+    '# gerado pelo Atelier — não editar',
+    `ELECTRON_RUN_AS_NODE=1 exec "${electronBin}" "${target}" "$@"`,
+    ''
+  ].join('\n')
+  const wrapper = join(dir, 'atelier')
+  await writeFile(wrapper, sh, 'utf8')
+  // No Windows o `chmod` é inócuo, e o Git Bash executa pelo shebang mesmo.
+  await chmod(wrapper, 0o755)
 
   log.info('cli-install', `atelier instalado em ${dir}`)
 }

@@ -7,7 +7,13 @@
  * próprio em ~/.atelier/roles/ e é salva assim que o usuário confirma no editor.
  */
 import { useEffect, useMemo, useState } from 'react'
-import type { AgentRole, TerminalDraft, TerminalTheme, UUID } from '@shared/types'
+import type {
+  AgentRole,
+  ClaudeSessionSummary,
+  TerminalDraft,
+  TerminalTheme,
+  UUID
+} from '@shared/types'
 import { DEFAULT_CLAUDE_ACCOUNT_ID } from '@shared/types'
 import { ADD_ACCOUNT, accountLabel, isClaudeCommand } from '../claude-accounts'
 import { Icon, ICON_NAMES } from '../node-icons'
@@ -57,7 +63,8 @@ function emptyDraft(workingDirectory: string): TerminalDraft {
     fontFamily: null,
     fontSize: null,
     assignedRoleId: null,
-    claudeAccountId: null
+    claudeAccountId: null,
+    resumeSessionId: null
   }
 }
 
@@ -159,7 +166,13 @@ export function NewTerminalDialog({
 
         <div className="modal-body">
           {tab === 'detalhes' && (
-            <DetailsTab draft={draft} patch={patch} onSubmit={submit} editing={editing} />
+            <DetailsTab
+              draft={draft}
+              patch={patch}
+              onSubmit={submit}
+              editing={editing}
+              defaultWorkingDirectory={defaultWorkingDirectory}
+            />
           )}
           {tab === 'aparencia' && (
             <AppearanceTab draft={draft} patch={patch} customThemes={prefs?.terminalThemes ?? []} />
@@ -201,8 +214,13 @@ function DetailsTab({
   draft,
   patch,
   onSubmit,
-  editing = false
-}: TabProps & { onSubmit: () => void; editing?: boolean }): JSX.Element {
+  editing = false,
+  defaultWorkingDirectory
+}: TabProps & {
+  onSubmit: () => void
+  editing?: boolean
+  defaultWorkingDirectory: string
+}): JSX.Element {
   const browse = async (): Promise<void> => {
     const chosen = await window.atelier.dialog.chooseDirectory(draft.workingDirectory)
     if (chosen) patch({ workingDirectory: chosen })
@@ -231,6 +249,12 @@ function DetailsTab({
       </div>
 
       <ClaudeAccountField draft={draft} patch={patch} />
+
+      <ResumeSessionField
+        draft={draft}
+        patch={patch}
+        cwd={draft.workingDirectory || defaultWorkingDirectory}
+      />
 
       <div className="field-row">
         <label className="field-label">Diretório de Trabalho</label>
@@ -328,6 +352,73 @@ function ClaudeAccountField({ draft, patch }: TabProps): JSX.Element | null {
       )}
     </>
   )
+}
+
+/**
+ * Select "Retomar sessão" — as conversas anteriores do Claude Code neste
+ * diretório. Só aparece para terminal `claude` (é o único CLI cuja gramática de
+ * `--resume` conhecemos) e só quando há ao menos uma sessão: um select com uma
+ * opção só seria ruído.
+ *
+ * A escolha é um HINT de boot, não estado durável — o main a consome no
+ * primeiro spawn e a transforma na sessão gravada do nó. Por isso, em modo
+ * edição, o valor volta a "Nova sessão" assim que o terminal reinicia.
+ *
+ * A lista recarrega quando o diretório ou a conta mudam: são elas que decidem
+ * em qual pasta de `projects/` procurar.
+ */
+function ResumeSessionField({
+  draft,
+  patch,
+  cwd
+}: TabProps & { cwd: string }): JSX.Element | null {
+  const claudeCmd = isClaudeCommand(draft)
+  const [sessions, setSessions] = useState<ClaudeSessionSummary[] | null>(null)
+
+  useEffect(() => {
+    if (!claudeCmd || cwd.trim() === '') {
+      setSessions(null)
+      return
+    }
+    let alive = true
+    setSessions(null)
+    void window.atelier.terminal
+      .resumableSessions(cwd, draft.claudeAccountId)
+      .then((list) => alive && setSessions(list))
+      .catch(() => alive && setSessions([]))
+    return () => {
+      alive = false
+    }
+  }, [claudeCmd, cwd, draft.claudeAccountId])
+
+  if (!claudeCmd || !sessions || sessions.length === 0) return null
+
+  return (
+    <div className="field-row">
+      <label className="field-label">Retomar sessão</label>
+      <select
+        className="field-input"
+        value={draft.resumeSessionId ?? ''}
+        onChange={(e) => patch({ resumeSessionId: (e.target.value as UUID) || null })}
+      >
+        <option value="">Nova sessão</option>
+        {sessions.map((s) => (
+          <option key={s.sessionId} value={s.sessionId}>
+            {sessionOptionLabel(s)}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+/** "28/08 · corrige o crash no resume" — data curta, e o resto é a 1ª mensagem. */
+function sessionOptionLabel(s: ClaudeSessionSummary): string {
+  const when = new Date(s.modifiedAt)
+  const date = Number.isNaN(when.getTime())
+    ? ''
+    : when.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' })
+  return s.label ? `${date} · ${s.label}` : date || s.sessionId.slice(0, 8)
 }
 
 /** ~/Projetos/x em vez do caminho absoluto inteiro, como no app nativo. */

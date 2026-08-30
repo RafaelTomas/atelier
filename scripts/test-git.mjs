@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { build } from 'esbuild'
 
 const outdir = mkdtempSync(join(tmpdir(), 'gittest-'))
@@ -19,8 +20,8 @@ await build({
   external: ['electron'],
   alias: { '@shared': new URL('./src/shared', import.meta.url).pathname }
 })
-const { status, parsePorcelain, repoRoot } = await import(join(outdir, 'git.js'))
-const actions = await import(join(outdir, 'actions.js'))
+const { status, parsePorcelain, repoRoot } = await import(pathToFileURL(join(outdir, 'git.js')).href)
+const actions = await import(pathToFileURL(join(outdir, 'actions.js')).href)
 
 let pass = 0, fail = 0
 const check = (name, cond, extra) => {
@@ -157,10 +158,17 @@ writeFileSync(join(repo, 'sub', 'arquivo com espaço.txt'), 'dois\n')
 // repo de verdade: o próprio atelier
 console.log('\nrepositório do atelier')
 {
+  process.env.GIT_CONFIG_COUNT = '1'
+  process.env.GIT_CONFIG_KEY_0 = 'safe.directory'
+  process.env.GIT_CONFIG_VALUE_0 = process.cwd()
   const st = await status(process.cwd())
   check('status do atelier ok', !('error' in st), st.error)
   check('branch preenchido', typeof st.branch === 'string', st.branch)
-  check('root é o repositório', st.root === process.cwd(), st.root)
+  // `git rev-parse --show-toplevel` responde com barras normais mesmo no
+  // Windows, onde `process.cwd()` usa contrabarra: comparar os dois crus
+  // reprovaria o repositório certo por causa do separador.
+  const sameDir = (a, b) => a.replace(/\\/g, '/') === b.replace(/\\/g, '/')
+  check('root é o repositório', sameDir(st.root, process.cwd()), st.root)
   console.log(`       branch=${st.branch} upstream=${st.upstream} ahead=${st.ahead} behind=${st.behind} arquivos=${st.files.length}`)
   for (const f of st.files.slice(0, 8)) console.log(`       [${f.index}${f.worktree}] ${f.path}`)
 }

@@ -138,6 +138,20 @@
   --rail-panel-width: 220px;
   --rail-list-width: 220px;
 
+  /* Folga entre uma pílula flutuante e as duas PONTAS da borda em que ela está.
+     É token, e não valor local da `.pill`, porque a cascata da rail se ancora
+     pela mesma conta e não é filha da pílula — a var não chegaria lá por
+     herança. Espelha EDGE_PAD em shared/placement.ts, que responde "cabem as
+     duas nesta borda?" sem ler o DOM. */
+  --pill-pad: 18px;
+
+  /* Faixa reservada no TOPO para as pílulas flutuantes. O chip do workspace e
+     os controles de vista ocupam `top: 10px` com 28px de altura, e no macOS os
+     semáforos ficam na mesma linha; uma dock em `top: 18px` assentava em cima
+     deles. 10 do inset + 28 da altura + 10 de ar. Espelha EDGE_PAD_TOP em
+     shared/placement.ts. */
+  --pill-safe-top: 48px;
+
   /* Geometria do canto do canvas, hoje só do minimapa. A altura vem daqui e
      não do <canvas> de dentro: assim mudar o tamanho do mapa não desalinha
      nada em silêncio. O 132 é a altura do <canvas> (ver HEIGHT em

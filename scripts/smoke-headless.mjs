@@ -78,6 +78,14 @@ await esbuild.build({
       // deixa de herdar o tamanho de painel do widget.
       export { minSize, defaultSize } from './src/main/core/node-sizes.ts'
       export { readButtonConfig, writeButtonConfig } from './src/shared/types.ts'
+      // O amostrador de recursos. O ref-count dele é o defeito mais provável da
+      // feature — um timer que sobrevive ao último nó desmontado amostra para
+      // ninguém pelo resto da sessão, e nada na tela denuncia isso.
+      export { SystemStatsMonitor } from './src/main/core/system/system-stats.ts'
+      // A telemetria publicada pelo agente. O que entra aqui é o registro e a
+      // montagem do --settings: o handler em si atravessa o socket de verdade,
+      // logo abaixo, que é o unico jeito de provar que o protocolo bate.
+      export { getUsage, resetUsage, withStatusLine } from './src/main/core/terminal/status-line.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -108,6 +116,8 @@ const { setEditorState, resetEditors } = core
 const { dismissRefusal } = core
 const { minSize, defaultSize } = core
 const { readButtonConfig, writeButtonConfig } = core
+const { SystemStatsMonitor } = core
+const { getUsage, resetUsage, withStatusLine } = core
 
 /** Fala o protocolo real do atelier por socket. */
 function cli(args, terminalId) {
@@ -545,9 +555,159 @@ await test('recruit recusa papel inexistente sem criar nó', async () => {
   assert.doesNotMatch(await cli(['list'], terminalId), /Sem Papel/)
 })
 
+await test('recruit --model entra no comando do recrutado', async () => {
+  const out = await cli(['recruit', 'Barato', '--model', 'haiku'], terminalId)
+  assert.match(out, /model 'haiku'/)
+  const no = ws.nodes.find(
+    (n) => n.content.type === 'terminal' && n.content.value.name === 'Barato'
+  )
+  assert.equal(no.content.value.command, 'claude --model haiku')
+})
+
+await test('recruit recusa modelo com metacaractere sem criar nó', async () => {
+  // O comando é escrito no PTY do recrutado: um `;` aqui viraria execução.
+  const out = await cli(['recruit', 'Injetado', '--model', 'opus; rm -rf /'], terminalId)
+  assert.match(out, /invalid model/)
+  assert.doesNotMatch(await cli(['list'], terminalId), /Injetado/)
+})
+
+await test('recruit --preset codex --model cria um no Codex, e nao um shell', async () => {
+  // O contorno antigo era `--command "codex --model X"`, e ele criava um no
+  // `shell`: sem agentType, sem icone, sem cor e sem vinculo com a telemetria.
+  // O alias resolvido volta na resposta para quem pediu conferir.
+  const out = await cli(['recruit', 'Terra', '--preset', 'codex', '--model', 'terra'], terminalId)
+  assert.match(out, /model 'gpt-5\.6-terra' \(alias 'terra'\)/)
+  const no = ws.nodes.find(
+    (n) => n.content.type === 'terminal' && n.content.value.name === 'Terra'
+  )
+  assert.equal(no.content.value.command, 'codex --model gpt-5.6-terra')
+  assert.equal(no.content.value.agentType, 'codex', 'o no continua sendo Codex')
+  assert.equal(no.content.value.recruitedBy, terminalId)
+})
+
+await test('recruit recusa --model em preset sem seletor de modelo', async () => {
+  const out = await cli(
+    ['recruit', 'Sem Model', '--preset', 'antigravity', '--model', 'haiku'],
+    terminalId
+  )
+  assert.match(out, /does not apply/)
+  assert.doesNotMatch(await cli(['list'], terminalId), /Sem Model/)
+})
+
+
 await test('recruit sem nome devolve o uso', async () => {
   assert.match(await cli(['recruit'], terminalId), /usage: atelier recruit/)
 })
+
+// ─── Quadro de TODO ───────────────────────────────────────────────────────────
+//
+// Pelo socket real, com o escopo de cabo que vale para todo o CLI. O que estes
+// testes protegem é a regra que faz o quadro valer num canvas multi-agente: um
+// agente só enxerga o quadro que ligaram nele, e prefixo ambíguo é erro em vez
+// de "o primeiro".
+
+await test('atelier todo create cria o quadro já cabeado ao chamador', async () => {
+  const out = await cli(['todo', 'create', 'Sprint'], terminalId)
+  assert.match(out, /Created board 'Sprint'/)
+  assert.match(out, /todo, doing, done/)
+  // Aparece na lista do chamador: o cabo é o que dá acesso ao quadro.
+  assert.match(await cli(['list'], terminalId), /Connected boards/)
+})
+
+await test('add, move e done atravessam e o quadro reflete', async () => {
+  await cli(['todo', 'add', 'Sprint', 'Etapa 3'], terminalId)
+  await cli(['todo', 'add', 'Sprint', 'Etapa 4'], terminalId)
+
+  const movido = await cli(['todo', 'move', 'Sprint', 'Etapa 3', 'doing'], terminalId)
+  assert.match(movido, /Moved 'Etapa 3' to doing/)
+
+  const feito = await cli(['todo', 'done', 'Sprint', 'Etapa 4'], terminalId)
+  assert.match(feito, /to done/)
+
+  const lista = await cli(['todo', 'list', 'Sprint'], terminalId)
+  assert.match(lista, /Fazendo \(doing\) — 1/)
+  assert.match(lista, /Feito \(done\) — 1/)
+})
+
+await test('status inexistente é erro que lista os válidos', async () => {
+  const out = await cli(['todo', 'move', 'Sprint', 'Etapa 3', 'arquivado'], terminalId)
+  assert.match(out, /unknown status/)
+  assert.match(out, /'doing'/)
+})
+
+await test('prefixo AMBÍGUO é erro que nomeia os candidatos, nunca "o primeiro"', async () => {
+  // Escolher por ele faria o agente marcar como feito um cartão que não é o dele.
+  await cli(['todo', 'add', 'Sprint', 'Revisar A'], terminalId)
+  await cli(['todo', 'add', 'Sprint', 'Revisar B'], terminalId)
+  const out = await cli(['todo', 'move', 'Sprint', 'Revisar', 'doing'], terminalId)
+  assert.match(out, /matches several items/)
+  assert.match(out, /Revisar A/)
+  assert.match(out, /Revisar B/)
+})
+
+await test('--mine filtra pelo nome do terminal chamador', async () => {
+  await cli(['todo', 'add', 'Sprint', 'Do outro', '--assign', 'Ninguem'], terminalId)
+  const meu = await cli(['todo', 'list', 'Sprint', '--mine'], terminalId)
+  assert.doesNotMatch(meu, /Do outro/, 'trouxe o cartão de outro agente')
+  assert.match(meu, /filtered to/)
+})
+
+await test('um terminal NÃO cabeado ao quadro não o enxerga', async () => {
+  // O escopo é o cabo, como em todo o resto do CLI.
+  const outro = await cli(['todo', 'list'], 'FFFFFFFF-0000-0000-0000-00000000FF01')
+  assert.match(outro, /no TODO board connected/)
+})
+
+await test('todo add num quadro que não existe é recusado', async () => {
+  const out = await cli(['todo', 'add', 'Inexistente', 'X'], terminalId)
+  assert.match(out, /no connected board named/)
+})
+
+// ─── recruit --command ────────────────────────────────────────────────────────
+//
+// A flag existe para um caso que nenhum preset expressa: recriar um agente
+// RETOMANDO a sessão dele. Ela não é privilégio novo (quem chama já tem um shell
+// no próprio PTY), mas tira um guarda-corpo — a lista fixa de cinco presets — e
+// o que fica no lugar é a visibilidade do nó no canvas.
+
+await test('recruit --command cria o nó com o comando dado', async () => {
+  const out = await cli(
+    ['recruit', 'Retomado', '--command', 'claude --resume 42977e34-aaaa-bbbb-cccc-000000000001'],
+    terminalId
+  )
+  assert.match(out, /Recruited 'Retomado'/)
+  assert.match(out, /--resume/)
+
+  // `ws` é o workspace do terminal chamador (o do topo do arquivo): outros
+  // testes abrem workspaces diferentes, então `activeWorkspace` não serve aqui.
+  const node = ws.nodes.find(
+    (n) => n.content.type === 'terminal' && n.content.value.name === 'Retomado'
+  )
+  assert.ok(node, 'o nó não foi criado')
+  assert.equal(node.content.value.command, 'claude --resume 42977e34-aaaa-bbbb-cccc-000000000001')
+  // Aparência de shell, e não de Claude: o que roda ali não é um dos cinco
+  // presets, e vesti-lo de Claude seria mentir sobre o processo.
+  assert.equal(node.content.value.agentType, 'generic_shell')
+  // Cabeado ao chamador, como todo recruit — é o cabo que dá o `ask` de graça.
+  assert.match(await cli(['list'], terminalId), /Retomado/)
+})
+
+await test('--command junto de --preset é recusado', async () => {
+  const out = await cli(['recruit', 'X', '--command', 'ls', '--preset', 'claude'], terminalId)
+  assert.match(out, /mutually exclusive/)
+})
+
+await test('--command vazio é recusado', async () => {
+  const out = await cli(['recruit', 'X', '--command', '   '], terminalId)
+  assert.match(out, /needs a command/)
+})
+
+await test('--model não se aplica a --command, e a recusa explica onde pôr a flag', async () => {
+  // Aceitar em silêncio faria quem pediu haiku achar que economizou.
+  const out = await cli(['recruit', 'X', '--command', 'claude', '--model', 'haiku'], terminalId)
+  assert.match(out, /does not apply/)
+})
+
 
 await test('dismiss remove o agente que o chamador recrutou', async () => {
   await cli(['recruit', 'Dispensavel'], terminalId)
@@ -917,6 +1077,55 @@ await test('widget/button nasce 88×88, não com o tamanho de painel do widget',
   assert.deepEqual(minSize('widget', { kind: 'button' }), { width: 56, height: 56 })
   // E o widget comum continua sendo uma coluna: o `opts.kind` é o que separa.
   assert.deepEqual(defaultSize('widget', { kind: 'git' }), { width: 380, height: 460 })
+})
+
+// ─── Monitor de recursos ──────────────────────────────────────────────────────
+
+await test('widget/monitor nasce 340×380, com o PISO de painel do widget', () => {
+  // 380 e não 300: o bloco de perfis acrescentou uma linha por conta do Claude,
+  // e na configuração padrão (PC + IA + contas) o nó nascia já rolando.
+  assert.deepEqual(defaultSize('widget', { kind: 'monitor' }), { width: 340, height: 380 })
+  // O piso NÃO é o do botão: o monitor é um painel, e abaixo de 240×180 as
+  // linhas do bloco IA não cabem.
+  assert.deepEqual(minSize('widget', { kind: 'monitor' }), { width: 240, height: 180 })
+})
+
+await test('o amostrador emite enquanto há assinante e PARA no último desmonte', async () => {
+  const amostras = []
+  const monitor = new SystemStatsMonitor((s) => amostras.push(s), 25)
+
+  assert.equal(monitor.running, false, 'nasceu amostrando sem ninguém pedir')
+  monitor.subscribe()
+  await new Promise((r) => setTimeout(r, 160))
+  assert.ok(amostras.length >= 2, `esperava ao menos 2 amostras, vieram ${amostras.length}`)
+
+  const s = amostras.at(-1)
+  assert.equal(typeof s.memTotal, 'number')
+  assert.ok(s.memTotal > 0, 'memória total zerada')
+  assert.ok(s.at.endsWith('Z'), 'o carimbo não é ISO')
+  // A PRIMEIRA amostra não tem delta de CPU: `null`, e nunca um 0% inventado.
+  assert.equal(amostras[0].cpuPct, null)
+
+  monitor.unsubscribe()
+  assert.equal(monitor.running, false, 'o timer sobreviveu ao último desmonte')
+  const depois = amostras.length
+  await new Promise((r) => setTimeout(r, 120))
+  assert.equal(
+    amostras.length,
+    depois,
+    `o amostrador continuou emitindo para ninguém (${amostras.length - depois} amostras)`
+  )
+})
+
+await test('dois monitores, um timer: o primeiro a sair não desliga o outro', async () => {
+  const monitor = new SystemStatsMonitor(() => {}, 25)
+  monitor.subscribe()
+  monitor.subscribe()
+  monitor.unsubscribe()
+  assert.equal(monitor.running, true, 'desligou com um assinante ainda de pé')
+  assert.equal(monitor.refCount, 1)
+  monitor.unsubscribe()
+  assert.equal(monitor.running, false)
 })
 
 await test('config do botão faz round-trip por um mapa de strings', () => {
@@ -1717,6 +1926,74 @@ await test('excluir o último workspace é permitido e leva ao estado vazio', as
   for (const id of antes) await appState.deleteWorkspace(id)
   assert.equal(appState.manifest.workspaces.length, 0)
   assert.equal(appState.data.activeWorkspaceId, null, 'ficou apontando para um id que não existe')
+})
+
+// ─── Telemetria do agente (statusLine) ────────────────────────────────────────
+//
+// O caminho inteiro, pelo socket real: o Claude Code chamaria `atelier
+// statusline` com o payload da sessão no stdin, o CLI o entrega como args[1], e
+// o handler registra a leitura. Se o protocolo mudar de um lado só, é aqui que
+// se descobre.
+
+await test('statusline pelo socket registra a leitura publicada pelo agente', async () => {
+  resetUsage()
+  const payload = JSON.stringify({
+    model: { id: 'claude-opus-5', display_name: 'Opus' },
+    context_window: { total_input_tokens: 15500, context_window_size: 1000000, used_percentage: 8 },
+    cost: { total_cost_usd: 1.25 },
+    rate_limits: { seven_day: { used_percentage: 41.2, resets_at: 1738857600 } }
+  })
+
+  const out = await cli(['statusline', payload], terminalId)
+
+  const usage = getUsage(terminalId)
+  assert.ok(usage, 'a leitura não foi registrada')
+  assert.equal(usage.model, 'Opus')
+  assert.equal(usage.costUsd, 1.25)
+  // O tamanho da janela é o que a raspagem de tela nunca soube: sem ele, "8%"
+  // não diz de quanto.
+  assert.equal(usage.contextWindowSize, 1000000)
+  // O provedor viaja junto desde que o Codex tambem publica janelas: `5h` do
+  // Claude e `5h` do Codex sao contadores diferentes, e so o provedor separa.
+  assert.deepEqual(usage.limits, [
+    { provider: 'claude', window: '7d', pct: 41.2, resetsAt: 1738857600 }
+  ])
+
+  // A resposta vira a BARRA DE STATUS do agente — é texto para o usuário ler.
+  assert.match(out, /Opus/)
+  assert.match(out, /8% ctx/)
+  assert.match(out, /\$1\.25/)
+})
+
+await test('payload inválido não apaga a leitura boa que já existia', async () => {
+  // A statusLine roda a cada mensagem: um payload estranho num ciclo não pode
+  // zerar o painel até o ciclo seguinte.
+  const antes = getUsage(terminalId)
+  assert.ok(antes)
+  const out = await cli(['statusline', 'nao sou json'], terminalId)
+  assert.equal(getUsage(terminalId).costUsd, antes.costUsd)
+  assert.equal(out.trim(), '', 'um erro foi parar na barra de status do usuário')
+})
+
+await test('o --settings entra só no Claude Code, e some nos outros presets', async () => {
+  const claude = await withStatusLine('claude', terminalId)
+  assert.match(claude.command, /^claude --settings "/)
+  assert.ok(claude.command.includes(terminalId), 'o settings não é deste terminal')
+
+  // Codex e OpenCode não têm statusLine: o comando sai intacto e eles continuam
+  // no raspador de tela.
+  for (const cmd of ['codex', 'opencode --model x', '']) {
+    const r = await withStatusLine(cmd, terminalId)
+    assert.equal(r.command, cmd, `${cmd} foi alterado`)
+  }
+})
+
+await test('um --settings escrito pelo usuário não é sobreposto', async () => {
+  // A configuração que ele digitou vence a nossa: trocá-la em silêncio seria
+  // desfazer o que ele pediu.
+  const meu = 'claude --settings /meu/settings.json'
+  const r = await withStatusLine(meu, terminalId)
+  assert.equal(r.command, meu)
 })
 
 // ─── Shutdown ─────────────────────────────────────────────────────────────────

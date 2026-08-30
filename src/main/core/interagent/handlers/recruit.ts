@@ -28,20 +28,76 @@ import { requireTerminalId, workspaceForTerminal } from './context'
 const TERMINAL_SIZE = { width: 560, height: 360 }
 
 const USAGE =
-  'error: usage: atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd /path] [--role "Role"] [--account "Account"]'
+  'error: usage: atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell | --command "cmd"] [--cwd /path] [--role "Role"] [--account "Account"] [--model opus|sonnet|haiku|luna|terra|sol|model-id]'
+
+/**
+ * O modelo vai CONCATENADO num comando que é escrito no PTY do recrutado, então
+ * ele passa por aqui antes: um nome com `;`, `$(` ou aspas deixaria de ser um
+ * argumento e viraria comando no shell do outro agente. Aliases conhecidos são
+ * atalhos, não a lista toda — um id completo (`claude-haiku-4-5-20251001`)
+ * também passa, porque fechar a lista a envelheceria a cada modelo novo.
+ */
+const MODEL_TOKEN = /^[a-z0-9][a-z0-9.-]*$/
+const MODEL_FLAG_RE = /(^|\s)(--model|-m)(\s|=)|(^|\s)-c\s+model=/
+
+const FLAGS = ['--preset', '--cwd', '--role', '--account', '--model', '--command']
 
 function takeFlags(argv: string[]): { rest: string[]; flags: Map<string, string> } {
   const rest: string[] = []
   const flags = new Map<string, string>()
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
-    if (arg === '--preset' || arg === '--cwd' || arg === '--role' || arg === '--account') {
+    if (FLAGS.includes(arg)) {
       flags.set(arg.slice(2), argv[++i] ?? '')
     } else {
       rest.push(arg)
     }
   }
   return { rest, flags }
+}
+
+export function resolvePresetModel(
+  presetId: string,
+  raw: string
+): { ok: true; id: string; alias: string | null } | { ok: false; error: string } {
+  const preset = presetById(presetId)
+  if (!preset?.model) {
+    return { ok: false, error: `error: --model does not apply to the '${presetId}' preset.` }
+  }
+
+  const model = raw.trim().toLowerCase()
+  if (!MODEL_TOKEN.test(model)) {
+    const aliases = Object.keys(preset.model.aliases).join(', ')
+    return {
+      ok: false,
+      error: `error: invalid model '${raw}'. Use an alias (${aliases}) or a model id.`
+    }
+  }
+
+  const resolved = preset.model.aliases[model]
+  return { ok: true, id: resolved ?? model, alias: resolved ? model : null }
+}
+
+export function commandWithPresetModel(
+  presetId: string,
+  raw: string
+): { ok: true; command: string; id: string; alias: string | null } | { ok: false; error: string } {
+  const preset = presetById(presetId)
+  if (!preset) return { ok: false, error: `error: unknown preset '${presetId}'.` }
+  if (MODEL_FLAG_RE.test(preset.command)) {
+    return {
+      ok: false,
+      error: `error: preset '${presetId}' already chooses a model in its command. Remove that model from the preset command or omit --model.`
+    }
+  }
+  const selected = resolvePresetModel(presetId, raw)
+  if (!selected.ok) return selected
+  return {
+    ok: true,
+    command: `${preset.command} ${preset.model?.flag ?? '--model'} ${selected.id}`,
+    id: selected.id,
+    alias: selected.alias
+  }
 }
 
 export async function handleRecruit(argv: string[], terminalId: UUID | null): Promise<string> {
@@ -68,7 +124,31 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
     return `error: this canvas already has ${existing} terminals (limit for 'recruit' is ${Constants.recruitMaxTerminals}). Ask the user to remove one, or to create the terminal by hand.`
   }
 
-  const presetId = flags.get('preset') ?? 'claude'
+  /**
+   * `--command` sobe um comando livre em vez de um dos cinco presets.
+   *
+   * NÃO é privilégio novo: quem chama já tem um shell no próprio PTY e pode
+   * rodar o que quiser nele. O que sai é um guarda-corpo — a lista fixa de
+   * presets — e o que fica no lugar é a VISIBILIDADE: o nó aparece no canvas
+   * com o comando à vista no editor, o que é mais do que se pode dizer de
+   * qualquer coisa que o agente rodasse escondido no próprio terminal. O teto
+   * de `recruitMaxTerminals` continua valendo.
+   *
+   * O caso que motivou a flag é recriar um agente RETOMANDO a sessão dele
+   * (`claude --resume <id>`), que nenhum preset expressa.
+   */
+  const freeCommand = flags.get('command')
+  if (freeCommand !== undefined && flags.get('preset') !== undefined) {
+    return "error: --command and --preset are mutually exclusive. Use one or the other."
+  }
+  if (freeCommand !== undefined && !freeCommand.trim()) {
+    return 'error: --command needs a command to run.'
+  }
+
+  // Com `--command` o nó nasce com a aparência do preset `shell`: ele não é um
+  // dos cinco agentes conhecidos, e vesti-lo de Claude seria mentir sobre o que
+  // está rodando ali.
+  const presetId = freeCommand !== undefined ? 'shell' : (flags.get('preset') ?? 'claude')
   const preset = presetById(presetId)
   if (!preset) {
     return `error: unknown preset '${presetId}'. Available: ${QUICK_STARTS.map((p) => p.id).join(', ')}.`
@@ -105,6 +185,25 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
     claudeAccountId = match === 'default' ? null : match.id
   }
 
+  // Modelo: quem declara a capacidade é o PRESET (`model` em terminal-presets),
+  // e não um `if` por agente aqui. Claude e Codex têm seletor; Antigravity,
+  // OpenCode e shell não, e neles a flag é recusada em vez de ignorada — aceitar
+  // em silêncio faria quem pediu o modelo barato achar que economizou.
+  const model = flags.get('model')
+  let resolvedModel: { id: string; alias: string | null } | null = null
+  let presetCommand = preset.command
+  if (model !== undefined) {
+    if (freeCommand !== undefined) {
+      return 'error: --model does not apply to --command. Put the flag in the command itself.'
+    }
+    const selected = commandWithPresetModel(presetId, model)
+    if (!selected.ok) {
+      return selected.error
+    }
+    resolvedModel = { id: selected.id, alias: selected.alias }
+    presetCommand = selected.command
+  }
+
   const name = args[1]
   // Sem `--cwd`, o recrutado nasce onde o chamador está: é quase sempre o que se
   // quer (ajuda no MESMO projeto), e herdar o diretório do workspace levaria o
@@ -114,7 +213,11 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
 
   const content = makeTerminalContent(name, {
     agentType: preset.agentType,
-    command: preset.command,
+    // O modelo entra no COMANDO, e não num campo novo do terminal: o comando já
+    // é texto livre, já aparece no diálogo de edição e já passa pelo mesmo
+    // `resolveTemplate` do spawn. Um campo próprio duplicaria isso em types,
+    // bridge, store e diálogo sem o usuário ganhar nada que já não veja.
+    command: freeCommand ?? presetCommand,
     icon: preset.icon,
     color: preset.color,
     workingDirectory,
@@ -132,10 +235,14 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
   notifyRenderer('workspace:changed', { workspaceId: ws.id })
 
   const where = workingDirectory || '(workspace default)'
+  const what = freeCommand !== undefined ? `command '${freeCommand}'` : preset.label
   const role = assignedRoleId ? `, role '${roles.get(assignedRoleId)?.name}'` : ''
   const account = claudeAccountId ? `, Claude account '${claudeAccounts.labelFor(claudeAccountId)}'` : ''
+  const onModel = resolvedModel
+    ? `, model '${resolvedModel.id}'${resolvedModel.alias ? ` (alias '${resolvedModel.alias}')` : ''}`
+    : ''
   return [
-    `Recruited '${name}' (${preset.label}) in ${where}${role}${account}, connected to this terminal.`,
+    `Recruited '${name}' (${what}) in ${where}${role}${account}${onModel}, connected to this terminal.`,
     "It boots when its node is on screen — run 'atelier list' and wait for it to leave [not started]",
     "before asking it anything. When it is done, 'atelier dismiss' removes it."
   ].join('\n')

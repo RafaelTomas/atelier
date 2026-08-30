@@ -14,18 +14,9 @@
 /* Centralizada na vertical, irmã da dock: mesma linguagem (vidro, --dock-*),
    girada 90°. Fica na borda esquerda porque é de onde a cascata cresce — uma
    rail centrada na base abriria os painéis por cima da dock. */
-.rail {
-  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
-  z-index: 200;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 8px 6px;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--dock-border);
-  box-shadow: 0 10px 30px rgb(0 0 0 / .22);
-  --floating-blur: 14px;
-  --floating-saturate: 1.4;
-  user-select: none;
-}
+/* Como a dock, a rail compõe `.pill` (styles/floating.css): posição,
+   orientação, vidro, borda e sombra vêm de lá. */
+.rail { cursor: grab; }
 
 /* Mesma razão de .dock-btn não compor .icon-btn: a paleta aqui é a do vidro
    (--dock-fg/--dock-hover), não a do tema. */
@@ -56,8 +47,13 @@
 /* Absolutas à direita da rail, e não filhas dela: a rail é uma pílula estreita
    e centrada, e uma coluna de 70vh dentro dela esticaria a pílula até virar
    uma barra. `left` é a largura da rail (46px) mais a folga. */
+/* A cascata cresce para o lado do CANVAS, e a regra é uma por borda — decidida
+   aqui uma vez, e não recalculada por colisão a cada abertura, que é o que a
+   posição livre teria custado.
+
+   O `data-edge` vem do `Placement` da rail (ver renderer/rail.tsx). */
 .rail-cascade {
-  position: absolute; left: 62px; top: 50%; transform: translateY(-50%);
+  position: absolute;
   z-index: 199;
   display: flex; align-items: stretch; gap: 8px;
   max-height: min(70vh, calc(100% - 40px));
@@ -65,6 +61,40 @@
      largura e passa por cima da dock e dos controles de vista. */
   max-width: calc(100% - 80px);
 }
+
+/* AO LONGO da borda a cascata segue a rail, pela mesma conta que posiciona a
+   pílula (`--pill-offset` mais o translate proporcional — ver floating.css). Ela
+   era centrada na borda, e com a rail parando em qualquer ponto isso passou a
+   soltar o painel da peça que o abriu: a cascata ficava no meio da tela com a
+   rail no canto. Como lá, a conta não precisa saber o tamanho do painel e ele
+   nunca transborda. */
+.rail-cascade[data-edge='left'],
+.rail-cascade[data-edge='right'] {
+  top: calc(
+    var(--pill-safe-top) + var(--pill-offset) * (100% - var(--pill-safe-top) - var(--pill-pad))
+  );
+  transform: translateY(calc(var(--pill-offset) * -100%));
+}
+
+/* Rail à esquerda: a cascata abre para a direita (o comportamento histórico). */
+.rail-cascade[data-edge='left'] { left: 62px; }
+
+/* À direita: espelha. A alça de largura troca de lado junto — o gesto tem que
+   continuar puxando na direção que AUMENTA a coluna (ver .rail-resize). */
+.rail-cascade[data-edge='right'] { right: 62px; }
+
+/* Nas bordas horizontais a cascata desce (ou sobe) em vez de sair de lado, e as
+   colunas passam a dividir a LARGURA da janela em vez da altura. */
+.rail-cascade[data-edge='top'],
+.rail-cascade[data-edge='bottom'] {
+  left: calc(var(--pill-pad) + var(--pill-offset) * (100% - 2 * var(--pill-pad)));
+  transform: translateX(calc(var(--pill-offset) * -100%));
+  max-height: min(70vh, calc(100% - 100px));
+}
+/* 44px abaixo do topo da pílula — a altura dela mais o respiro. Era 62px fixo,
+   que somava a mesma folga a um `top: 18px` que a borda de cima não usa mais. */
+.rail-cascade[data-edge='top'] { top: calc(var(--pill-safe-top) + 44px); }
+.rail-cascade[data-edge='bottom'] { bottom: 62px; }
 
 .rail-col {
   position: relative;

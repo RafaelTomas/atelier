@@ -18,11 +18,43 @@ export interface QuickStart {
   command: string
   icon: string
   color: string
+  model?: ModelSelector
+}
+
+export interface ModelSelector {
+  flag: '--model' | '-m'
+  aliases: Record<string, string>
 }
 
 export const QUICK_STARTS: QuickStart[] = [
-  { id: 'claude', label: 'Claude Code', agentType: 'claude_code', command: 'claude', icon: 'burst', color: '#D97757' },
-  { id: 'codex', label: 'Codex', agentType: 'codex', command: 'codex', icon: 'brain', color: '#10A37F' },
+  {
+    id: 'claude',
+    label: 'Claude Code',
+    agentType: 'claude_code',
+    command: 'claude',
+    icon: 'burst',
+    color: '#D97757',
+    model: {
+      flag: '--model',
+      aliases: { opus: 'opus', sonnet: 'sonnet', haiku: 'haiku' }
+    }
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    agentType: 'codex',
+    command: 'codex',
+    icon: 'brain',
+    color: '#10A37F',
+    model: {
+      flag: '--model',
+      aliases: {
+        luna: 'gpt-5.6-luna',
+        terra: 'gpt-5.6-terra',
+        sol: 'gpt-5.6-sol'
+      }
+    }
+  },
   { id: 'antigravity', label: 'Antigravity', agentType: 'antigravity', command: 'agy', icon: 'sparkle', color: '#4285F4' },
   { id: 'opencode', label: 'OpenCode', agentType: 'open_code', command: 'opencode', icon: 'square', color: '#8E8E93' },
   { id: 'shell', label: 'Shell', agentType: 'generic_shell', command: '', icon: 'terminal', color: '#007AFF' }

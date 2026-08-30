@@ -47,6 +47,13 @@ export function terminalContentFromOpts(
     claudeAccountId:
       typeof opts.claudeAccountId === 'string' && guards.accountExists(opts.claudeAccountId)
         ? opts.claudeAccountId
+        : null,
+    // Sessão anterior escolhida no select "Retomar sessão". Sem guarda: um id
+    // que não bate com nenhuma transcrição em disco simplesmente decai para
+    // sessão nova no `planSession`, como qualquer `--resume` que não cola.
+    resumeSessionId:
+      typeof opts.resumeSessionId === 'string' && opts.resumeSessionId !== ''
+        ? (opts.resumeSessionId as UUID)
         : null
   })
 }

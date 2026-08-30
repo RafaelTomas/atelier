@@ -128,7 +128,10 @@ function decodeTerminal(raw: Record<string, unknown>): TerminalContent {
     claudeAccountId: optStr(raw.claudeAccountId),
     // Sem registro de quem recrutou, o terminal conta como criado pelo usuário
     // — e o `atelier dismiss` recusa removê-lo. É o default seguro.
-    recruitedBy: raw.recruitedBy ? normalizeUUID(raw.recruitedBy) : null
+    recruitedBy: raw.recruitedBy ? normalizeUUID(raw.recruitedBy) : null,
+    // Instrução de boot, não estado durável: some no primeiro spawn. Ausente
+    // (terminal antigo, ou vindo do app nativo) = null = sessão nova.
+    resumeSessionId: raw.resumeSessionId ? normalizeUUID(raw.resumeSessionId) : null
   }
 }
 
@@ -441,6 +444,7 @@ export function makeTerminalContent(
     fontSize: null,
     claudeAccountId: null,
     recruitedBy: null,
+    resumeSessionId: null,
     ...opts
   }
 }
@@ -622,6 +626,12 @@ export function widgetTitle(kind: string, view: Record<string, string> = {}): st
       return 'Git'
     case 'button':
       return view.label || 'Botão'
+    case 'monitor':
+      return 'Monitor'
+    case 'todo':
+      // O título do QUADRO, quando o nó já sabe qual é: dois quadros no canvas
+      // chamados "Tarefas" não se distinguem no cabeçalho nem no `atelier list`.
+      return view.title || 'Tarefas'
     default:
       return kind
   }

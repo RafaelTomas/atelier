@@ -1,0 +1,187 @@
+/* As pílulas flutuantes do canvas — a dock e a rail.
+
+   Elas sempre foram irmãs por design (rail.css abre dizendo "irmã da dock:
+   mesma linguagem, girada 90°"), e o vidro, a borda, a sombra e o `z-index`
+   estavam COPIADOS nas duas folhas, literalmente com o mesmo comentário. Aqui
+   isso vira uma classe só, e a duplicação some.
+
+   O que sobrou em canvas.css e rail.css é o que é próprio de cada peça: os
+   botões, os menus, a cascata. Esta folha responde só "onde a pílula fica e
+   para que lado ela cresce".
+
+   ─── Borda fixa, posição livre AO LONGO dela ───
+
+   Cada pílula tem uma BORDA e um deslocamento contínuo nela (`--pill-offset`,
+   de 0 a 1). A borda não é negociável: posição livre em x/y podia ser largada
+   em cima de um nó (roubando cliques do canvas para sempre) ou fora da janela
+   num redimensionamento, sem como voltar sem editar as preferências à mão. Ao
+   longo da borda, porém, qualquer ponto vale — inclusive dividir uma borda com
+   a outra pílula, que `fitAlongEdge` mantém sem sobreposição. Ver
+   shared/placement.ts. */
+
+.pill {
+  position: absolute;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--r-pill);
+  /* A fração ao longo da borda. O valor real chega inline, da store (ver
+     dock.tsx); este é o fallback para uma pílula ainda sem preferência lida. */
+  --pill-offset: .5;
+  border: 1px solid var(--dock-border);
+  box-shadow: 0 10px 30px rgb(0 0 0 / .22);
+  /* Vidro: deixa a grade aparecer por baixo sem competir com os ícones. */
+  --floating-blur: 14px;
+  --floating-saturate: 1.4;
+  user-select: none;
+  /* A transição é o que faz a TROCA de lugar entre dock e rail ser legível: sem
+     ela as duas peças teleportariam e ninguém entenderia que uma empurrou a
+     outra. Fica de fora durante o arrasto (ver `.pill.is-dragging`).
+
+     O `transform` entra na lista porque ele é METADE da ancoragem ao longo da
+     borda: animar só o inset faria a pílula escorregar e só então se recentrar. */
+  transition: left .18s ease, right .18s ease, top .18s ease, bottom .18s ease,
+    transform .18s ease;
+}
+
+/* Durante o gesto a pílula segue o ponteiro por CSS var escrita direto no
+   documento — nunca pela store, que notificaria o canvas inteiro a 60fps. A
+   transição sai de cena aqui, senão a pílula ficaria correndo atrás do cursor
+   com um atraso de 180ms. */
+/* `[data-edge]` no seletor NÃO é decoração: sem ele esta regra tem menos
+   especificidade que as de ancoragem abaixo, e durante o arrasto a pílula ficava
+   com o `top` do ponteiro E o `bottom` da borda ao mesmo tempo — dois insets
+   opostos numa caixa de altura automática, que é exatamente o "ela estica no
+   meio do arrasto" que se via. `inset: auto` zera os quatro de uma vez, para
+   que a única âncora durante o gesto seja o ponteiro. */
+.pill.is-dragging[data-edge] {
+  transition: none;
+  opacity: .75;
+  cursor: grabbing;
+  inset: auto;
+  left: var(--pill-x);
+  top: var(--pill-y);
+  transform: translate(-50%, -50%);
+}
+
+/* ─── Orientação: a pílula segue a borda ─────────────────────────────────────
+   Esquerda/direita → coluna; topo/base → linha. A dock nasceu horizontal e a
+   rail vertical; agora as duas sabem ser as duas coisas. */
+
+.pill[data-edge='top'],
+.pill[data-edge='bottom'] {
+  flex-direction: row;
+  padding: 7px 10px;
+}
+
+.pill[data-edge='left'],
+.pill[data-edge='right'] {
+  flex-direction: column;
+  padding: 8px 6px;
+}
+
+/* Os separadores trocam de eixo junto: uma barra vertical numa pílula em coluna
+   não separa nada. */
+.pill[data-edge='left'] .dock-sep,
+.pill[data-edge='right'] .dock-sep {
+  width: 22px;
+  height: 1px;
+  margin: 4px 0;
+}
+
+/* ─── Ancoragem ──────────────────────────────────────────────────────────────
+   Perpendicular à borda o afastamento é histórico de cada peça: 18px nas
+   horizontais (era o `bottom` da dock), 10px nas verticais (era o `left` da
+   rail).
+
+   AO LONGO da borda, a posição sai de `--pill-offset` por um par que não
+   depende de conhecer o tamanho da pílula em CSS: o inset anda pela pista (a
+   borda menos as duas folgas) e o `translate` desconta a MESMA fração do
+   tamanho PRÓPRIO do elemento. Em 0 a pílula encosta no começo, em 1 no fim, em
+   .5 fica centrada — e em nenhum valor ela transborda, porque quanto mais perto
+   da ponta, mais dela o translate puxa de volta. É o que permite qualquer ponto
+   da borda em vez de só três paradas. */
+
+.pill[data-edge='bottom'] { bottom: 18px; }
+.pill[data-edge='left'] { left: 10px; }
+.pill[data-edge='right'] { right: 10px; }
+
+/* O topo é a única borda que já tem dono: o chip do workspace de um lado e os
+   controles de vista do outro, ambos em `top: 10px`. A pílula assenta ABAIXO
+   deles em vez de dividir a faixa — cobrir o nome do workspace e o botão de
+   salvar não é um lugar legítimo para uma barra de ferramentas. */
+.pill[data-edge='top'] { top: var(--pill-safe-top); }
+
+.pill[data-edge='top'],
+.pill[data-edge='bottom'] {
+  left: calc(var(--pill-pad) + var(--pill-offset) * (100% - 2 * var(--pill-pad)));
+  transform: translateX(calc(var(--pill-offset) * -100%));
+}
+
+/* Nas laterais a mesma faixa reaparece no COMEÇO do percurso: uma pílula
+   vertical em `offset: 0` encosta no mesmo canto que o chip e os controles
+   ocupam. O fim continua na folga comum — embaixo não há nada para desviar. */
+.pill[data-edge='left'],
+.pill[data-edge='right'] {
+  top: calc(
+    var(--pill-safe-top) + var(--pill-offset) * (100% - var(--pill-safe-top) - var(--pill-pad))
+  );
+  transform: translateY(calc(var(--pill-offset) * -100%));
+}
+
+/* ─── Alvos de encaixe ───────────────────────────────────────────────────────
+   As quatro bordas acendem durante o arrasto. Sem elas não há como saber onde a
+   pílula vai parar antes de soltá-la — e "soltou no lugar errado" custa um
+   segundo gesto para desfazer. */
+
+.pill-targets {
+  position: absolute;
+  inset: 0;
+  z-index: 199;
+  pointer-events: none;
+}
+
+.pill-target {
+  position: absolute;
+  background: var(--accent);
+  opacity: .08;
+  transition: opacity .12s ease;
+}
+.pill-target.is-hot { opacity: .22; }
+
+.pill-target[data-edge='top'],
+.pill-target[data-edge='bottom'] { left: 0; right: 0; height: 72px; }
+.pill-target[data-edge='top'] { top: 0; }
+.pill-target[data-edge='bottom'] { bottom: 0; }
+
+.pill-target[data-edge='left'],
+.pill-target[data-edge='right'] { top: 0; bottom: 0; width: 72px; }
+.pill-target[data-edge='left'] { left: 0; }
+.pill-target[data-edge='right'] { right: 0; }
+
+
+/* ─── Menu das doze posições nomeadas ─────────────────────────────────────────
+   O arrasto alcança qualquer ponto da borda; o menu oferece as três paradas
+   redondas de cada uma, que é o que se pede por nome ("põe no canto de baixo à
+   direita") e o que salva quem não consegue arrastar. Uma linha por borda: a
+   borda é o rótulo e a parada é a posição do botão dentro da linha — uma lista
+   de doze itens em coluna obrigaria a ler doze rótulos para achar um. */
+
+.pill-menu-row {
+  display: grid;
+  grid-template-columns: 68px repeat(3, 1fr);
+  align-items: center;
+  gap: 2px;
+}
+.pill-menu-edge {
+  padding-left: 9px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+/* Os três botões da linha compartilham o estilo de item do menu de contexto;
+   só a largura muda, e ela vem do grid acima. */
+.pill-menu-row > button {
+  justify-content: center;
+  font-size: var(--fs-xs);
+}

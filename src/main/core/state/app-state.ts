@@ -6,6 +6,7 @@
  */
 import type { AppStateData, Preferences, UUID, WorkspaceManifest } from '@shared/types'
 import { claudeAccounts } from '../claude/accounts'
+import { codexTelemetry } from '../codex/codex-telemetry'
 import { nowISO } from '../coding'
 import { Constants } from '../constants'
 import { log } from '../logger'
@@ -14,6 +15,7 @@ import { makeWorkspacePayload } from '../models/workspace'
 import { importLegacyDataIfNeeded, type ImportResult } from '../persistence/import-legacy'
 import { persistence } from '../persistence/persistence-manager'
 import { paths } from '../persistence/paths'
+import { flushAccountUsage, loadAccountUsage } from '../terminal/status-line'
 import { repairSharedNoteFiles } from './note-files'
 import { projectIndex } from './project-store'
 import { roles } from './role-store'
@@ -59,7 +61,11 @@ class AppState {
       persistence.loadAppState(),
       roles.load(), // responsabilidades: mapa em memória antes de qualquer terminal
       projectIndex.load(), // índice de projetos: global, independe do workspace ativo
-      claudeAccounts.load() // contas do Claude: lidas antes do primeiro spawn de PTY
+      claudeAccounts.load(), // contas do Claude: lidas antes do primeiro spawn de PTY
+      // A última leitura de limite de cada conta, pelo mesmo motivo: o painel
+      // de perfis desenha antes de qualquer agente publicar a primeira vez.
+      loadAccountUsage(),
+      codexTelemetry.loadStored()
     ])
 
     this.manifest = manifest
@@ -267,6 +273,10 @@ class AppState {
         log.error('appstate', `falha no shutdown do workspace ${manager.id}`, err)
       }
     }
+    // O ledger de limites por conta tem gravação atrasada (5s): sem este flush,
+    // fechar o app logo depois de uma leitura nova a perderia.
+    await flushAccountUsage()
+    await codexTelemetry.shutdown()
     try {
       await persistence.saveManifest(this.manifest)
       this.data.cleanShutdown = true

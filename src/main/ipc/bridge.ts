@@ -65,6 +65,8 @@ import { supportsResume } from '../core/terminal/agent-resume'
 import { listClaudeSessions } from '../core/terminal/claude-sessions'
 import { apply as applyTodo, create as createTodo, read as readTodo } from '../core/todo/todo-store'
 import type { TodoOp } from '../core/todo/todo-store'
+import { apply as applyPlan, read as readPlans } from '../core/todo/plan-store'
+import type { PlanOp } from '../core/todo/plan-store'
 import { clearSession, readSession } from '../core/terminal/session-store'
 import { accountUsage, setTerminalAccount } from '../core/terminal/status-line'
 // `keyRefs`/`syncVaultKeys` moram no vault-manager: o `.vault` tem dois
@@ -1472,6 +1474,28 @@ export function registerIPC(): void {
   ipcMain.handle('todo:create', async (_e, workspaceId: UUID, file: string, title: string) =>
     createTodo(paths.todoFile(workspaceId, file), title)
   )
+
+  // ─── Planos dos cartões ─────────────────────────────────────────────────────
+
+  /**
+   * Os planos daquele quadro. Um arquivo só para o quadro inteiro: o painel
+   * precisa do progresso de TODOS os cartões para desenhar a lista, e um arquivo
+   * por plano viraria dezenas de leituras a cada render.
+   *
+   * `null` = arquivo corrompido, e o painel avisa em vez de sobrescrever — ali
+   * está o histórico inteiro, que ninguém reconstrói.
+   */
+  ipcMain.handle('plans:read', async (_e, workspaceId: UUID, file: string) =>
+    readPlans(paths.planFile(workspaceId, file))
+  )
+
+  /** Mesma disciplina do quadro: operação, nunca "grave este arquivo". */
+  ipcMain.handle('plans:apply', async (_e, workspaceId: UUID, file: string, op: PlanOp) => {
+    const result = await applyPlan(paths.planFile(workspaceId, file), op)
+    return result.error
+      ? { error: result.error }
+      : { book: result.book, plan: result.plan, version: result.version }
+  })
 
   // ─── Monitor de recursos ────────────────────────────────────────────────────
 

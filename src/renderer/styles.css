@@ -32,6 +32,9 @@
    cada uma ajusta o que é próprio dela escrevendo só a diferença — a mesma
    lógica de `nodes.css` vir antes de `nodes/*`. */
 @import './styles/floating.css';
+/* DEPOIS de floating (é uma especialização de `.pill`) e DEPOIS de panels: o
+   popover hospeda o painel do monitor e ajusta a altura dele. */
+@import './styles/monitor-dock.css';
 @import './styles/rail.css';
 @import './styles/canvas.css';
 
@@ -49,6 +52,7 @@
 @import './styles/nodes/image-node.css';
 @import './styles/nodes/widget-node.css';
 @import './styles/nodes/button-widget.css';
+@import './styles/nodes/task-plan.css';
 @import './styles/nodes/secret-vault-node.css';
 @import './styles/nodes/markdown-view.css';
 @import './styles/nodes/node-action-bar.css';

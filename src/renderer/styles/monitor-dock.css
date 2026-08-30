@@ -1,0 +1,188 @@
+/* A tira de recursos na borda — o que é PRÓPRIO da terceira pílula.
+
+   O vidro, a borda, a sombra, a ancoragem, a orientação por borda e a transição
+   vêm de `.pill` (floating.css). Aqui fica só o que a dock e a rail não têm:
+   uma linha de leituras densa o bastante para caber numa borda e estável o
+   bastante para não piscar.
+
+   ─── Largura fixa por métrica ───
+
+   É a regra que sustenta a folha inteira. O número de uma métrica vai de `9%` a
+   `100%`, e sem largura reservada a célula encolhe e cresce a cada amostra: a
+   pílula reflui, o `translate` da ancoragem recalcula, e a tira TREME na borda
+   de dois em dois segundos — no canto do olho de quem está trabalhando, para
+   sempre. `tabular-nums` resolve a dança entre dígitos; a largura reservada
+   resolve a dança entre 2 e 4 caracteres. Precisa das duas.
+
+   Nenhuma paleta nova: `--accent` e o `--rope-error` acima de 90%, os mesmos do
+   painel — o limiar é compartilhado em código (DANGER_PCT), e a cor tinha de
+   ser compartilhada junto. */
+
+.pill.monitor {
+  /* Sem `cursor: grab`: a tira inteira é área de arrasto, e a mão aberta é o
+     que diz isso antes de o usuário tentar. O `grabbing` durante o gesto vem
+     de `.pill.is-dragging`. */
+  cursor: grab;
+  color: var(--dock-fg);
+  font-size: var(--fs-xs);
+}
+
+/* A tira inteira é o gatilho do popover — daí ser um `<button>`. Numa borda, um
+   botão de abrir ao lado das leituras roubaria a largura de uma métrica.
+   `cursor: inherit` mantém a mão aberta da pílula: a tira é antes de tudo uma
+   peça que se arrasta, e uma mãozinha de link aqui prometeria outra coisa. */
+.monitor-dock-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: inherit;
+}
+
+/* Nas bordas verticais a tira empilha as métricas, como a rail empilha botões:
+   três células lado a lado numa coluna de 46px sairiam pela janela. */
+.pill[data-edge='left'] .monitor-dock-strip,
+.pill[data-edge='right'] .monitor-dock-strip {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.monitor-dock-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* A largura reservada, e o motivo de ela existir está no topo do arquivo.
+     Não é `min-width`: com `min-width` a célula ainda CRESCE quando o número
+     estica, e é o crescimento que faz a pílula reflui. */
+  width: 92px;
+  flex: 0 0 92px;
+  white-space: nowrap;
+}
+/* Sem o traço (o disco), a célula não precisa da mesma pista. */
+.monitor-dock-cell:not(:has(.monitor-spark)) {
+  width: 62px;
+  flex-basis: 62px;
+}
+
+.monitor-dock-label {
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+/* O número encosta à DIREITA da pista reservada: alinhado à esquerda, `9%` e
+   `100%` começariam no mesmo lugar mas terminariam em lugares diferentes, e a
+   coluna de percentuais deixaria de ser uma coluna. */
+.monitor-dock-pct {
+  margin-left: auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--dock-fg-strong);
+}
+
+.monitor-dock-cell.is-danger .monitor-dock-pct { color: var(--rope-error); }
+
+/* ─── O agregado de IA ────────────────────────────────────────────────────────
+   O custo somado e a janela mais apertada entre as contas. Separados das
+   métricas de máquina por um traço, porque são de outra ordem de grandeza de
+   preocupação: uma diz se a máquina aguenta, a outra se a CONTA aguenta. */
+
+.monitor-dock-sep {
+  flex-shrink: 0;
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+}
+.pill[data-edge='left'] .monitor-dock-sep,
+.pill[data-edge='right'] .monitor-dock-sep {
+  width: 22px;
+  height: 1px;
+}
+
+.monitor-dock-ai {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+/* Mesma pista reservada das métricas, pelo mesmo motivo: `$0,40` e `$128,90`
+   têm larguras diferentes, e o custo sobe a sessão inteira. */
+.monitor-dock-cost {
+  min-width: 52px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+
+/* A janela mais apertada — "5h 62%". O nome dela cabe em duas letras e o
+   percentual em quatro; reservar os dois evita o reflow quando a janela que
+   vence troca de 5h para 7d. */
+.monitor-dock-window {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 62px;
+  padding: 0 4px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.monitor-dock-window.is-danger { color: var(--rope-error); }
+
+/* ─── O popover com o painel inteiro ──────────────────────────────────────────
+
+   Abre CONTRA a borda, pela mesma conta que os menus da dock usam: o
+   `--pill-offset` no inset e a mesma fração do tamanho próprio no translate
+   (ver floating.css e `.dock-menu`). Com a tira no começo da borda o popover
+   abre para dentro em vez de vazar pela lateral da janela.
+
+   A var vem por HERANÇA: o popover é descendente da pílula. */
+
+.monitor-dock-popover {
+  position: absolute;
+  z-index: 300;
+  width: 320px;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--dock-border);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .26);
+  cursor: default;
+  bottom: calc(100% + 10px);
+  left: calc(var(--pill-offset) * 100%);
+  transform: translateX(calc(var(--pill-offset) * -100%));
+}
+
+.monitor-dock-popover[data-edge='top'] {
+  bottom: auto;
+  top: calc(100% + 10px);
+}
+
+.monitor-dock-popover[data-edge='left'],
+.monitor-dock-popover[data-edge='right'] {
+  bottom: auto;
+  top: calc(var(--pill-offset) * 100%);
+  transform: translateY(calc(var(--pill-offset) * -100%));
+}
+.monitor-dock-popover[data-edge='left'] { left: calc(100% + 10px); }
+.monitor-dock-popover[data-edge='right'] { left: auto; right: calc(100% + 10px); }
+
+/* O painel dentro do popover é o MESMO componente do nó, com as mesmas classes
+   `.monitor-*`. Só a altura muda: no nó ele preenche o corpo, aqui ele para
+   antes de o popover encostar no fim da janela. */
+.monitor-dock-popover .monitor {
+  max-height: calc(70vh - 2px);
+  font-size: var(--fs-sm);
+}

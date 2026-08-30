@@ -86,7 +86,7 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
             .map((c) => `${c.id} ${board.items.filter((i) => i.status === c.id).length}`)
             .join('  ')
         : '(unreadable)'
-      lines.push(`  ${view.title || 'TODO'}  ${counts}`)
+      lines.push(`  ${view.title || 'Tarefas'}  ${counts}`)
     }
     lines.push("  Read and write them with 'atelier todo …'.")
   }

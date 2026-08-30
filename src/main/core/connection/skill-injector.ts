@@ -169,6 +169,8 @@ atelier todo move "Board" <id|"title prefix"> <status>
 atelier todo done "Board" <id|"title prefix">
 atelier todo show "Board" <id|"title prefix">
 atelier todo create "Title" [column…]
+atelier todo plan "Board" <id|"title prefix"> [--title "…"] [--objective "…"] [--step "…"]…
+atelier todo step "Board" <id|"title prefix"> <step number> <pending|in_progress|done|blocked|skipped>
 \`\`\`
 
 Only boards CABLED to you, like everything else here. \`create\` makes one already
@@ -176,6 +178,11 @@ connected to you. Name the board only when more than one is connected.
 
 Address a card by id or by a prefix of its title — an ambiguous prefix is an
 error listing the candidates, never "the first one".
+
+A card may also carry a **plan** — how the work will be done. \`plan\` with
+\`--step\` creates it, or REVISES it into a new version with the old one kept in
+the history; \`plan\` with no flags just shows it. \`step\` marks one step and
+creates no version — that is what keeps the history readable.
 
 **Mark \`done\` when you FINISH, not when you start.** A board that says a card is
 done when it is merely begun is worse than no board: the user stops checking it.

@@ -1,5 +1,5 @@
 /**
- * Quadro de TODO — kanban e lista, sobre a mesma fonte.
+ * Quadro de Tarefas — kanban e lista, sobre a mesma fonte.
  *
  * O quadro vive num arquivo por nó, não na store nem no `workspace.json` (ver
  * core/todo/todo-store.ts). Este painel lê esse arquivo pelo IPC e guarda o
@@ -19,11 +19,22 @@
  * `view.mode` é o que o USUÁRIO escolheu. Num nó estreito o painel cai sozinho
  * para a lista sem mexer no `view`: a vista gravada é a intenção, não o que
  * coube na tela — alargar o nó de volta devolve o kanban sem ele ter de pedir.
+ *
+ * ─── Dois arquivos, uma tela ───
+ *
+ * Os Planos moram em `plans/<file>.json`, ao lado do quadro, e são lidos aqui
+ * junto com ele. Ficam separados porque o quadro é reescrito a cada arrasto de
+ * cartão enquanto versões e eventos crescem sem limite — juntá-los faria cada
+ * cartão movido reescrever todo o histórico. O que a tela mostra é a junção dos
+ * dois, e o progresso é sempre DERIVADO por `planSnapshot`.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { TodoBoard, TodoItem, UUID } from '@shared/types'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { PlanBook, PlanStepStatus, TodoBoard, TodoItem, UUID } from '@shared/types'
+import { columnKinds, TASK_STATUS_LABELS } from '@shared/task-status'
+import type { TaskStatusKind } from '@shared/task-status'
 import { IconPlus, IconTrash } from '../icons'
 import { store, useStore } from '../state/store'
+import { hasOpenSteps, planView, TaskDecision, TaskDetail, TaskSummary } from './task-plan'
 
 /** Espelha Constants.todoListBreakpoint. Abaixo disto o kanban não é legível. */
 const LIST_BREAKPOINT = 420
@@ -42,17 +53,29 @@ export function TodoPanel({ nodeId, file, mode, onChangeMode }: Props): JSX.Elem
   const wsId = workspace?.id ?? null
 
   const [board, setBoard] = useState<TodoBoard | null>(null)
+  const [book, setBook] = useState<PlanBook | null>(null)
   /** Distinto de `board === null`: "ainda não li" não é "arquivo corrompido". */
   const [loaded, setLoaded] = useState(false)
   const [draft, setDraft] = useState('')
   const [dragging, setDragging] = useState<string | null>(null)
+  /** O cartão aberto no painel expandido. Um por vez — o nó é estreito. */
+  const [openId, setOpenId] = useState<UUID | null>(null)
+  /** A conclusão que espera decisão explícita: cartão e coluna de destino. */
+  const [pending, setPending] = useState<{ id: UUID; status: string } | null>(null)
 
   const ref = useRef<HTMLDivElement>(null)
   const [narrow, setNarrow] = useState(false)
 
   const reload = useCallback(async (): Promise<void> => {
     if (!wsId || !file) return
-    setBoard(await window.atelier.todo.read(wsId, file))
+    // Em paralelo: são dois arquivos independentes, e serializar as leituras só
+    // faria o nó piscar em duas etapas a cada mudança vinda do CLI.
+    const [nextBoard, nextBook] = await Promise.all([
+      window.atelier.todo.read(wsId, file),
+      window.atelier.plans.read(wsId, file)
+    ])
+    setBoard(nextBoard)
+    setBook(nextBook)
     setLoaded(true)
   }, [wsId, file])
 
@@ -80,6 +103,12 @@ export function TodoPanel({ nodeId, file, mode, onChangeMode }: Props): JSX.Elem
     return () => obs.disconnect()
   }, [])
 
+  /** O significado de cada coluna, calculado uma vez por quadro e não por cartão. */
+  const kinds: Record<string, TaskStatusKind> = useMemo(
+    () => (board ? columnKinds(board.columns) : {}),
+    [board]
+  )
+
   const run = async (op: unknown): Promise<void> => {
     if (!wsId || !file) return
     const result = await window.atelier.todo.apply(wsId, file, op)
@@ -93,11 +122,56 @@ export function TodoPanel({ nodeId, file, mode, onChangeMode }: Props): JSX.Elem
     setBoard(result.board)
   }
 
+  /** Escrita no livro de planos. Mesma disciplina: operação, nunca o arquivo. */
+  const runPlan = async (op: unknown): Promise<{ planId: string } | null> => {
+    if (!wsId || !file) return null
+    const result = await window.atelier.plans.apply(wsId, file, op)
+    if ('error' in result) {
+      store.showNotice(result.error)
+      void reload()
+      return null
+    }
+    setBook(result.book)
+    return result.plan ? { planId: result.plan.id } : null
+  }
+
   const add = (): void => {
     const title = draft.trim()
     if (!title) return
     setDraft('')
     void run({ type: 'add', title })
+  }
+
+  /**
+   * Mover um cartão — e a única regra de negócio que a UI carrega sozinha.
+   *
+   * Concluir uma Tarefa cujo Plano ativo ainda tem etapas abertas exige decisão
+   * EXPLÍCITA: mover em silêncio deixaria o quadro dizendo "feito" e o Plano
+   * dizendo "faltam três", que é a divergência que este painel existe para não
+   * criar. A pergunta só aparece na entrada da coluna de concluídos, e nunca ao
+   * tirar o cartão de lá.
+   */
+  const moveTo = (item: TodoItem, status: string): void => {
+    const view = planView(book, item)
+    if (kinds[status] === 'done' && kinds[item.status] !== 'done' && hasOpenSteps(view.snapshot)) {
+      setPending({ id: item.id, status })
+      return
+    }
+    void run({ type: 'move', id: item.id, status })
+  }
+
+  /**
+   * Cria o Plano e aponta o cartão para ele — os passos 2, 3 e 4 do fluxo
+   * "Adicionar Plano a uma Tarefa", em um gesto.
+   *
+   * Nasce `active`, e não `draft`: quem clica em "Adicionar plano" dentro do
+   * cartão já está trabalhando nele, e só a partir de `active` o store deixa o
+   * plano virar `completed` sozinho quando a última etapa é marcada.
+   */
+  const addPlan = async (item: TodoItem): Promise<void> => {
+    const created = await runPlan({ type: 'create', taskId: item.id, title: item.title, status: 'active' })
+    if (!created) return
+    await run({ type: 'plan', id: item.id, planId: created.planId })
   }
 
   if (!loaded) return <div className="todo-empty">carregando…</div>
@@ -116,6 +190,59 @@ export function TodoPanel({ nodeId, file, mode, onChangeMode }: Props): JSX.Elem
     )
   }
 
+  const label = (status: string): string => TASK_STATUS_LABELS[kinds[status] ?? 'pending']
+
+  const open = openId ? (board.items.find((i) => i.id === openId) ?? null) : null
+  if (open) {
+    const view = planView(book, open)
+    return (
+      <div className="todo" ref={ref}>
+        <TaskDetail
+          item={open}
+          statusLabel={label(open.status)}
+          plan={view.plan}
+          version={view.version}
+          versions={view.versions}
+          events={view.events}
+          snapshot={view.snapshot}
+          onAddPlan={() => void addPlan(open)}
+          onStepStatus={(stepId, status: PlanStepStatus) => {
+            if (!view.plan) return
+            void runPlan({ type: 'step', planId: view.plan.id, stepId, status })
+          }}
+          onClose={() => setOpenId(null)}
+        />
+      </div>
+    )
+  }
+
+  const decide = pending ? (board.items.find((i) => i.id === pending.id) ?? null) : null
+  const decideView = decide ? planView(book, decide) : null
+  if (decide && pending && decideView?.snapshot) {
+    return (
+      <div className="todo" ref={ref}>
+        <TaskDecision
+          title={decide.title}
+          snapshot={decideView.snapshot}
+          onFinish={() => {
+            setPending(null)
+            void run({ type: 'move', id: decide.id, status: pending.status })
+          }}
+          onPause={() => {
+            setPending(null)
+            void (async () => {
+              await run({ type: 'move', id: decide.id, status: pending.status })
+              if (decideView.plan) {
+                await runPlan({ type: 'status', planId: decideView.plan.id, status: 'paused' })
+              }
+            })()
+          }}
+          onCancel={() => setPending(null)}
+        />
+      </div>
+    )
+  }
+
   const showKanban = mode === 'kanban' && !narrow
 
   return (
@@ -123,7 +250,7 @@ export function TodoPanel({ nodeId, file, mode, onChangeMode }: Props): JSX.Elem
       <div className="todo-bar">
         <input
           className="todo-input"
-          placeholder="novo cartão…"
+          placeholder="nova tarefa…"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -133,7 +260,7 @@ export function TodoPanel({ nodeId, file, mode, onChangeMode }: Props): JSX.Elem
             e.stopPropagation()
           }}
         />
-        <button type="button" className="icon-btn ghost-btn" onClick={add} title="Adicionar cartão">
+        <button type="button" className="icon-btn ghost-btn" onClick={add} title="Adicionar tarefa">
           <IconPlus size={14} />
         </button>
         <button
@@ -165,7 +292,8 @@ export function TodoPanel({ nodeId, file, mode, onChangeMode }: Props): JSX.Elem
                 e.preventDefault()
                 const id = e.dataTransfer.getData('text/plain')
                 setDragging(null)
-                if (id) void run({ type: 'move', id, status: col.id })
+                const item = board.items.find((i) => i.id === id)
+                if (item) moveTo(item, col.id)
               }}
             >
               <h5 className="todo-column-title">
@@ -178,6 +306,9 @@ export function TodoPanel({ nodeId, file, mode, onChangeMode }: Props): JSX.Elem
                 <Card
                   key={item.id}
                   item={item}
+                  statusLabel={label(item.status)}
+                  snapshot={planView(book, item).snapshot}
+                  onOpen={() => setOpenId(item.id)}
                   onDragStart={() => setDragging(col.id)}
                   onDragEnd={() => setDragging(null)}
                   onRemove={() => void run({ type: 'remove', id: item.id })}
@@ -205,16 +336,23 @@ export function TodoPanel({ nodeId, file, mode, onChangeMode }: Props): JSX.Elem
                         type="checkbox"
                         checked={item.status === last}
                         onChange={(e) =>
-                          void run({
-                            type: 'move',
-                            id: item.id,
-                            status: e.target.checked ? last : board.columns[0].id
-                          })
+                          moveTo(item, e.target.checked && last ? last : board.columns[0].id)
                         }
                       />
-                      <span className={item.status === last ? 'todo-line-title is-done' : 'todo-line-title'}>
+                      <button
+                        type="button"
+                        className={
+                          item.status === last ? 'todo-line-title is-done' : 'todo-line-title'
+                        }
+                        onClick={() => setOpenId(item.id)}
+                      >
                         {item.title}
-                      </span>
+                      </button>
+                      <TaskSummary
+                        item={item}
+                        statusLabel={label(item.status)}
+                        snapshot={planView(book, item).snapshot}
+                      />
                       {item.assignee && <span className="todo-who">{item.assignee}</span>}
                     </li>
                   ))}
@@ -222,7 +360,7 @@ export function TodoPanel({ nodeId, file, mode, onChangeMode }: Props): JSX.Elem
               </li>
             )
           })}
-          {board.items.length === 0 && <li className="todo-empty">nenhum cartão ainda</li>}
+          {board.items.length === 0 && <li className="todo-empty">nenhuma tarefa ainda</li>}
         </ul>
       )}
     </div>
@@ -235,11 +373,17 @@ function sorted(board: TodoBoard, status: string): TodoItem[] {
 
 function Card({
   item,
+  statusLabel,
+  snapshot,
+  onOpen,
   onDragStart,
   onDragEnd,
   onRemove
 }: {
   item: TodoItem
+  statusLabel: string
+  snapshot: ReturnType<typeof planView>['snapshot']
+  onOpen: () => void
   onDragStart: () => void
   onDragEnd: () => void
   onRemove: () => void
@@ -257,17 +401,24 @@ function Card({
       // O canvas trata mousedown na bolha: sem parar aqui, arrastar um cartão
       // também viraria retângulo de seleção no canvas de baixo.
       onMouseDown={(e) => e.stopPropagation()}
+      // Clique abre o painel expandido; o arrasto continua sendo o gesto de
+      // mover, e um não atrapalha o outro porque `click` só dispara sem arrasto.
+      onClick={onOpen}
       title={item.notes || undefined}
     >
       <span className="todo-card-title">{item.title}</span>
+      <TaskSummary item={item} statusLabel={statusLabel} snapshot={snapshot} />
       {item.assignee && <span className="todo-who">{item.assignee}</span>}
       {/* Apagar é do USUÁRIO, e só aqui: o CLI não tem `delete`, pela mesma
           linha do cofre — o agente cria, mas não destrói. */}
       <button
         type="button"
         className="icon-btn ghost-btn todo-remove"
-        title="Excluir cartão"
-        onClick={onRemove}
+        title="Excluir tarefa"
+        onClick={(e) => {
+          e.stopPropagation()
+          onRemove()
+        }}
       >
         <IconTrash size={12} />
       </button>

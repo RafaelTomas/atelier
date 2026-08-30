@@ -145,10 +145,10 @@ export function widgetLabel(content: WidgetContent, projectName?: string): strin
   // O botão é chromeless — este título não vai para a tela, mas vale para quem
   // lista nós (o CLI acha o botão pelo rótulo que o usuário escreveu).
   if (content.kind === 'button') return content.view.label || 'Botão'
-  // O quadro mostra o TÍTULO dele: dois quadros chamados "TODO" não se
+  // O quadro mostra o TÍTULO dele: dois quadros chamados "Tarefas" não se
   // distinguem no cabeçalho nem no `atelier list`, e é por esse nome que o
   // agente os endereça.
-  if (content.kind === 'todo') return content.view.title || 'TODO'
+  if (content.kind === 'todo') return content.view.title || 'Tarefas'
   const base = LABELS[content.kind] ?? content.kind
   return content.projectId && projectName ? `${base} · ${projectName}` : base
 }

@@ -569,6 +569,34 @@ test('preferences.json SEM as chaves novas carrega no padrão', () => {
   assert.equal(prefs.fontSize, 14)
 })
 
+test('sem as chaves da tira do monitor, ela nasce VISÍVEL no topo', () => {
+  // O arquivo de uma versão anterior à tira — e o que sobra de um save do app
+  // nativo. O padrão de `monitorDockVisible` é `true` de propósito: a tira
+  // custa uma amostra a cada 2s, então desligá-la é um pedido legítimo, mas
+  // nenhum estado em disco pode escondê-la sem deixar como trazê-la de volta.
+  const prefs = decodePreferences({ theme: 'dark' })
+  assert.equal(prefs.monitorPlacement, 'top/0.850')
+  assert.equal(prefs.monitorDockVisible, true)
+  // E o arquivo volta ao disco COM elas: quem regravar já persiste a posição.
+  assert.ok('monitorPlacement' in prefs && 'monitorDockVisible' in prefs)
+})
+
+test('lixo nas chaves da tira também cai no padrão visível', () => {
+  for (const ruim of ['', 'cima/meio', null, 42, { edge: 'top' }]) {
+    const prefs = decodePreferences({ monitorPlacement: ruim, monitorDockVisible: ruim })
+    assert.equal(prefs.monitorPlacement, 'top/0.850', `${JSON.stringify(ruim)} passou`)
+    assert.equal(prefs.monitorDockVisible, true, `${JSON.stringify(ruim)} escondeu a tira`)
+  }
+})
+
+test('desligada em disco, a tira CONTINUA desligada — é uma escolha do usuário', () => {
+  // O contrapeso do teste acima: só o `false` explícito desliga, e ele
+  // sobrevive ao round-trip.
+  const prefs = decodePreferences({ monitorDockVisible: false, monitorPlacement: 'left/end' })
+  assert.equal(prefs.monitorDockVisible, false)
+  assert.equal(prefs.monitorPlacement, 'left/end')
+})
+
 test('com as chaves, carrega e regrava o que estava lá', () => {
   const prefs = decodePreferences({ dockPlacement: 'right/end', railPlacement: 'top/start' })
   assert.equal(prefs.dockPlacement, 'right/end')
@@ -587,6 +615,8 @@ test('makePreferences nasce com a posição histórica das duas peças', () => {
   const base = makePreferences()
   assert.equal(base.dockPlacement, 'bottom/center')
   assert.equal(base.railPlacement, 'left/center')
+  assert.equal(base.monitorPlacement, 'top/0.850')
+  assert.equal(base.monitorDockVisible, true)
 })
 
 // ─── Widget (v6) ─────────────────────────────────────────────────────────────
@@ -701,6 +731,36 @@ test('os CARTÕES não entram no workspace.json — só o nome do arquivo', () =
   const view = doc.payload.nodes[0].content.value.view
   assert.equal(view.file, 'abc')
   assert.equal('items' in view, false, 'os cartões foram parar no workspace.json')
+})
+
+test('nem a origem externa nem o plano entram no workspace.json', () => {
+  // Origem e plano são do CARTÃO, e o cartão mora em `todos/<file>.json`; o
+  // plano, em `plans/<file>.json`. A guarda é a mesma dos cartões: `view` é
+  // [String: String] compartilhado com o app Swift, que descartaria um objeto
+  // aninhado no primeiro save de lá — e a perda seria silenciosa. O que
+  // sobrevive ao round-trip é só o PONTEIRO para o arquivo, e é ele que faz a
+  // exportação/importação do workspace não perder a origem externa: ela viaja
+  // junto com o arquivo do quadro, e não com o documento.
+  const doc = decodeWorkspaceDocument(
+    widgetDoc({
+      kind: 'todo',
+      projectId: null,
+      view: {
+        file: 'abc',
+        title: 'Sprint',
+        origin: { type: 'jira', externalId: 'PROJ-123' },
+        activePlanId: 'PLANO-1'
+      }
+    })
+  )
+  const view = doc.payload.nodes[0].content.value.view
+  assert.equal(view.file, 'abc')
+  assert.equal('origin' in view, false, 'a origem foi parar no workspace.json')
+  // `activePlanId` é string, então ele ATRAVESSA — e atravessar não é o mesmo
+  // que ser a fonte: quem manda é o campo do cartão no arquivo do quadro.
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.equal(back.widget._0.view.file, 'abc')
+  assert.equal(back.widget._0.kind, 'todo')
 })
 
 test('view descarta o que não é string — o Swift lê [String: String]', () => {

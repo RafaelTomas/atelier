@@ -630,8 +630,8 @@ export function widgetTitle(kind: string, view: Record<string, string> = {}): st
       return 'Monitor'
     case 'todo':
       // O título do QUADRO, quando o nó já sabe qual é: dois quadros no canvas
-      // chamados "TODO" não se distinguem no cabeçalho nem no `atelier list`.
-      return view.title || 'TODO'
+      // chamados "Tarefas" não se distinguem no cabeçalho nem no `atelier list`.
+      return view.title || 'Tarefas'
     default:
       return kind
   }

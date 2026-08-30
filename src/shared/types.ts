@@ -284,6 +284,20 @@ export interface TodoItem {
   updatedAt: string
   /** Preenchido ao entrar na última coluna; limpo ao sair dela. */
   doneAt: string | null
+  /**
+   * De onde este trabalho veio. Manual é EXPLÍCITO (`{ type: 'manual' }`), e não
+   * ausência de origem: um cartão sem origem é um cartão de quadro antigo, ainda
+   * não migrado, e a migração da leitura o marca como manual. `null` só
+   * sobrevive em memória entre o parse e a primeira operação.
+   */
+  origin: TaskOrigin | null
+  /**
+   * O plano ativo deste cartão, se houver. O plano em si NÃO mora aqui — ele
+   * vive em `plans/<file>.json`, ao lado do quadro, pela mesma razão que o
+   * quadro não mora no `workspace.json`: versões e eventos crescem sem limite e
+   * são reescritos por conta própria. Aqui fica só o ponteiro.
+   */
+  activePlanId: string | null
 }
 
 export interface TodoBoard {
@@ -299,6 +313,182 @@ export const TODO_DEFAULT_COLUMNS: TodoColumn[] = [
   { id: 'doing', title: 'Fazendo' },
   { id: 'done', title: 'Feito' }
 ]
+
+/**
+ * Origem de uma Tarefa — de onde o trabalho veio.
+ *
+ * Tudo aqui, exceto `type`, é dado de TERCEIRO: veio de um Jira, de um Slack,
+ * de um webhook. Nada disso é confiável. Daí os três cuidados que o resto do
+ * código impõe: `externalUrl` só vira link depois de passar por
+ * `safeExternalUrl` (ver `@shared/task-status`), `metadata` nunca é lido por
+ * campo fixo pela UI, e origem externa NÃO controla o status local do cartão —
+ * quem manda no status é a coluna em que o usuário o deixou.
+ *
+ * `metadata` é `unknown` de propósito: quem escreve integração é obrigado a
+ * checar o tipo antes de usar, em vez de confiar num `any` do provedor.
+ */
+export type TaskOriginType = 'manual' | 'jira' | 'slack' | 'github' | 'email' | 'api'
+
+export const TASK_ORIGIN_TYPES: TaskOriginType[] = [
+  'manual',
+  'jira',
+  'slack',
+  'github',
+  'email',
+  'api'
+]
+
+export interface TaskOrigin {
+  type: TaskOriginType
+  externalId: string | null
+  externalUrl: string | null
+  sourceName: string | null
+  importedAt: string | null
+  metadata: Record<string, unknown> | null
+}
+
+/**
+ * Plano — o "como vamos fazer" de uma Tarefa.
+ *
+ * Entidade SEPARADA do cartão de propósito: uma tarefa importada do Jira não
+ * pode ser obrigada a carregar etapas, versões e histórico só para existir. Um
+ * cartão pode viver sem plano, e concluir o cartão não apaga o plano dele.
+ *
+ * `currentVersionId` sempre aponta para uma `PlanVersion` DESTE plano. Quando
+ * não aponta (arquivo mexido à mão, versão perdida), o plano é lido como
+ * inconsistente e a UI deve impedir edição destrutiva em vez de recriar a
+ * versão por conta própria — recriar apagaria o histórico que o usuário ainda
+ * pode consertar.
+ */
+export type PlanStatus = 'draft' | 'active' | 'paused' | 'completed' | 'abandoned'
+
+export const PLAN_STATUSES: PlanStatus[] = ['draft', 'active', 'paused', 'completed', 'abandoned']
+
+export interface Plan {
+  id: string
+  /** O `TodoItem.id` dono deste plano. */
+  taskId: string
+  title: string
+  objective: string
+  status: PlanStatus
+  currentVersionId: string | null
+  /**
+   * O status VIVO de cada etapa, por id de etapa.
+   *
+   * Fica no plano, e não dentro da versão, porque versão é imutável e marcar uma
+   * etapa como feita não é mudança estrutural: se o status morasse na versão,
+   * cada clique em checkbox criaria uma versão nova e o histórico viraria ruído.
+   * O que a versão guarda em `PlanStep.status` é o status DECLARADO quando
+   * aquela versão foi escrita; este mapa é a camada de cima. Ids de etapas que
+   * não existem mais são ignorados na leitura.
+   */
+  stepStatus: Record<string, PlanStepStatus>
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * Uma versão do plano. IMUTÁVEL depois de criada — é isso que faz o histórico
+ * valer alguma coisa. Editar estrutura cria a próxima; nunca reescreve esta.
+ */
+export interface PlanVersion {
+  id: string
+  planId: string
+  versionNumber: number
+  content: PlanContent
+  changeSummary: string | null
+  createdBy: string | null
+  createdAt: string
+}
+
+export interface PlanContent {
+  steps: PlanStep[]
+  assumptions: string[]
+  risks: string[]
+  dependencies: string[]
+  notes: string | null
+}
+
+export type PlanStepStatus = 'pending' | 'in_progress' | 'done' | 'blocked' | 'skipped'
+
+export const PLAN_STEP_STATUSES: PlanStepStatus[] = [
+  'pending',
+  'in_progress',
+  'done',
+  'blocked',
+  'skipped'
+]
+
+export interface PlanStep {
+  id: string
+  title: string
+  description: string | null
+  /** O status declarado NESTA versão. O vivo está em `Plan.stepStatus`. */
+  status: PlanStepStatus
+  order: number
+}
+
+/**
+ * Progresso derivado. NÃO é persistido: é recalculado a partir do plano e da
+ * versão atual (ver `planSnapshot` em `@shared/task-status`). Gravá-lo criaria
+ * um segundo lugar onde a verdade mora, e os dois divergiriam no primeiro
+ * arquivo editado à mão.
+ */
+export interface PlanStatusSnapshot {
+  planId: string
+  versionId: string
+  totalSteps: number
+  completedSteps: number
+  blockedSteps: number
+  skippedSteps: number
+  progressPercent: number
+  lastActivityAt: string | null
+  computedAt: string
+}
+
+/**
+ * Evento de plano — a timeline e a auditoria.
+ *
+ * Eventos NUNCA são a fonte do estado atual: o estado atual está no `Plan`, na
+ * `PlanVersion` e em `Plan.stepStatus`, e continua legível mesmo que a lista de
+ * eventos seja truncada, perdida ou reordenada. Reconstruir estado por replay
+ * faria um arquivo de log corrompido apagar o trabalho do usuário.
+ */
+export type PlanStatusEventType =
+  | 'task_created'
+  | 'task_origin_attached'
+  | 'plan_created'
+  | 'plan_version_created'
+  | 'plan_activated'
+  | 'plan_paused'
+  | 'plan_completed'
+  | 'step_started'
+  | 'step_completed'
+  | 'step_blocked'
+  | 'step_skipped'
+
+export interface PlanStatusEvent {
+  id: string
+  taskId: string
+  planId: string
+  versionId: string | null
+  type: PlanStatusEventType
+  payload: Record<string, unknown> | null
+  createdAt: string
+}
+
+/**
+ * O arquivo `plans/<file>.json` inteiro — planos, versões e eventos do quadro
+ * daquele nó. Um arquivo por quadro, e não um por plano: o painel precisa dos
+ * planos de TODOS os cartões para desenhar o progresso na lista, e um arquivo
+ * por plano viraria dezenas de leituras a cada render.
+ */
+export interface PlanBook {
+  version: number
+  plans: Plan[]
+  versions: PlanVersion[]
+  events: PlanStatusEvent[]
+}
 
 /**
  * Botão do canvas — um clique que dispara uma ação.
@@ -975,6 +1165,17 @@ export interface Preferences {
    */
   dockPlacement: string
   railPlacement: string
+  monitorPlacement: string
+  /**
+   * A tira do monitor na borda. Padrão `true`.
+   *
+   * É a única das pílulas que se pode desligar, e a razão é o custo: ela é
+   * assinante PERMANENTE do amostrador (ver monitor-dock.tsx), então "não
+   * quero pagar por isso" é um pedido legítimo. Perder a chave devolve o
+   * padrão, que é a tira VISÍVEL — nenhum estado em disco pode escondê-la sem
+   * deixar como trazê-la de volta.
+   */
+  monitorDockVisible: boolean
 }
 
 // ─── Posição das pílulas flutuantes ───────────────────────────────────────────
@@ -1021,6 +1222,14 @@ export const PLACEMENTS: Placement[] = PLACEMENT_EDGES.flatMap((edge) =>
 
 export const DOCK_PLACEMENT_DEFAULT: Placement = { edge: 'bottom', offset: 0.5 }
 export const RAIL_PLACEMENT_DEFAULT: Placement = { edge: 'left', offset: 0.5 }
+/**
+ * A base é da dock e a esquerda é da rail: o topo é a borda que sobrou, e nela
+ * a tira assenta abaixo do chip e dos controles de vista pelo `--pill-safe-top`
+ * que já existe. O 0.85 é à direita de propósito — nascer no centro do topo é
+ * nascer em cima de qualquer uma das outras duas que o usuário tenha mudado
+ * para lá.
+ */
+export const MONITOR_PLACEMENT_DEFAULT: Placement = { edge: 'top', offset: 0.85 }
 
 /** Borda esquerda/direita → pílula vertical; topo/base → horizontal. */
 export function isVerticalEdge(edge: PlacementEdge): boolean {

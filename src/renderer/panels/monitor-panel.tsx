@@ -18,6 +18,10 @@
  *
  * As amostras NÃO passam pela store — ver `use-system-stats.ts`, que é onde a
  * regra está escrita.
+ *
+ * O medidor, o sparkline e o par de bytes moram em `monitor-parts.tsx`: a tira
+ * de borda mede as mesmas coisas, e o limiar do vermelho não pode divergir
+ * entre as duas telas.
  */
 import { useEffect, useMemo, useState } from 'react'
 import type { AccountRow, AccountUsage, AgentReading, UsageWindow } from '@shared/agent-usage'
@@ -36,9 +40,7 @@ import { accountLabel } from '../claude-accounts'
 import { IconPlus, IconReload } from '../icons'
 import { store, useStore } from '../state/store'
 import { DEFAULT_INTERVAL, INTERVALS, useSystemStats } from '../state/use-system-stats'
-
-/** Acima disto a barra fica vermelha: é o aperto que muda uma decisão. */
-const DANGER_PCT = 90
+import { DANGER_PCT, Meter, pair } from './monitor-parts'
 
 export type MonitorBlocks = 'pc' | 'ai' | 'accounts' | 'both'
 
@@ -167,84 +169,6 @@ function PCBlock({
         </span>
       </div>
     </section>
-  )
-}
-
-/**
- * "217,6 / 222,9 GB" — a unidade UMA vez, quando as duas medidas caem nela.
- *
- * `formatBytes` dos dois lados daria "217,6 GB / 222,9 GB": dezenove caracteres
- * que, num nó de 340px, empurram a linha para fora do nó — a barra encolhe até
- * sumir e o número fica cortado no meio, que é exatamente o que a tela mostrou.
- * Repetir a unidade também não informa nada: as duas metades de uma fração de
- * disco ou de memória quase sempre estão na mesma ordem de grandeza.
- */
-function pair(used: number, total: number): string {
-  const u = formatBytes(used)
-  const t = formatBytes(total)
-  const cut = u.indexOf(' ')
-  return u.slice(cut + 1) === t.slice(t.indexOf(' ') + 1)
-    ? `${u.slice(0, cut)} / ${t}`
-    : `${u} / ${t}`
-}
-
-/** Rótulo, barra, número e (quando há série) o traço dos últimos minutos. */
-function Meter({
-  label,
-  pct,
-  value,
-  series,
-  title
-}: {
-  /** null = sem leitura; a barra some e o valor mostra `—`. */
-  pct: number | null
-  label: string
-  value: string
-  series?: number[]
-  title?: string
-}): JSX.Element {
-  const danger = pct !== null && pct >= DANGER_PCT
-  return (
-    <div className="monitor-row" title={title}>
-      <span className="monitor-label">{label}</span>
-      <span className={danger ? 'monitor-bar is-danger' : 'monitor-bar'}>
-        <span className="monitor-fill" style={{ width: `${Math.min(100, pct ?? 0)}%` }} />
-      </span>
-      {series && series.length > 1 && <Sparkline series={series} danger={danger} />}
-      <span className="monitor-value">{value}</span>
-    </div>
-  )
-}
-
-/**
- * O histórico como um traço. SVG inline, sem biblioteca: são duas dezenas de
- * pontos numa caixa de 44×14, e um gráfico de verdade custaria mais bytes que o
- * resto do widget inteiro.
- *
- * A escala do eixo Y é FIXA em 0–100%, não ajustada aos dados: um traço
- * auto-escalado faria uma oscilação de 2% parecer um pico, que é o oposto do
- * que se quer ver aqui.
- */
-function Sparkline({ series, danger }: { series: number[]; danger: boolean }): JSX.Element {
-  const w = 44
-  const h = 14
-  const points = series
-    .map((v, i) => {
-      const x = (i / (series.length - 1)) * w
-      const y = h - (Math.max(0, Math.min(100, v)) / 100) * h
-      return `${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(' ')
-  return (
-    <svg
-      className={danger ? 'monitor-spark is-danger' : 'monitor-spark'}
-      viewBox={`0 0 ${w} ${h}`}
-      width={w}
-      height={h}
-      aria-hidden="true"
-    >
-      <polyline points={points} fill="none" strokeWidth="1" />
-    </svg>
   )
 }
 

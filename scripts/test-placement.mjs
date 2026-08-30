@@ -29,6 +29,7 @@ await esbuild.build({
         PILL_GAP,
         edgeFor,
         fitAlongEdge,
+        fitAmong,
         offsetFor,
         offsetForStart,
         padStart,
@@ -39,6 +40,7 @@ await esbuild.build({
       export {
         ALIGN_OFFSET,
         DOCK_PLACEMENT_DEFAULT,
+        MONITOR_PLACEMENT_DEFAULT,
         PLACEMENTS,
         RAIL_PLACEMENT_DEFAULT,
         formatPlacement,
@@ -65,6 +67,7 @@ const {
   PILL_GAP,
   edgeFor,
   fitAlongEdge,
+  fitAmong,
   offsetFor,
   offsetForStart,
   padStart,
@@ -73,6 +76,7 @@ const {
   resolveCollision,
   ALIGN_OFFSET,
   DOCK_PLACEMENT_DEFAULT,
+  MONITOR_PLACEMENT_DEFAULT,
   PLACEMENTS,
   RAIL_PLACEMENT_DEFAULT,
   formatPlacement,
@@ -249,6 +253,9 @@ test('os padrões são a posição histórica das duas peças', () => {
   // devolve exatamente a interface de antes desta feature.
   assert.equal(formatPlacement(DOCK_PLACEMENT_DEFAULT), 'bottom/center')
   assert.equal(formatPlacement(RAIL_PLACEMENT_DEFAULT), 'left/center')
+  // O 0.85 da tira não é uma parada nomeada: ele grava o número, e é o único
+  // dos três padrões que uma versão anterior deste binário não saberia ler.
+  assert.equal(formatPlacement(MONITOR_PLACEMENT_DEFAULT), 'top/0.850')
 })
 
 test('ALIGN_OFFSET é a ponte entre o menu de contexto e a fração', () => {
@@ -381,6 +388,188 @@ test('cabem somadas, mas não em volta de onde a arrastada parou', () => {
   // dois vãos comporta a de 800. Aí não há empurrão possível.
   const fit = fitAlongEdge({ offset: 0.5, length: 100 }, { offset: 0.5, length: 800 }, 1200, 'bottom')
   assert.equal(fit.kind, 'swap')
+})
+
+// ─── Três pílulas na mesma borda ──────────────────────────────────────────────
+//
+// `fitAlongEdge` responde por um PAR, e um par de cada vez não basta: empurrar
+// a rail para longe da dock pode encostá-la na tira do monitor, e o "ok" do
+// primeiro par teria escondido a sobreposição que o segundo criou. `fitAmong`
+// acomoda as irmãs em sequência, na ordem fixa dock → rail → monitor.
+//
+// Três na mesma borda é caso de canto — só acontece se o usuário empilhar as
+// três de propósito —, e é exatamente por isso que precisa de teste: ninguém
+// vai reproduzir isto com o mouse na frente de quem pode consertar.
+
+const TIRA = 260
+
+/** Os intervalos finais em px, na ordem [arrastada, ...irmãs que ficaram]. */
+function spansAfter(moved, others, total, edge) {
+  const fits = fitAmong(moved, others, total, edge)
+  const spans = [
+    {
+      nome: 'arrastada',
+      start: spanStart(moved.offset, moved.length, total, edge),
+      length: moved.length
+    }
+  ]
+  others.forEach((o, i) => {
+    const fit = fits[i]
+    if (fit.kind === 'swap') return // saiu desta borda: quem decide é resolveCollision
+    const offset = fit.kind === 'push' ? fit.offset : o.offset
+    spans.push({ nome: `irmã ${i}`, start: spanStart(offset, o.length, total, edge), length: o.length })
+  })
+  return { fits, spans }
+}
+
+/** A invariante: depois de soltar, ninguém se sobrepõe a ninguém. */
+function semSobreposicao(spans) {
+  for (let i = 0; i < spans.length; i++) {
+    for (let j = i + 1; j < spans.length; j++) {
+      const a = spans[i]
+      const b = spans[j]
+      assert.ok(
+        b.start + b.length + PILL_GAP <= a.start + 1e-9 ||
+          a.start + a.length + PILL_GAP <= b.start + 1e-9,
+        `${a.nome} (${a.start}..${a.start + a.length}) e ${b.nome} (${b.start}..${b.start + b.length}) se cruzam`
+      )
+    }
+  }
+}
+
+test('as três cabendo na borda: quem já estava longe não se mexe', () => {
+  // Uma base de 1600px comporta as três com folga. Empurrar a tira que está no
+  // canto oposto seria mexer no que o usuário não pediu.
+  const fits = fitAmong(
+    { offset: 0.5, length: DOCK },
+    [
+      { offset: 0.5, length: RAIL },
+      { offset: 0.85, length: TIRA }
+    ],
+    1600,
+    'bottom'
+  )
+  assert.equal(fits[0].kind, 'push', 'a rail estava debaixo da dock e devia sair')
+  assert.equal(fits[1].kind, 'ok', 'a tira estava longe e não devia se mexer')
+})
+
+test('as três empilhadas no centro: a arrastada fica, as outras acomodam sem cruzar', () => {
+  // O caso que o par a par erra: a tira é empurrada para longe da dock e cai
+  // em cima da rail, que já tinha sido acomodada. É a segunda volta de
+  // `fitAmong` que desfaz isso.
+  const moved = { offset: 0.5, length: DOCK }
+  const others = [
+    { offset: 0.5, length: RAIL },
+    { offset: 0.5, length: TIRA }
+  ]
+  const { fits, spans } = spansAfter(moved, others, 1600, 'bottom')
+  assert.deepEqual(
+    fits.map((f) => f.kind),
+    ['push', 'push']
+  )
+  assert.equal(spans.length, 3, 'ninguém devia ter precisado trocar de borda')
+  semSobreposicao(spans)
+})
+
+test('a ordem de resolução é determinística — a escolha fica fixa aqui', () => {
+  // Como o empate de canto de `edgeFor`: a outra ordem também funcionaria, e o
+  // que não é arbitrário é a escolha estar FIXA. Trocar a ordem das irmãs muda
+  // os números, e o teste é quem percebe.
+  const total = 1600
+  const moved = { offset: 0.5, length: DOCK }
+  const others = [
+    { offset: 0.5, length: RAIL },
+    { offset: 0.5, length: TIRA }
+  ]
+  const fits = fitAmong(moved, others, total, 'bottom')
+  // Dock centrada em 500..1100. A rail sai para o vão da esquerda (empate de
+  // distância, e o `before` vence); a tira, empurrada pela dock, cai sobre a
+  // rail e recua mais um pouco na segunda volta.
+  // Arredondado ao pixel: a fração faz o round-trip por uma divisão, e o que
+  // este teste fixa é a ESCOLHA, não o último bit do ponto flutuante.
+  assert.equal(Math.round(spanStart(fits[0].offset, RAIL, total, 'bottom')), 442)
+  assert.equal(Math.round(spanStart(fits[1].offset, TIRA, total, 'bottom')), 170)
+  // E o resultado não muda entre duas chamadas com a mesma entrada.
+  assert.deepEqual(fitAmong(moved, others, total, 'bottom'), fits)
+})
+
+test('as três sem caber: a arrastada fica e as outras trocam de borda', () => {
+  // Uma janela de 700px não comporta a dock de 600 mais nenhuma das outras.
+  // Aqui não há empurrão possível, e `swap` é o que devolve a decisão para
+  // `resolveCollision` — que é reversível e nunca deixa duas no mesmo lugar.
+  const { fits, spans } = spansAfter(
+    { offset: 0.5, length: DOCK },
+    [
+      { offset: 0.5, length: RAIL },
+      { offset: 0.5, length: TIRA }
+    ],
+    700,
+    'bottom'
+  )
+  assert.deepEqual(
+    fits.map((f) => f.kind),
+    ['swap', 'swap']
+  )
+  assert.equal(spans.length, 1, 'sobrou alguém apertado na borda em vez de trocar')
+})
+
+test('a irmã que não cabe sai, e a que cabe continua na borda', () => {
+  // Meio-termo: a rail de 46px ainda encontra vão ao lado da dock, a tira de
+  // 260 não. Uma resposta só para as duas seria errada para uma delas.
+  const total = 760
+  const { fits, spans } = spansAfter(
+    { offset: 0, length: 560 },
+    [
+      { offset: 0.5, length: RAIL },
+      { offset: 0.5, length: TIRA }
+    ],
+    total,
+    'bottom'
+  )
+  assert.equal(fits[1].kind, 'swap', 'a tira não cabia e devia trocar de borda')
+  semSobreposicao(spans)
+})
+
+test('nenhuma combinação das três deixa duas empilhadas', () => {
+  // Varre as três por toda a borda. É a invariante que de fato importa —
+  // sobreposição é o único estado quebrado —, e ela vale em qualquer entrada.
+  const total = 1600
+  for (let i = 0; i <= 40; i++) {
+    for (let j = 0; j <= 8; j++) {
+      for (let k = 0; k <= 8; k++) {
+        const { spans } = spansAfter(
+          { offset: i / 40, length: DOCK },
+          [
+            { offset: j / 8, length: RAIL },
+            { offset: k / 8, length: TIRA }
+          ],
+          total,
+          'bottom'
+        )
+        semSobreposicao(spans)
+      }
+    }
+  }
+})
+
+test('numa vertical, as três respeitam a faixa reservada do topo', () => {
+  const total = 900
+  for (let i = 0; i <= 40; i++) {
+    const { spans } = spansAfter(
+      { offset: i / 40, length: 380 },
+      [
+        { offset: 0.5, length: RAIL },
+        { offset: 0.2, length: 120 }
+      ],
+      total,
+      'left'
+    )
+    semSobreposicao(spans)
+    for (const s of spans) {
+      assert.ok(s.start >= EDGE_PAD_TOP - 1e-9, `${s.nome} entrou na faixa do topo: ${s.start}`)
+      assert.ok(s.start + s.length <= total - EDGE_PAD + 1e-9, `${s.nome} passou do fim`)
+    }
+  }
 })
 
 // ─── Colisão dock/rail ────────────────────────────────────────────────────────

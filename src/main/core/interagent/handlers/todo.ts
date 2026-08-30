@@ -19,16 +19,32 @@
  * Não há `delete` aqui: apagar cartão é gesto do usuário, no nó. Mesma linha do
  * cofre, onde o agente cria mas não destrói.
  */
-import type { CanvasNode, TodoBoard, TodoItem, UUID, WidgetContent } from '@shared/types'
+import type {
+  CanvasNode,
+  PlanBook,
+  PlanStepStatus,
+  TodoBoard,
+  TodoItem,
+  UUID,
+  WidgetContent
+} from '@shared/types'
+import { PLAN_STEP_STATUSES } from '@shared/types'
+import { originSummary, planSnapshot, stepStatus } from '@shared/task-status'
 import { Constants } from '../../constants'
 import { makeWidgetContent } from '../../models/node-content'
 import { makeCanvasNode } from '../../models/workspace'
 import { paths } from '../../persistence/paths'
 import { apply, create, read } from '../../todo/todo-store'
+import {
+  apply as applyPlan,
+  currentVersion,
+  planForTask,
+  read as readPlans
+} from '../../todo/plan-store'
 import { notifyRenderer } from '../../../ipc/notify'
 import { connectedNodes, requireTerminalId, workspaceForTerminal } from './context'
 
-const USAGE = 'error: usage: atelier todo <list|add|move|done|show|create> …'
+const USAGE = 'error: usage: atelier todo <list|add|move|done|show|create|plan|step> …'
 
 export async function handleTodo(args: string[], terminalId: UUID | null): Promise<string> {
   const tid = requireTerminalId(terminalId)
@@ -47,6 +63,10 @@ export async function handleTodo(args: string[], terminalId: UUID | null): Promi
       return showItem(args, tid)
     case 'create':
       return createBoard(args, tid)
+    case 'plan':
+      return planCommand(args, tid)
+    case 'step':
+      return stepCommand(args, tid)
     default:
       return USAGE
   }
@@ -66,7 +86,7 @@ function widgetOf(node: CanvasNode): WidgetContent {
 }
 
 function boardTitle(node: CanvasNode): string {
-  return widgetOf(node).view.title || 'TODO'
+  return widgetOf(node).view.title || 'Tarefas'
 }
 
 /**
@@ -108,6 +128,14 @@ function fileFor(tid: UUID, node: CanvasNode): string | null {
   return paths.todoFile(ws.id, file)
 }
 
+/** Os planos daquele quadro — mesmo nome de arquivo, outra pasta. */
+function planFileFor(tid: UUID, node: CanvasNode): string | null {
+  const ws = workspaceForTerminal(tid)
+  const file = widgetOf(node).view.file
+  if (!ws || !file) return null
+  return paths.planFile(ws.id, file)
+}
+
 /**
  * O item por id completo ou por prefixo de TÍTULO.
  *
@@ -139,16 +167,26 @@ function findItem(board: TodoBoard, needle: string): TodoItem | string {
   return `error: no item matching '${needle}'.`
 }
 
-function takeFlags(args: string[]): { rest: string[]; flags: Map<string, string> } {
+function takeFlags(args: string[]): {
+  rest: string[]
+  flags: Map<string, string>
+  /**
+   * `--step` é o único flag REPETÍVEL. A alternativa (`--steps "a,b,c"`) faria
+   * uma etapa com vírgula no texto virar duas, e etapa de plano é frase.
+   */
+  steps: string[]
+} {
   const rest: string[] = []
   const flags = new Map<string, string>()
-  const named = ['--status', '--assign', '--notes', '--tags']
+  const steps: string[] = []
+  const named = ['--status', '--assign', '--notes', '--tags', '--title', '--objective', '--summary']
   for (let i = 0; i < args.length; i++) {
-    if (named.includes(args[i])) flags.set(args[i].slice(2), args[++i] ?? '')
+    if (args[i] === '--step') steps.push(args[++i] ?? '')
+    else if (named.includes(args[i])) flags.set(args[i].slice(2), args[++i] ?? '')
     else if (args[i] === '--mine') flags.set('mine', '1')
     else rest.push(args[i])
   }
-  return { rest, flags }
+  return { rest, flags, steps: steps.filter(Boolean) }
 }
 
 /** Nome do terminal chamador — é o que `--mine` e `--assign` sem valor usam. */
@@ -289,12 +327,20 @@ async function showItem(argv: string[], tid: UUID): Promise<string> {
   const item = findItem(board, needle)
   if (typeof item === 'string') return item
 
+  const planFile = planFileFor(tid, node)
+  const book = planFile ? await readPlans(planFile) : null
+  const plan = book ? planForTask(book, item.id) : null
+
   return [
     item.title,
     `  id:       ${item.id}`,
     `  status:   ${item.status}`,
     `  assignee: ${item.assignee || '(none)'}`,
     `  tags:     ${item.tags.join(', ') || '(none)'}`,
+    // Origem manual não é impressa: dizer "Manual" em todo cartão feito à mão
+    // seria ruído em quase toda linha da saída.
+    originSummary(item.origin) ? `  origin:   ${originSummary(item.origin)}` : '',
+    plan && book ? `  plan:     ${plan.title} — ${progressOf(book, plan.id)}` : '',
     `  created:  ${item.createdAt}`,
     `  updated:  ${item.updatedAt}`,
     `  done:     ${item.doneAt ?? '(not done)'}`,
@@ -302,6 +348,189 @@ async function showItem(argv: string[], tid: UUID): Promise<string> {
   ]
     .filter(Boolean)
     .join('\n')
+}
+
+// ─── Planos ───────────────────────────────────────────────────────────────────
+
+/**
+ * O plano do cartão: mostra, cria ou revisa.
+ *
+ * Sem `--step`, `--title` ou `--objective`, MOSTRA. Um `plan` de dedo errado que
+ * criasse plano vazio apagaria da vista o plano que o usuário escreveu — e
+ * apagar não é gesto do agente aqui, pela mesma regra que tira o `delete` deste
+ * CLI.
+ *
+ * Com etapas, cria (se não há plano) ou revisa (se há). Revisar é mudança
+ * ESTRUTURAL: nasce uma versão nova, e a anterior fica inteira no histórico.
+ * Marcar etapa é o outro verbo, `step`, que não cria versão nenhuma.
+ */
+async function planCommand(argv: string[], tid: UUID): Promise<string> {
+  const { rest, flags, steps } = takeFlags(argv)
+  const [, , boardName, needle] = rest
+  if (!boardName || !needle) {
+    return 'error: usage: atelier todo plan "Board" <id|"title prefix"> [--title "…"] [--objective "…"] [--step "…"]…'
+  }
+
+  const found = await locate(tid, boardName, needle)
+  if (typeof found === 'string') return found
+  const { node, item, planFile } = found
+
+  const book = await readPlans(planFile)
+  if (!book) return 'error: the plans file is corrupt — the user needs to fix it in the node'
+  const existing = planForTask(book, item.id)
+
+  if (steps.length === 0 && !flags.has('title') && !flags.has('objective')) {
+    if (!existing) return `'${item.title}' has no plan yet. Create one with --step "…".`
+    return planReport(book, existing.id)
+  }
+
+  const content =
+    steps.length > 0
+      ? {
+          steps: steps.map((title, n) => ({
+            // Id vazio: `plan-store` gera o definitivo. Aqui o CLI não tem o que
+            // dizer sobre identidade de etapa.
+            id: '',
+            title,
+            description: null,
+            status: 'pending' as const,
+            order: n + 1
+          }))
+        }
+      : undefined
+
+  const result = existing
+    ? await applyPlan(planFile, {
+        type: 'revise',
+        planId: existing.id,
+        title: flags.get('title'),
+        objective: flags.get('objective'),
+        content,
+        changeSummary: flags.get('summary') ?? null,
+        createdBy: callerName(tid) || null
+      })
+    : await applyPlan(planFile, {
+        type: 'create',
+        taskId: item.id,
+        title: flags.get('title') || item.title,
+        objective: flags.get('objective') ?? '',
+        content,
+        createdBy: callerName(tid) || null,
+        // Um plano escrito por agente nasce ATIVO, e não rascunho: ele já é o
+        // que aquele agente vai executar em seguida.
+        status: 'active'
+      })
+  if (result.error) return `error: ${result.error}`
+
+  // O cartão só aponta para o plano DEPOIS de ele existir em disco: um ponteiro
+  // para um plano que a gravação perdeu seria um cartão prometendo, para sempre,
+  // um plano que ninguém consegue abrir.
+  const plan = result.plan ?? existing
+  const boardFile = fileFor(tid, node)
+  if (!existing && plan && boardFile) {
+    await apply(boardFile, { type: 'plan', id: item.id, planId: plan.id })
+  }
+  notifyBoard(tid, node)
+  return plan ? planReport(result.book, plan.id) : 'error: the plan vanished after the write'
+}
+
+/**
+ * Status vivo de uma etapa. NÃO cria versão — é o ponto inteiro do desenho: uma
+ * versão por clique em checkbox tornaria o histórico ilegível.
+ */
+async function stepCommand(argv: string[], tid: UUID): Promise<string> {
+  const { rest } = takeFlags(argv)
+  const [, , boardName, needle, which, status] = rest
+  if (!boardName || !needle || !which || !status) {
+    return 'error: usage: atelier todo step "Board" <id|"title prefix"> <step number|"step prefix"> <pending|in_progress|done|blocked|skipped>'
+  }
+  if (!(PLAN_STEP_STATUSES as string[]).includes(status)) {
+    return `error: unknown step status '${status}'. Valid: ${PLAN_STEP_STATUSES.join(', ')}.`
+  }
+
+  const found = await locate(tid, boardName, needle)
+  if (typeof found === 'string') return found
+  const { node, item, planFile } = found
+
+  const book = await readPlans(planFile)
+  if (!book) return 'error: the plans file is corrupt'
+  const plan = planForTask(book, item.id)
+  if (!plan) return `error: '${item.title}' has no plan.`
+  const version = currentVersion(book, plan)
+  if (!version) {
+    return `error: the plan of '${item.title}' has no current version — the user needs to fix the file.`
+  }
+
+  // A etapa vem por NÚMERO (o que o relatório imprime) ou por prefixo de título,
+  // a mesma dupla do cartão: o id da etapa é um UUID que o agente teria de
+  // copiar da tela.
+  const n = Number(which)
+  const byNumber = Number.isInteger(n) && n > 0 ? version.content.steps[n - 1] : undefined
+  const alvo = which.toLowerCase().trim()
+  const byTitle = version.content.steps.filter((st) => st.title.toLowerCase().startsWith(alvo))
+  const step = byNumber ?? (byTitle.length === 1 ? byTitle[0] : undefined)
+  if (!step) {
+    if (byTitle.length > 1) {
+      const nomes = byTitle.map((st) => `'${st.title}'`).join(', ')
+      return `error: '${which}' matches several steps: ${nomes}. Use the number.`
+    }
+    return `error: no step '${which}' in the current version.`
+  }
+
+  const result = await applyPlan(planFile, {
+    type: 'step',
+    planId: plan.id,
+    stepId: step.id,
+    status: status as PlanStepStatus
+  })
+  if (result.error) return `error: ${result.error}`
+  notifyBoard(tid, node)
+  return `Step '${step.title}' is now ${status}. ${progressOf(result.book, plan.id)}`
+}
+
+/** Cartão e os dois arquivos de uma vez — os verbos de plano precisam dos três. */
+async function locate(
+  tid: UUID,
+  boardName: string,
+  needle: string
+): Promise<{ node: CanvasNode; item: TodoItem; planFile: string } | string> {
+  const node = findBoard(tid, boardName)
+  if (typeof node === 'string') return node
+  const file = fileFor(tid, node)
+  const planFile = planFileFor(tid, node)
+  if (!file || !planFile) return 'error: this board has no file yet'
+  const board = await read(file)
+  if (!board) return 'error: the board file is corrupt — the user needs to fix it in the node'
+  const item = findItem(board, needle)
+  if (typeof item === 'string') return item
+  return { node, item, planFile }
+}
+
+function progressOf(book: PlanBook, planId: string): string {
+  const plan = book.plans.find((p) => p.id === planId)
+  if (!plan) return ''
+  const snap = planSnapshot(plan, currentVersion(book, plan))
+  const travado = snap.blockedSteps > 0 ? `, ${snap.blockedSteps} blocked` : ''
+  return `${snap.progressPercent}% (${snap.completedSteps}/${snap.totalSteps}${travado})`
+}
+
+function planReport(book: PlanBook, planId: string): string {
+  const plan = book.plans.find((p) => p.id === planId)
+  if (!plan) return 'error: no such plan'
+  const version = currentVersion(book, plan)
+  const linhas = [
+    `${plan.title} — ${plan.status}, ${progressOf(book, plan.id)}`,
+    plan.objective ? `  ${plan.objective}` : ''
+  ]
+  if (!version) {
+    linhas.push('  (this plan has no current version — the user needs to fix the file)')
+    return linhas.filter(Boolean).join('\n')
+  }
+  linhas.push(`  version ${version.versionNumber}`)
+  version.content.steps.forEach((st, n) => {
+    linhas.push(`    ${n + 1}. [${stepStatus(plan, st.id, st.status)}] ${st.title}`)
+  })
+  return linhas.filter(Boolean).join('\n')
 }
 
 /**

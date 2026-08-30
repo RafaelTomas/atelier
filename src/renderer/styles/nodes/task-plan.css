@@ -1,0 +1,162 @@
+/* ─── A camada de Tarefas sobre o quadro (panels/task-plan.tsx) ───────────────
+
+   Arquivo à parte do `widget-node.css`, que hospeda o quadro: o kanban é a
+   estrutura do nó, e isto é a LEITURA de Tarefa desenhada por cima dele —
+   pílulas de status, painel expandido, etapas, histórico e timeline. Separar os
+   dois deixa o `.todo*` do quadro pequeno o bastante para caber numa tela.
+
+   Todo seletor aqui começa em `task-`, e isso é regra e não estilo: os nomes
+   não podem colidir com os do quadro por baixo, porque as duas coisas caem no
+   mesmo cartão ao mesmo tempo.
+
+   Cor tem significado fixo: `--rope-error` é impedimento (etapa bloqueada,
+   plano inconsistente, URL recusada) e `--accent` é progresso. Nada aqui usa
+   cor só para decorar. */
+
+/* ─── Resumo compacto: `Jira · Em andamento · Plano 60%` ─────────────────── */
+
+.task-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 3px;
+  min-width: 0;
+}
+
+.task-chip {
+  font-size: var(--fs-2xs); line-height: 1.5;
+  padding: 0 4px; border-radius: var(--r-sm);
+  background: var(--border); color: var(--text-dim);
+  white-space: nowrap;
+}
+.task-chip.is-origin { color: var(--text); }
+.task-chip.is-priority { color: var(--text); font-weight: 600; }
+.task-chip.is-plan { color: var(--accent); }
+/* Impedimento vence progresso: um plano 90% com uma etapa travada é um plano
+   parado, e mostrá-lo em cor de progresso esconderia exatamente isso. */
+.task-chip.is-blocked { color: var(--rope-error); }
+
+/* ─── Painel expandido ───────────────────────────────────────────────────── */
+
+.task-detail {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 10px; font-size: var(--fs-xs); color: var(--text);
+}
+
+.task-detail-head { display: flex; align-items: flex-start; gap: 6px; }
+.task-detail-title {
+  flex: 1; min-width: 0; margin: 0;
+  font-size: var(--fs-sm); font-weight: 600; word-break: break-word;
+}
+.task-back {
+  flex-shrink: 0; background: none; border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text-dim);
+  font-size: var(--fs-2xs); padding: 2px 6px; cursor: pointer;
+}
+
+.task-detail-meta { display: flex; flex-wrap: wrap; gap: 3px; }
+.task-notes { margin: 0; color: var(--text-dim); white-space: pre-wrap; word-break: break-word; }
+.task-quiet { margin: 0; color: var(--text-dim); }
+
+.task-section { display: flex; flex-direction: column; gap: 6px; }
+.task-section-title {
+  margin: 0; font-size: var(--fs-2xs); font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim);
+}
+
+/* ─── Origem externa ─────────────────────────────────────────────────────── */
+
+.task-origin { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.task-origin-name { font-weight: 600; }
+.task-origin-id { color: var(--text-dim); }
+.task-origin-link { color: var(--accent); word-break: break-all; }
+/* URL que não passou por `safeExternalUrl`. Aparece como texto, e riscada: o
+   endereço continua legível, e fica claro que ele não é clicável de propósito. */
+.task-origin-unsafe {
+  color: var(--rope-error); text-decoration: line-through;
+  word-break: break-all;
+}
+
+.task-origin-meta { margin: 2px 0 0; display: flex; flex-direction: column; gap: 2px; }
+.task-origin-field { display: flex; gap: 6px; min-width: 0; }
+.task-origin-field dt { flex-shrink: 0; color: var(--text-dim); }
+.task-origin-field dd { margin: 0; min-width: 0; word-break: break-word; }
+
+/* ─── Plano, progresso e etapas ──────────────────────────────────────────── */
+
+.task-plan-head { display: flex; align-items: center; gap: 6px; }
+.task-plan-title { flex: 1; min-width: 0; font-weight: 600; word-break: break-word; }
+.task-plan-objective { margin: 0; color: var(--text-dim); word-break: break-word; }
+
+.task-noplan { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.task-add-plan { align-self: flex-start; }
+
+.task-warning {
+  margin: 0; padding: 5px 7px; border-radius: var(--r-sm);
+  border: 1px solid var(--rope-error); color: var(--rope-error);
+}
+.task-warning code { background: var(--border); padding: 0 3px; border-radius: var(--r-sm); }
+
+.task-progress { display: flex; align-items: center; gap: 6px; }
+.task-progress-track {
+  flex: 1; min-width: 0; height: 4px; border-radius: var(--r-pill);
+  background: var(--border); overflow: hidden;
+}
+.task-progress-fill { height: 100%; background: var(--accent); }
+.task-progress-text { flex-shrink: 0; font-size: var(--fs-2xs); color: var(--text-dim); }
+
+.task-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.task-step {
+  display: flex; align-items: flex-start; gap: 6px;
+  padding: 4px 6px; border-radius: var(--r-sm);
+  background: var(--surface-2);
+  /* A faixa à esquerda é o status da etapa lido de relance, sem ler o select. */
+  border-left: 2px solid var(--border);
+}
+.task-step.is-in_progress { border-left-color: var(--accent); }
+.task-step.is-done { border-left-color: var(--accent); opacity: .75; }
+.task-step.is-blocked { border-left-color: var(--rope-error); }
+.task-step.is-skipped { opacity: .55; }
+
+.task-step-order { flex-shrink: 0; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.task-step-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.task-step-title { word-break: break-word; }
+.task-step-desc { color: var(--text-dim); font-size: var(--fs-2xs); word-break: break-word; }
+.task-step-status {
+  flex-shrink: 0;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r-sm);
+  font-size: var(--fs-2xs); padding: 1px 2px;
+}
+/* Plano inconsistente: o status vira texto, não campo. Ver `TaskDetail`. */
+.task-step-frozen { flex-shrink: 0; font-size: var(--fs-2xs); color: var(--text-dim); }
+
+.task-notelist { display: flex; flex-direction: column; gap: 2px; }
+.task-notelist-items { margin: 0; padding-left: 16px; color: var(--text-dim); }
+
+/* ─── Histórico e timeline ───────────────────────────────────────────────── */
+
+.task-versions,
+.task-events {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 3px;
+}
+
+.task-version { display: flex; align-items: flex-start; gap: 6px; color: var(--text-dim); }
+.task-version.is-current { color: var(--text); }
+.task-version-n { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.task-version-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.task-version-summary { word-break: break-word; }
+.task-version-when { font-size: var(--fs-2xs); color: var(--text-dim); }
+
+.task-event { display: flex; align-items: baseline; gap: 6px; }
+.task-event-what { flex: 1; min-width: 0; word-break: break-word; }
+.task-event-when { flex-shrink: 0; font-size: var(--fs-2xs); color: var(--text-dim); }
+
+/* ─── A decisão explícita ao concluir com etapas em aberto ───────────────── */
+
+.task-decision {
+  flex: 1; display: flex; flex-direction: column; gap: 10px;
+  align-items: center; justify-content: center; text-align: center;
+  padding: 14px; font-size: var(--fs-xs); color: var(--text);
+}
+.task-decision-text { margin: 0; }
+.task-decision-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }

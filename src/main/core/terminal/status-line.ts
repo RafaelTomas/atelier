@@ -11,14 +11,11 @@
  * por AQUI, pelo mesmo socket e com o mesmo `X-Terminal-ID` do resto do CLI —
  * zero protocolo novo.
  *
- * ─── Por que `--settings`, e não escrever no ~/.claude do usuário ───
+ * ─── Onde o `--settings` mora ───
  *
- * O `claude` aceita `--settings <arquivo>`, que sobrepõe apenas as chaves
- * passadas e vale só para AQUELA sessão. Escrever `statusLine` no settings.json
- * da conta seria uma alteração permanente na configuração do usuário, feita por
- * um app de canvas, que sobreviveria ao Atelier fechado e apareceria nos
- * terminais que ele abre por fora. O arquivo gerado aqui vive no diretório de
- * dados do Atelier, um por terminal, e é reescrito a cada boot do PTY.
+ * Não aqui. Este módulo só CONTRIBUI o bloco `statusLine`; quem é dono do
+ * arquivo, do caminho e da anexação ao comando é terminal/agent-settings.ts,
+ * porque o Artesão passou a escrever no mesmo arquivo.
  *
  * ─── Por que o encadeamento ───
  *
@@ -29,14 +26,10 @@
  *
  * Módulo sem `electron` — o smoke headless exercita a montagem.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import type { AgentUsage, StoredAccountUsage, UUID } from '@shared/types'
 import { DEFAULT_CLAUDE_ACCOUNT_ID } from '@shared/types'
 import { parseStatusLine } from '@shared/agent-usage'
 import { log } from '../logger'
-import { dataDir } from '../persistence/paths'
 import { persistence } from '../persistence/persistence-manager'
 
 /**
@@ -175,106 +168,22 @@ export function recordStatusLine(terminalId: UUID, raw: string): AgentUsage | nu
 }
 
 // ─── A instalação no agente ───────────────────────────────────────────────────
+//
+// Quem responde "este comando é Claude Code?" é `isClaudeCommandLine`, em
+// shared/terminal-presets.ts: a pergunta também é do diálogo, e duas cópias
+// divergem. Aqui ficou só o bloco que este módulo contribui.
 
 /**
- * Presets que entendem `--settings` e `statusLine`. É feature do Claude Code:
- * Codex, Antigravity e OpenCode não a têm, e para eles o raspador de tela
- * continua sendo a única fonte — ver o cabeçalho de shared/agent-usage.ts.
- *
- * O teste é sobre o PRIMEIRO token do comando, não sobre o texto inteiro: o
- * usuário pode ter escrito `claude --resume` ou `claude -p "..."` no preset, e
- * as duas continuam sendo Claude Code.
- */
-export function isClaudeCommand(command: string): boolean {
-  const first = command.trim().split(/\s+/)[0] ?? ''
-  // Sem diretório e sem extensão: `/usr/local/bin/claude` e `claude.cmd` contam.
-  const base = (first.split(/[\\/]/).pop() ?? '').replace(/\.(cmd|exe|bat|ps1)$/i, '')
-  return base === 'claude'
-}
-
-/** Onde mora o settings gerado deste terminal. */
-export function statusLineSettingsPath(terminalId: UUID): string {
-  return join(dataDir(), 'statusline', `${terminalId}.json`)
-}
-
-/**
- * O conteúdo do arquivo de settings.
+ * O bloco que este módulo contribui ao `settings.json` do terminal.
  *
  * `padding: 0` de propósito: a barra é do usuário, e o Atelier não tem por que
  * mexer no espaçamento dela. `refreshInterval` também fica de fora — o Claude
  * Code já re-executa o comando a cada mensagem nova, e um timer por cima disso
  * seria um processo a mais por agente por nada.
+ *
+ * Quem o compõe com os outros blocos e grava o arquivo é
+ * terminal/agent-settings.ts.
  */
-export function statusLineSettings(): string {
-  return JSON.stringify({ statusLine: { type: 'command', command: 'atelier statusline' } }, null, 2)
-}
-
-/**
- * Grava o settings do terminal e devolve o comando com `--settings` anexado.
- *
- * Devolve o comando INTACTO em três casos, e cada um é uma recusa deliberada:
- *
- *  - não é Claude Code — não há `statusLine` para instalar;
- *  - o comando já traz um `--settings` — o do usuário vence, e sobrepor o dele
- *    em silêncio trocaria a configuração que ele escreveu à mão;
- *  - a gravação falhou — um `--settings` apontando para arquivo inexistente
- *    faria o `claude` recusar-se a subir, e um monitor mais rico não vale um
- *    agente que não abre.
- */
-export async function withStatusLine(
-  command: string,
-  terminalId: UUID,
-  /** `CLAUDE_CONFIG_DIR` da conta, ou ausente para a conta padrão (~/.claude). */
-  claudeConfigDir?: string
-): Promise<{ command: string; innerCommand: string | null }> {
-  if (!command || !isClaudeCommand(command)) return { command, innerCommand: null }
-  if (/(^|\s)--settings(\s|=)/.test(command)) return { command, innerCommand: null }
-
-  const path = statusLineSettingsPath(terminalId)
-  try {
-    await mkdir(join(dataDir(), 'statusline'), { recursive: true })
-    await writeFile(path, statusLineSettings(), 'utf8')
-  } catch {
-    return { command, innerCommand: null }
-  }
-
-  // Aspas duplas: o comando é DIGITADO no shell do PTY, que pode ser sh, zsh,
-  // PowerShell ou cmd. As quatro entendem aspas duplas em volta de um caminho
-  // com espaço — o `~` do Windows ("C:\Users\Meu Nome\...") é o caso comum.
-  return {
-    command: `${command} --settings "${path}"`,
-    innerCommand: await existingStatusLine(claudeConfigDir)
-  }
-}
-
-/**
- * A `statusLine` que o usuário já tinha, se tinha.
- *
- * Vai para `ATELIER_STATUSLINE_INNER`, e o CLI a executa com o mesmo stdin,
- * imprimindo a saída dela: quem já configurou uma barra de status continua
- * vendo a MESMA barra dentro do Atelier. Sem isto, ligar o monitor apagaria em
- * silêncio um pedaço da interface que o usuário montou.
- *
- * Só o tipo `command` é encadeado. Qualquer outra forma que a chave venha a
- * aceitar é ignorada em vez de adivinhada — executar às cegas o que está numa
- * chave que não entendemos é pior do que não encadear.
- */
-async function existingStatusLine(claudeConfigDir?: string): Promise<string | null> {
-  const dir = claudeConfigDir || join(homedir(), '.claude')
-  try {
-    const raw = await readFile(join(dir, 'settings.json'), 'utf8')
-    const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return null
-    const line = (parsed as Record<string, unknown>).statusLine
-    if (!line || typeof line !== 'object') return null
-    const { type, command } = line as Record<string, unknown>
-    if (type !== 'command' || typeof command !== 'string' || !command) return null
-    // O nosso próprio comando não se encadeia consigo: um usuário que copiou
-    // `atelier statusline` para o settings dele criaria um laço infinito de
-    // processos, cada um esperando o stdin do seguinte.
-    if (/\batelier\b.*\bstatusline\b/.test(command)) return null
-    return command
-  } catch {
-    return null
-  }
+export function statusLineBlock(): object {
+  return { statusLine: { type: 'command', command: 'atelier statusline' } }
 }

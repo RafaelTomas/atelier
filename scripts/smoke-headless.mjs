@@ -85,7 +85,8 @@ await esbuild.build({
       // A telemetria publicada pelo agente. O que entra aqui é o registro e a
       // montagem do --settings: o handler em si atravessa o socket de verdade,
       // logo abaixo, que é o unico jeito de provar que o protocolo bate.
-      export { getUsage, resetUsage, withStatusLine } from './src/main/core/terminal/status-line.ts'
+      export { getUsage, resetUsage } from './src/main/core/terminal/status-line.ts'
+      export { withAgentSettings } from './src/main/core/terminal/agent-settings.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -117,7 +118,7 @@ const { dismissRefusal } = core
 const { minSize, defaultSize } = core
 const { readButtonConfig, writeButtonConfig } = core
 const { SystemStatsMonitor } = core
-const { getUsage, resetUsage, withStatusLine } = core
+const { getUsage, resetUsage, withAgentSettings } = core
 
 /** Fala o protocolo real do atelier por socket. */
 function cli(args, terminalId) {
@@ -490,6 +491,60 @@ await test('atelier list de um terminal sem conexões avisa', async () => {
   ws.addNode(orphan)
   const out = await cli(['list'], orphan.id)
   assert.match(out, /No connected agents/)
+})
+
+// ─── O Artesão ────────────────────────────────────────────────────────────────
+//
+// O `brief` atravessa o socket de verdade, com o mesmo X-Terminal-ID do resto:
+// é o único jeito de provar que o verbo está no roteador e que a doutrina sai
+// com o canvas DESTE chamador. O `guard` não passa por aqui de propósito — ele
+// é respondido dentro do CLI, sem tocar no app, e o test-artesao o cobre.
+
+await test('atelier artesao brief responde com a doutrina do canvas do chamador', async () => {
+  const out = await cli(['artesao', 'brief'], terminalId)
+  assert.match(out, /You are an ARTISAN/)
+  assert.match(out, /atelier recruit/, 'a doutrina não ensina a recrutar')
+  assert.match(out, /On this canvas right now/, 'o bloco vivo não saiu')
+  assert.match(out, /more terminals? can be recruited/, 'as vagas do recruit sumiram')
+})
+
+await test('o brief nomeia os agentes cabeados ao chamador', async () => {
+  // O terminal do smoke já tem colegas cabeados a esta altura (o recruit rodou
+  // acima). O que se prova aqui é o escopo: a doutrina fala do canvas de quem
+  // perguntou, e não de uma lista global.
+  const out = await cli(['artesao', 'brief'], terminalId)
+  assert.ok(
+    /Already cabled to you: /.test(out) || /Nobody is cabled to you yet/.test(out),
+    'o bloco de colegas não saiu de jeito nenhum'
+  )
+})
+
+await test('o atelier list de um Artesão abre com o cabeçalho dele', async () => {
+  // É por aqui que a regra alcança um Codex: ele não tem `SessionStart` nem hook
+  // de ferramenta, mas roda `list` antes de delegar.
+  const node = ws.node(terminalId)
+  assert.equal(node.content.value.isArtisan, false, 'o nó do smoke já nasceu Artesão?')
+
+  const semBanner = await cli(['list'], terminalId)
+  assert.ok(!semBanner.includes('You are an ARTISAN'), 'banner num nó que não é Artesão')
+
+  ws.updateContent(terminalId, (n) => {
+    n.content.value.isArtisan = true
+  })
+  const comBanner = await cli(['list'], terminalId)
+  assert.match(comBanner, /You are an ARTISAN/)
+  assert.match(comBanner, /atelier recruit/)
+  assert.match(comBanner, /Connected agents|Connected notes/, 'o banner comeu a resposta do list')
+
+  ws.updateContent(terminalId, (n) => {
+    n.content.value.isArtisan = false
+  })
+})
+
+await test('atelier artesao recusa um subcomando que não existe', async () => {
+  // Sem cair no `unknown command` do roteador: o verbo existe, o subcomando não.
+  const out = await cli(['artesao', 'inventado'], terminalId)
+  assert.match(out, /^error: usage: atelier artesao brief/)
 })
 
 await test('atelier note write + read faz round-trip pelo arquivo .md', async () => {
@@ -1976,14 +2031,14 @@ await test('payload inválido não apaga a leitura boa que já existia', async (
 })
 
 await test('o --settings entra só no Claude Code, e some nos outros presets', async () => {
-  const claude = await withStatusLine('claude', terminalId)
+  const claude = await withAgentSettings('claude', terminalId)
   assert.match(claude.command, /^claude --settings "/)
   assert.ok(claude.command.includes(terminalId), 'o settings não é deste terminal')
 
   // Codex e OpenCode não têm statusLine: o comando sai intacto e eles continuam
   // no raspador de tela.
   for (const cmd of ['codex', 'opencode --model x', '']) {
-    const r = await withStatusLine(cmd, terminalId)
+    const r = await withAgentSettings(cmd, terminalId)
     assert.equal(r.command, cmd, `${cmd} foi alterado`)
   }
 })
@@ -1992,7 +2047,7 @@ await test('um --settings escrito pelo usuário não é sobreposto', async () =>
   // A configuração que ele digitou vence a nossa: trocá-la em silêncio seria
   // desfazer o que ele pediu.
   const meu = 'claude --settings /meu/settings.json'
-  const r = await withStatusLine(meu, terminalId)
+  const r = await withAgentSettings(meu, terminalId)
   assert.equal(r.command, meu)
 })
 

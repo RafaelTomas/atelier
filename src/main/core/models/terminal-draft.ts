@@ -14,6 +14,7 @@
  * conta padrão em vez de não nascer.
  */
 import type { TerminalContent, UUID } from '@shared/types'
+import { isArtisanCapable } from '@shared/terminal-presets'
 import { makeTerminalContent } from './node-content'
 
 export interface DraftGuards {
@@ -54,6 +55,16 @@ export function terminalContentFromOpts(
     resumeSessionId:
       typeof opts.resumeSessionId === 'string' && opts.resumeSessionId !== ''
         ? (opts.resumeSessionId as UUID)
-        : null
+        : null,
+    // Artesão vale para qualquer agente de IA; o que ele NÃO pode ser é um shell
+    // puro, onde não há a quem instruir. A força varia — bloqueio por hook no
+    // Claude Code, instrução nos outros — e quem conta isso ao usuário é o
+    // diálogo, no momento da escolha (ver isArtisanCapable).
+    isArtisan:
+      opts.isArtisan === true &&
+      isArtisanCapable({
+        agentType: String(opts.agentType ?? 'generic_shell'),
+        command: String(opts.command ?? '')
+      })
   })
 }

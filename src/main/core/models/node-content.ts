@@ -131,7 +131,11 @@ function decodeTerminal(raw: Record<string, unknown>): TerminalContent {
     recruitedBy: raw.recruitedBy ? normalizeUUID(raw.recruitedBy) : null,
     // Instrução de boot, não estado durável: some no primeiro spawn. Ausente
     // (terminal antigo, ou vindo do app nativo) = null = sessão nova.
-    resumeSessionId: raw.resumeSessionId ? normalizeUUID(raw.resumeSessionId) : null
+    resumeSessionId: raw.resumeSessionId ? normalizeUUID(raw.resumeSessionId) : null,
+    // `bool` dá false para ausente, e é o que se quer: um nó gravado antes do
+    // Artesão (ou pelo app nativo, que descarta a chave) volta como um agente
+    // comum — nunca com os subagentes internos desligados sem ninguém pedir.
+    isArtisan: bool(raw.isArtisan)
   }
 }
 
@@ -445,6 +449,7 @@ export function makeTerminalContent(
     claudeAccountId: null,
     recruitedBy: null,
     resumeSessionId: null,
+    isArtisan: false,
     ...opts
   }
 }

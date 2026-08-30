@@ -189,6 +189,14 @@ export function NodeShell({
                 maestro
               </span>
             )}
+            {terminal?.isArtisan && (
+              <span
+                className="node-badge is-artisan"
+                title="Artesão: delega abrindo agentes no canvas, não subagentes escondidos"
+              >
+                artesão
+              </span>
+            )}
             {role && (
               <span className="node-badge" style={{ color: role.color }} title={role.instructions || role.name}>
                 {role.name}

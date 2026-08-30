@@ -49,19 +49,59 @@ function fail(msg) {
   process.exit(1)
 }
 
+// ─── artesao ──────────────────────────────────────────────────────────────────
+
+/**
+ * A recusa do Artesão, e o ÚNICO texto de Artesão que mora no CLI.
+ *
+ * Ele responde por dois hooks: é a razão do `deny` no `PreToolUse` do `Task`, e
+ * é o que o `SessionStart` injeta quando o app não responde. A doutrina completa
+ * — com quem está no canvas e quantas vagas sobram — vive no main, em
+ * `interagent/artisan-doctrine.ts`, porque precisa do canvas para existir. Este
+ * texto vive aqui porque precisa do OPOSTO: funcionar com o Atelier mudo.
+ *
+ * Um bloqueio que depende de o app responder não é bloqueio. Se o socket cair,
+ * um Artesão tem que continuar Artesão — daí `guard` nunca abrir conexão.
+ */
+const ARTISAN_REFUSAL = `This terminal is an Artisan: internal subagents are turned off here.
+
+A subagent is invisible on the canvas. It has no node, so the user cannot watch
+it, interrupt it, or read what it cost; it borrows YOUR identity on the atelier
+CLI; it burns YOUR context window; and it dies with your session.
+
+Open a node instead:
+
+  atelier list                                  reuse before you recruit
+  atelier recruit "Name" --model haiku|sonnet   a node, already cabled to you
+  atelier ask "Name" "the task"                 hand it over, wait for the answer
+  atelier check "Name" 40                       read its screen, do not re-ask
+  atelier dismiss "Name"                        close it when the work is done
+
+Write the task as if the recruit could not see your context — it cannot.`
+
+/** A resposta do hook `PreToolUse` que nega o `Task` e diz o caminho certo. */
+function artisanGuardResponse() {
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'PreToolUse',
+      permissionDecision: 'deny',
+      permissionDecisionReason: ARTISAN_REFUSAL
+    }
+  })
+}
+
+/** A resposta do hook `SessionStart` que acrescenta a doutrina ao contexto. */
+function artisanBriefResponse(text) {
+  return JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text }
+  })
+}
+
 const socketPath = process.env.ATELIER_SOCKET
 const terminalId = process.env.ATELIER_TERMINAL_ID
 
 const args = process.argv.slice(2)
 const command = args[0]
-
-if (!command || command === '-h' || command === '--help' || command === 'help') {
-  process.stdout.write(HELP)
-  process.exit(command ? 0 : 1)
-}
-
-if (!socketPath) fail('only available inside Atelier terminals (ATELIER_SOCKET not set).')
-if (!terminalId) fail('only available inside Atelier terminals (ATELIER_TERMINAL_ID not set).')
 
 /** Cabeçalho da requisição — o mesmo para todos os comandos. */
 function head(length) {
@@ -200,10 +240,93 @@ function sendCommand(argv) {
   })
 }
 
-if (command === 'statusline') {
-  readStdin()
-    .then(sendStatusLine)
-    .catch(() => process.exit(0))
-} else {
+// ─── artesao brief ────────────────────────────────────────────────────────────
+
+/**
+ * O hook `SessionStart` de um Artesão. Pergunta a doutrina ao app — é ela que
+ * sabe quem está no canvas — e cai no texto local se o app não responder.
+ *
+ * O payload do stdin é lido e descartado: o `SessionStart` entrega um JSON de
+ * sessão, e a doutrina não depende de nada dele. Ler mesmo assim evita deixar o
+ * hook escrevendo num pipe que ninguém drena.
+ */
+function sendArtisanBrief() {
+  const body = Buffer.from(JSON.stringify({ args: ['artesao', 'brief'] }), 'utf8')
+  const socket = net.createConnection(socketPath)
+  // COM timeout, como a statusline: isto roda no boot de cada sessão, e um
+  // socket pendurado seguraria a abertura do agente.
+  socket.setTimeout(5000)
+
+  const chunks = []
+  let answered = false
+  const answer = (text) => {
+    if (answered) return
+    answered = true
+    const doctrine = text.trim()
+    // Resposta vazia, erro, timeout ou um `error:` do roteador: vale o texto
+    // local. Um Artesão sem doutrina nenhuma é o pior desfecho deste hook.
+    const useful = doctrine && !doctrine.startsWith('error:') ? doctrine : ARTISAN_REFUSAL
+    process.stdout.write(`${artisanBriefResponse(useful)}\n`)
+    process.exit(0)
+  }
+
+  socket.on('connect', () => {
+    socket.write(head(body.length))
+    socket.write(body)
+  })
+  socket.on('data', (chunk) => chunks.push(chunk))
+  socket.on('timeout', () => socket.destroy())
+  socket.on('error', () => answer(''))
+  socket.on('close', () => answer(bodyOf(chunks)))
+}
+
+// ─── Despacho ─────────────────────────────────────────────────────────────────
+
+function main() {
+  if (!command || command === '-h' || command === '--help' || command === 'help') {
+    process.stdout.write(HELP)
+    process.exit(command ? 0 : 1)
+  }
+
+  // ANTES das guardas de ambiente, e de propósito: a recusa do Artesão não fala
+  // com o app, então ela também não precisa do socket para funcionar.
+  if (command === 'artesao' && args[1] === 'guard') {
+    readStdin()
+      .then(() => {
+        process.stdout.write(`${artisanGuardResponse()}\n`)
+        process.exit(0)
+      })
+      .catch(() => {
+        process.stdout.write(`${artisanGuardResponse()}\n`)
+        process.exit(0)
+      })
+    return
+  }
+
+  if (!socketPath) fail('only available inside Atelier terminals (ATELIER_SOCKET not set).')
+  if (!terminalId) fail('only available inside Atelier terminals (ATELIER_TERMINAL_ID not set).')
+
+  if (command === 'statusline') {
+    readStdin()
+      .then(sendStatusLine)
+      .catch(() => process.exit(0))
+    return
+  }
+
+  if (command === 'artesao' && args[1] === 'brief') {
+    readStdin()
+      .then(sendArtisanBrief)
+      .catch(() => process.exit(0))
+    return
+  }
+
   sendCommand(args)
+}
+
+// `require.main !== module` é o teste requerendo este arquivo para olhar os
+// textos do Artesão sem subir socket nenhum. Executado como programa, nada muda.
+if (require.main === module) {
+  main()
+} else {
+  module.exports = { ARTISAN_REFUSAL, artisanGuardResponse, artisanBriefResponse }
 }

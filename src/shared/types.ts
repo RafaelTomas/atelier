@@ -74,6 +74,16 @@ export interface TerminalContent {
    * `null`, para o "Sessão nova" poder zerar tudo depois.
    */
   resumeSessionId: UUID | null
+  /**
+   * Artesão: este agente delega abrindo NÓS no canvas, e os subagentes internos
+   * dele estão desligados.
+   *
+   * Vale só para o Claude Code — é o único preset com `--settings` e hooks, que
+   * é por onde os dois lados do Artesão entram (ver terminal/agent-settings.ts).
+   * Ausente no disco (nó antigo, ou vindo do app nativo) = `false`, que é o
+   * comportamento que esse nó já tinha.
+   */
+  isArtisan: boolean
 }
 
 export type StorageMode = { kind: 'managed' } | { kind: 'custom'; path: string }
@@ -1414,6 +1424,13 @@ export interface TerminalDraft {
    * o campo é zerado — daí em diante manda o `session.json`.
    */
   resumeSessionId: UUID | null
+  /**
+   * O checkbox "Artesão" da aba Agente. Só fica marcável num comando Claude
+   * Code; o diálogo o desmarca sozinho quando o comando deixa de ser um, e o
+   * main confere de novo em `terminalContentFromOpts` — um booleano verdadeiro
+   * que não liga nada é pior que um desmarcado.
+   */
+  isArtisan: boolean
 }
 
 // ─── Ponte renderer ⇄ main ────────────────────────────────────────────────────
@@ -1462,6 +1479,12 @@ export interface TerminalSpawnOptions {
    * sessão do nó e o `bridge` limpa o campo do conteúdo.
    */
   resumeSessionId?: UUID
+  /**
+   * Nó marcado como Artesão. Chega no spawn — e não só na UI — porque é ele que
+   * decide o conteúdo do `settings.json` gerado para este PTY, e esse arquivo é
+   * escrito ANTES de o comando ser montado. Ver terminal/agent-settings.ts.
+   */
+  isArtisan?: boolean
 }
 
 export interface BootInfo {

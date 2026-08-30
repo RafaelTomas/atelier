@@ -69,6 +69,7 @@ import type { TodoOp } from '../core/todo/todo-store'
 import { apply as applyPlan, read as readPlans } from '../core/todo/plan-store'
 import type { PlanOp } from '../core/todo/plan-store'
 import { clearSession, readSession } from '../core/terminal/session-store'
+import { isArtisanCapable } from '@shared/terminal-presets'
 import { accountUsage, setTerminalAccount } from '../core/terminal/status-line'
 // `keyRefs`/`syncVaultKeys` moram no vault-manager: o `.vault` tem dois
 // escritores (esta UI e o `atelier vault set`), e o espelho dos nomes no nó
@@ -539,6 +540,21 @@ export function registerIPC(): void {
         patch = allowed
       }
 
+      // Artesão precisa de um agente, e a conferência é sobre o que o nó TERÁ
+      // depois do patch — o diálogo de edição manda comando e tipo na mesma
+      // gravação, e trocar `claude` por um shell ali é normal. Sem isto, o nó
+      // ficaria com o badge sobre um `bash`. Mesma guarda do
+      // `terminalContentFromOpts`, aqui pelo caminho da edição.
+      const patched = ws.node(nodeId)
+      if (patch.isArtisan === true && patched?.content.type === 'terminal') {
+        const before = patched.content.value
+        const capable = isArtisanCapable({
+          agentType: typeof patch.agentType === 'string' ? patch.agentType : before.agentType,
+          command: typeof patch.command === 'string' ? patch.command : before.command
+        })
+        if (!capable) patch = { ...patch, isArtisan: false }
+      }
+
       ws.updateContent(nodeId, (node) => {
         // Patch raso preservando a variante: o `type` nunca muda, só o payload.
         node.content = {
@@ -911,6 +927,9 @@ export function registerIPC(): void {
         // ainda não tem sessão gravada utilizável; usada ou não, o campo é
         // limpo logo abaixo, para valer uma única vez.
         ...(tc.resumeSessionId ? { resumeSessionId: tc.resumeSessionId } : {}),
+        // Artesão: decide o conteúdo do `settings.json` gerado para este PTY
+        // (hooks que desligam o subagente interno e injetam a doutrina).
+        isArtisan: tc.isArtisan,
         extraEnv: vaultEnv.env,
         ...(claudeConfigDir ? { claudeConfigDir } : {}),
         workingDirectory: tc.workingDirectory || ws.payload.workingDirectory,

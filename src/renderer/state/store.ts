@@ -1364,7 +1364,9 @@ class Store {
         fontSize: null,
         assignedRoleId: null,
         claudeAccountId: null,
-        resumeSessionId: null
+        resumeSessionId: null,
+        // Terminal de botão roda um comando e mostra a saída; não delega nada.
+        isArtisan: false
       },
       at,
       { width: 560, height: 360 }

@@ -59,7 +59,8 @@ await esbuild.build({
         untilReset,
         windowLabel
       } from './src/shared/agent-usage.ts'
-      export { isClaudeCommand, statusLineSettings } from './src/main/core/terminal/status-line.ts'
+      export { isClaudeCommandLine as isClaudeCommand } from './src/shared/terminal-presets.ts'
+      export { agentSettings } from './src/main/core/terminal/agent-settings.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -99,7 +100,7 @@ const {
   untilReset,
   windowLabel,
   isClaudeCommand,
-  statusLineSettings
+  agentSettings
 } = await import(pathToFileURL(outfile).href)
 
 let passed = 0
@@ -1031,7 +1032,9 @@ test('os outros presets ficam de fora — statusLine é do Claude Code', () => {
 })
 
 test('o settings gerado instala a statusLine, e nada mais', () => {
-  const cfg = JSON.parse(statusLineSettings())
+  // Sem Artesão o arquivo é exatamente o que sempre foi. É a asserção que
+  // impede o Artesão de vazar configuração para os outros nós do canvas.
+  const cfg = JSON.parse(agentSettings({ artisan: false }))
   assert.deepEqual(Object.keys(cfg), ['statusLine'], 'o Atelier mexeu em outra chave do usuário')
   assert.equal(cfg.statusLine.type, 'command')
   assert.equal(cfg.statusLine.command, 'atelier statusline')

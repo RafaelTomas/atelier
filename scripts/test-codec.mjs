@@ -99,6 +99,26 @@ test('codeEditor guarda o caminho e MAIS NADA', () => {
   assert.deepEqual(editor, { filePath: '/tmp/test/src/main.ts' })
 })
 
+test('isArtisan ausente no disco volta false, e marcado sobrevive ao round-trip', () => {
+  // O fixture não tem a chave — é um terminal gravado antes do Artesão, ou pelo
+  // app nativo Swift, que a descarta no save dele. O default seguro é o agente
+  // comum: nunca um nó que volta com o subagente interno desligado sem pedido.
+  const node = payload.nodes.find((n) => n.content.type === 'terminal')
+  assert.equal(node.content.value.isArtisan, false)
+
+  // E marcado ele atravessa, sem subir schemaVersion: o encode de terminal
+  // devolve o value inteiro, então o campo novo viaja sozinho.
+  const clone = JSON.parse(JSON.stringify(raw))
+  clone.payload.nodes.find((n) => n.content.terminal).content.terminal._0.isArtisan = true
+  const { payload: p } = decodeWorkspaceDocument(clone)
+  assert.equal(p.nodes.find((n) => n.content.type === 'terminal').content.value.isArtisan, true)
+  const back = encodeWorkspaceDocument(p)
+  assert.equal(
+    back.payload.nodes.find((n) => n.content.terminal).content.terminal._0.isArtisan,
+    true
+  )
+})
+
 test('frame decodifica de [[x,y],[w,h]]', () => {
   const node = payload.nodes.find((n) => n.content.type === 'terminal')
   assert.deepEqual(node.frame, { x: 9900, y: 8600, width: 560, height: 360 })

@@ -15,6 +15,14 @@ import type {
   UUID
 } from '@shared/types'
 import { DEFAULT_CLAUDE_ACCOUNT_ID } from '@shared/types'
+import type { QuickStart } from '@shared/terminal-presets'
+import {
+  ARTISAN_COLOR,
+  ARTISAN_ICON,
+  ARTISAN_NAME,
+  isArtisanCapable,
+  isClaudeCommandLine
+} from '@shared/terminal-presets'
 import { ADD_ACCOUNT, accountLabel, isClaudeCommand } from '../claude-accounts'
 import { Icon, ICON_NAMES } from '../node-icons'
 import { shortenPath } from '../paths'
@@ -64,7 +72,10 @@ function emptyDraft(workingDirectory: string): TerminalDraft {
     fontSize: null,
     assignedRoleId: null,
     claudeAccountId: null,
-    resumeSessionId: null
+    resumeSessionId: null,
+    // Artesão nasce desligado: delegar em nós do canvas é uma decisão do
+    // usuário sobre aquele agente, não o padrão de todo terminal.
+    isArtisan: false
   }
 }
 
@@ -85,6 +96,53 @@ export function NewTerminalDialog({
 
   const patch = (p: Partial<TerminalDraft>): void => setDraft((d) => ({ ...d, ...p }))
 
+  /**
+   * Artesão vale em qualquer agente de IA; trocar o comando para um shell puro
+   * DESMARCA, em vez de deixar a marca lá sem efeito.
+   *
+   * É o mesmo gesto do `assignedRoleId` quando a responsabilidade é apagada, e
+   * pela mesma razão: um campo ligado que não liga nada mente para quem o leu no
+   * diálogo — e aqui a mentira ainda ganharia um badge no cabeçalho do nó.
+   */
+  const artisanCapable = isArtisanCapable(draft)
+  useEffect(() => {
+    if (!artisanCapable && draft.isArtisan) patch({ isArtisan: false })
+  }, [artisanCapable, draft.isArtisan])
+
+  /** O preset por trás do rascunho — some no modo edição, onde `quickId` é null. */
+  const presetOfDraft = (): QuickStart | null =>
+    QUICK_STARTS.find((q) => q.id === quickId) ??
+    QUICK_STARTS.find((q) => q.agentType === draft.agentType && q.command !== '') ??
+    null
+
+  /**
+   * Marcar Artesão veste o nó: nome de partida, martelo e verde.
+   *
+   * PARTIDA, não imposição — um nome que o usuário digitou não é sobrescrito, e
+   * a aba Aparência continua mandando depois. Desmarcar só desfaz o que esta
+   * caixa pôs: se o ícone ainda é o martelo, ele volta para o do preset; se o
+   * usuário trocou para outro, fica o dele.
+   */
+  const toggleArtisan = (on: boolean): void => {
+    const preset = presetOfDraft()
+    if (on) {
+      const nameIsGeneric = draft.name.trim() === '' || QUICK_STARTS.some((q) => q.label === draft.name)
+      patch({
+        isArtisan: true,
+        icon: ARTISAN_ICON,
+        color: ARTISAN_COLOR,
+        ...(nameIsGeneric ? { name: ARTISAN_NAME } : {})
+      })
+      return
+    }
+    patch({
+      isArtisan: false,
+      ...(draft.icon === ARTISAN_ICON ? { icon: preset?.icon ?? 'terminal' } : {}),
+      ...(draft.color === ARTISAN_COLOR ? { color: preset?.color ?? NODE_COLORS[0] } : {}),
+      ...(draft.name === ARTISAN_NAME ? { name: preset?.label ?? '' } : {})
+    })
+  }
+
   // Esc fecha, como qualquer folha do macOS
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -103,12 +161,17 @@ export function NewTerminalDialog({
     setQuickId(id)
     // O nome só é sobrescrito enquanto o usuário não digitou o dele
     const nameFromPreset = QUICK_STARTS.some((q) => q.label === draft.name) || draft.name === ''
+    // Um Artesão já escolhido mantém a roupa dele: trocar o preset troca QUAL
+    // agente roda, não o que o nó é. Sem isto, escolher "Codex" depois de marcar
+    // a caixa devolveria o ícone do Codex e o nó perderia o martelo verde.
+    const dress = draft.isArtisan
+      ? { icon: ARTISAN_ICON, color: ARTISAN_COLOR }
+      : { icon: preset.icon, color: preset.color }
     patch({
       command: preset.command,
       agentType: preset.agentType,
-      icon: preset.icon,
-      color: preset.color,
-      ...(nameFromPreset ? { name: preset.label } : {})
+      ...dress,
+      ...(nameFromPreset && !draft.isArtisan ? { name: preset.label } : {})
     })
   }
 
@@ -172,6 +235,9 @@ export function NewTerminalDialog({
               onSubmit={submit}
               editing={editing}
               defaultWorkingDirectory={defaultWorkingDirectory}
+              artisanCapable={artisanCapable}
+              artisanStrong={isClaudeCommandLine(draft.command)}
+              onToggleArtisan={toggleArtisan}
             />
           )}
           {tab === 'aparencia' && (
@@ -215,11 +281,19 @@ function DetailsTab({
   patch,
   onSubmit,
   editing = false,
-  defaultWorkingDirectory
+  defaultWorkingDirectory,
+  artisanCapable,
+  artisanStrong,
+  onToggleArtisan
 }: TabProps & {
   onSubmit: () => void
   editing?: boolean
   defaultWorkingDirectory: string
+  /** É um agente de IA? Shell puro não tem a quem instruir. */
+  artisanCapable: boolean
+  /** Dá para BLOQUEAR o subagente, ou só instruir? Só o Claude Code tem hook. */
+  artisanStrong: boolean
+  onToggleArtisan: (on: boolean) => void
 }): JSX.Element {
   const browse = async (): Promise<void> => {
     const chosen = await window.atelier.dialog.chooseDirectory(draft.workingDirectory)
@@ -247,6 +321,25 @@ function DetailsTab({
           onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
         />
       </div>
+
+      <label className="check-row is-stacked">
+        <input
+          type="checkbox"
+          checked={draft.isArtisan}
+          disabled={!artisanCapable}
+          onChange={(e) => onToggleArtisan(e.target.checked)}
+        />
+        <span>
+          <strong>Artesão</strong>
+          <em>
+            {!artisanCapable
+              ? 'precisa de um agente de IA no comando — um shell puro não tem a quem instruir'
+              : artisanStrong
+                ? 'delega abrindo agentes no canvas; aqui o subagente interno fica bloqueado'
+                : 'delega abrindo agentes no canvas; fora do Claude Code a regra é instruída, não bloqueada'}
+          </em>
+        </span>
+      </label>
 
       <ClaudeAccountField draft={draft} patch={patch} />
 

@@ -31,7 +31,8 @@ import {
   transcriptState,
   writeSession
 } from './session-store'
-import { forgetUsage, withStatusLine } from './status-line'
+import { withAgentSettings } from './agent-settings'
+import { forgetUsage } from './status-line'
 
 /**
  * node-pty é módulo nativo. Carregado sob demanda, por duas razões:
@@ -165,7 +166,8 @@ class TerminalManager extends EventEmitter {
     role?: { id: UUID; name: string } | null,
     extraEnv?: Record<string, string>,
     claudeConfigDir?: string,
-    innerStatusLine?: string | null
+    innerStatusLine?: string | null,
+    isArtisan?: boolean
   ): NodeJS.ProcessEnv {
     return buildTerminalEnv({
       terminalId,
@@ -173,7 +175,8 @@ class TerminalManager extends EventEmitter {
       role,
       extraEnv,
       claudeConfigDir,
-      innerStatusLine
+      innerStatusLine,
+      isArtisan
     })
   }
 
@@ -202,11 +205,15 @@ class TerminalManager extends EventEmitter {
     const shell = opts.shellPath || defaultShell()
     const cwd = resolveCwd(opts)
 
-    // A telemetria do agente entra ANTES do spawn: o `--settings` vai no comando
-    // que será digitado, e a statusLine que o usuário já tinha vai no ambiente,
-    // para o CLI encadeá-la. Num preset que não é Claude Code os dois voltam
-    // intactos — ver terminal/status-line.ts.
-    const agent = await withStatusLine(opts.command ?? '', opts.nodeId, opts.claudeConfigDir)
+    // O `settings.json` do agente entra ANTES do spawn: o `--settings` vai no
+    // comando que será digitado, e a statusLine que o usuário já tinha vai no
+    // ambiente, para o CLI encadeá-la. É o mesmo arquivo que leva os hooks do
+    // Artesão. Num preset que não é Claude Code tudo volta intacto — ver
+    // terminal/agent-settings.ts.
+    const agent = await withAgentSettings(opts.command ?? '', opts.nodeId, {
+      claudeConfigDir: opts.claudeConfigDir,
+      artisan: opts.isArtisan === true
+    })
 
     // A sessão do agente, pelo mesmo motivo: as flags entram no comando ANTES
     // de ele ser digitado. Ver terminal/agent-resume.ts e session-store.ts.
@@ -224,7 +231,8 @@ class TerminalManager extends EventEmitter {
           opts.role,
           opts.extraEnv,
           opts.claudeConfigDir,
-          agent.innerCommand
+          agent.innerCommand,
+          opts.isArtisan === true
         ) as Record<string, string>
       })
     } catch (err) {
@@ -679,9 +687,16 @@ export function buildTerminalEnv(params: {
    * A `statusLine` que o usuário já tinha configurada, quando tinha. Vira
    * `ATELIER_STATUSLINE_INNER`, e o CLI a executa com o mesmo stdin: a barra de
    * status do agente continua exatamente a que ele montou. Ver
-   * terminal/status-line.ts.
+   * terminal/agent-settings.ts.
    */
   innerStatusLine?: string | null
+  /**
+   * Nó marcado como Artesão. Vira `ATELIER_ARTESAO=1`, e é o sinal UNIVERSAL:
+   * o bloqueio por hook é do Claude Code, mas a variável existe em qualquer
+   * preset, e é por ela que o `atelier list` sabe abrir com o cabeçalho do
+   * Artesão para um Codex que nunca verá um `SessionStart`.
+   */
+  isArtisan?: boolean
 }): NodeJS.ProcessEnv {
   const env = childEnv()
   env.ATELIER_TERMINAL_ID = params.terminalId
@@ -695,6 +710,8 @@ export function buildTerminalEnv(params: {
     env.ATELIER_ROLE_ID = params.role.id
     env.ATELIER_ROLE = params.role.name
   }
+
+  if (params.isArtisan) env.ATELIER_ARTESAO = '1'
 
   if (params.claudeConfigDir) env.CLAUDE_CONFIG_DIR = params.claudeConfigDir
   if (params.innerStatusLine) env.ATELIER_STATUSLINE_INNER = params.innerStatusLine

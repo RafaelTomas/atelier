@@ -121,6 +121,25 @@ When two levels both look defensible, **take the cheaper one and escalate if the
 recruit struggles**: re-running a task on a bigger model costs less than running
 everything on the biggest one out of caution.
 
+## If you are an Artisan
+
+Some terminals are marked **Artisan** in Atelier. \`ATELIER_ARTESAO=1\` is set in
+your environment when you are one, and \`atelier list\` opens with a reminder.
+
+On Claude Code the rule is enforced: your internal subagent tool is denied, and
+the refusal tells you to recruit instead. On the other agents it is instruction
+only — nothing stops you, and keeping to it is on you.
+
+That is not a punishment, it is where your team lives. A subagent is invisible on
+the canvas — no node, no screen the user can read, no way to interrupt it, and it
+dies with your session. A recruit is a node: visible, interruptible, resumable,
+and its cost shows up on its own status line.
+
+So delegate with \`recruit\` + \`ask\` + \`check\`, keep the board honest if one is
+cabled to you, and \`dismiss\` what you opened once its work is verified. The rules
+above still apply, especially the first one: run \`atelier list\` and reuse before
+you recruit.
+
 ## Dismiss an agent you recruited
 
 \`\`\`

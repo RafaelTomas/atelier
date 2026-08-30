@@ -6,7 +6,22 @@ import { paths } from '../../persistence/paths'
 import { roles } from '../../state/role-store'
 import { terminals } from '../../terminal/terminal-manager'
 import { readBoard } from '../../todo/todo-store'
+import { artisanBanner } from '../artisan-doctrine'
 import { connectedNodes, requireTerminalId, workspaceForTerminal } from './context'
+
+/**
+ * O cabeçalho do Artesão, quando o chamador é um.
+ *
+ * É aqui, e não só nos hooks, porque `list` é o único caminho que TODO agente
+ * atravessa antes de delegar — inclusive um Codex, que não tem `SessionStart`
+ * nem hook de ferramenta. Ver artisan-doctrine.ts.
+ */
+function artisanHeader(tid: UUID): string[] {
+  const ws = workspaceForTerminal(tid)
+  const node = ws?.node(tid)
+  if (!node || node.content.type !== 'terminal' || !node.content.value.isArtisan) return []
+  return [artisanBanner(), '']
+}
 
 /**
  * O quadro daquele nó, lido do disco. `null` quando o arquivo não existe ou está
@@ -24,12 +39,20 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
   const tid = requireTerminalId(terminalId)
   if (!tid) return 'error: missing terminal ID'
 
+  const header = artisanHeader(tid)
+
   const nodes = connectedNodes(tid)
   if (nodes.length === 0) {
-    return 'No connected agents, notes or portals.\nConnect this terminal to another node on the canvas first.'
+    // O cabeçalho vale MAIS aqui, não menos: um Artesão sem ninguém cabeado é
+    // exatamente quem está prestes a recrutar o primeiro.
+    return [
+      ...header,
+      'No connected agents, notes or portals.',
+      'Connect this terminal to another node on the canvas first.'
+    ].join('\n')
   }
 
-  const lines: string[] = []
+  const lines: string[] = [...header]
 
   const agents = nodes.filter((n) => n.content.type === 'terminal')
   if (agents.length > 0) {

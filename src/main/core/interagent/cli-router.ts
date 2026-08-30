@@ -5,6 +5,7 @@
  * app nativo.
  */
 import type { UUID } from '@shared/types'
+import { handleArtesao } from './handlers/artesao'
 import { handleAsk } from './handlers/ask'
 import { handleButton } from './handlers/button'
 import { handleCheck } from './handlers/check'
@@ -67,6 +68,11 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
     // que não faz nada útil na mão dele.
     case 'statusline':
       return handleStatusLine(args, terminalId)
+    // Fora de COMMANDS pelo mesmo motivo do `statusline`: quem chama é o Claude
+    // Code, pelos hooks que o Artesão instalou no `--settings` daquele terminal.
+    // Oferecê-lo no help daria ao agente um verbo que não faz nada na mão dele.
+    case 'artesao':
+      return handleArtesao(args, terminalId)
     case 'debug':
       return buildDebugInfo(terminalId)
 

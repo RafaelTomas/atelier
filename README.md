@@ -243,6 +243,49 @@ a dos colegas conectados no `atelier list`.
 O nome e a cor aparecem no cabeçalho do nó, então dá para ler o canvas inteiro
 de longe e saber quem faz o quê.
 
+### O Artesão
+
+Um agente do Claude Code tem duas formas de delegar, e escolhe a errada por
+hábito: a ferramenta de subagente, que abre um ajudante **dentro da sessão dele**.
+No canvas isso é o pior dos dois mundos — o subagente não tem nó, então você não
+vê nada acontecendo; ele herda a identidade do pai no CLI, então um `atelier ask`
+disparado de dentro dele fala como se fosse o pai; e ele morre junto com a sessão
+do pai, levando o que descobriu.
+
+O checkbox **Artesão**, na aba Detalhes do diálogo de terminal, desliga isso. Um
+agente marcado como Artesão delega **abrindo nós no canvas** — `atelier recruit`,
+`atelier ask`, `atelier dismiss`. Marcar a caixa veste o nó: ele nasce com o nome
+**Artesão**, o ícone de martelo e o verde, e ganha o badge `ARTESÃO` no cabeçalho,
+ao lado do `MAESTRO`. É um ponto de partida — nome que você digitou não é
+sobrescrito, e a aba Aparência continua mandando depois.
+
+Vale para **qualquer agente de IA** — Claude, Codex, Antigravity, OpenCode. O que
+não pode ser Artesão é o shell puro: não há a quem instruir, e ali a caixa aparece
+desabilitada com o motivo à vista.
+
+**A força varia, e o diálogo diz qual você está levando.** Todo Artesão recebe
+`ATELIER_ARTESAO=1` no ambiente e um cabeçalho no `atelier list` — que é o comando
+que todo agente roda antes de delegar, e por isso o lugar onde a regra chega a um
+Codex. No **Claude Code** vem o resto, pelo `settings.json` que o Atelier já gera
+para cada terminal (o mesmo do monitor):
+
+- um hook de `PreToolUse` **nega o subagente e ensina**: a razão da recusa é o
+  comando de `recruit` que resolveria o problema. Bloquear calado faria o agente
+  tentar de novo;
+- um hook de `SessionStart` injeta a doutrina no começo da conversa, já com o
+  estado real do canvas — quem está cabeado, quantas vagas de terminal sobram
+  antes do teto do `recruit`.
+
+Nos outros agentes não há hook equivalente, então lá a regra é **instruída, não
+bloqueada**. Prometer bloqueio onde não existe seria pior que não oferecer.
+
+O bloqueio **não depende do app responder**: a recusa é montada dentro do próprio
+CLI, sem tocar no socket. Se o Atelier engasgar, um Artesão continua Artesão.
+
+**Recrutado não nasce Artesão.** Um Artesão monta uma oficina plana, não uma
+árvore: o teto de doze terminais por canvas foi pensado para largura, não para
+profundidade.
+
 ### Os cabos
 
 Clique no `⇄` no cabeçalho de um nó e depois no nó de destino. Entre os dois
@@ -347,6 +390,7 @@ têm interface.
 | Servidor IPC + CLI (`list`, `ask`, `check`, `note`, `portal`, `table`, `image`, `button`, `role`, `projects`, `debug`) | ✅ |
 | Diálogo de terminal — novo e editar (presets, aparência, tema, fonte) | ✅ |
 | Responsabilidades: criar, editar, atribuir, escopo global/workspace | ✅ |
+| Artesão: delega em nós do canvas — bloqueado no Claude Code, instruído nos demais | ✅ |
 | Múltiplos workspaces | ✅ |
 | Nós Portal (navegador embutido) | ✅ |
 | Desenho à mão livre (caneta, marca-texto, borracha) | ✅ |

@@ -22,7 +22,8 @@ import type {
   Point,
   Rect,
   SecretVaultContent,
-  UUID
+  UUID,
+  WorkspacePayload
 } from '@shared/types'
 import { claudeAccounts } from '../core/claude/accounts'
 import { Constants } from '../core/constants'
@@ -74,6 +75,7 @@ import { onConnectionCreated, restoreConnections } from '../core/connection/conn
 import { forgetTerminal } from '../core/connection/skill-injector'
 import { registerGuest, unregisterGuest } from '../core/portal/portal-registry'
 import { closeSession, openSession } from '../core/portal/portal-cdp'
+import { spawnPortal } from '../core/portal/portal-spawn'
 import { notifyRenderer } from './notify'
 import { defaultSize, minSize, type NewNodeKind } from '../core/node-sizes'
 
@@ -364,6 +366,18 @@ export function registerIPC(): void {
   ipcMain.handle('viewport:set', (_e, id: UUID, origin: Point, zoom: number) => {
     appState.workspaces.get(id)?.setViewport(origin, zoom)
   })
+
+  /** Ctrl+Z/Ctrl+Shift+Z: a store do renderer manda o retrato para onde voltar. */
+  ipcMain.handle(
+    'workspace:restore',
+    (
+      _e,
+      id: UUID,
+      snapshot: Pick<WorkspacePayload, 'nodes' | 'connections' | 'groups' | 'drawings'>
+    ) => {
+      appState.workspaces.get(id)?.restore(snapshot)
+    }
+  )
 
   // ─── Nós ────────────────────────────────────────────────────────────────────
 
@@ -876,6 +890,12 @@ export function registerIPC(): void {
 
   ipcMain.handle('terminal:buffer', (_e, nodeId: UUID) => terminals.get(nodeId)?.buffer ?? '')
 
+  // Link clicado na saída do terminal: abre num Portal no canvas, não no
+  // navegador do sistema — o terminal é o nó de origem, igual a um popup.
+  ipcMain.handle('terminal:open-link', (_e, nodeId: UUID, url: string) => {
+    spawnPortal({ originId: nodeId, url })
+  })
+
   // ─── Desenhos ───────────────────────────────────────────────────────────────
 
   ipcMain.handle(
@@ -897,6 +917,14 @@ export function registerIPC(): void {
   ipcMain.handle('drawing:clear', (_e, workspaceId: UUID) => {
     appState.workspaces.get(workspaceId)?.clearDrawings()
   })
+
+  /** Mover/redimensionar um traço — commit único no soltar do mouse. */
+  ipcMain.handle(
+    'drawing:set-points',
+    (_e, workspaceId: UUID, drawingId: UUID, points: number[][], lineWidth?: number) => {
+      appState.workspaces.get(workspaceId)?.setDrawingPoints(drawingId, points, lineWidth)
+    }
+  )
 
   // ─── Grupos ─────────────────────────────────────────────────────────────────
   // Moldura com título em volta de um conjunto de nós. Devolvem o grupo já

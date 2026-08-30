@@ -114,6 +114,11 @@ export interface AppSnapshot {
    */
   selectedGroupId: UUID | null
   /**
+   * Traço de desenho selecionado — exclusivo com `selection` e
+   * `selectedGroupId` pelo mesmo motivo: um nó/grupo/traço por vez.
+   */
+  selectedDrawingId: UUID | null
+  /**
    * Grupo em foco: ele fica opaco e o resto do canvas apaga. Só em memória, não
    * vai para o disco — é modo de leitura, não propriedade do grupo. `Esc` sai.
    */
@@ -220,6 +225,7 @@ const initial: AppSnapshot = {
   workspace: null,
   selection: [],
   selectedGroupId: null,
+  selectedDrawingId: null,
   isolatedGroupId: null,
   connectingFrom: null,
   placing: null,
@@ -253,12 +259,23 @@ const initial: AppSnapshot = {
   bootError: null
 }
 
+/** O que o undo/redo grava e restaura — o resto do payload (nome, viewport,
+ * datas) não é "conteúdo editável" e fica de fora de propósito. */
+type HistorySnapshot = Pick<WorkspacePayload, 'nodes' | 'connections' | 'groups' | 'drawings'>
+
+/** Além disso o app não guarda mais passos — histórico não é o arquivo. */
+const MAX_HISTORY = 100
+
 class Store {
   private state: AppSnapshot = initial
   private listeners = new Set<() => void>()
   private noticeTimer: ReturnType<typeof setTimeout> | null = null
   /** Esta varredura pediu descrição automática? Ver startScan/finishScan. */
   private armedAutoDescribe = false
+
+  /** Pilhas do Ctrl+Z/Ctrl+Shift+Z — uma por workspace aberto, zeradas ao trocar. */
+  private past: HistorySnapshot[] = []
+  private future: HistorySnapshot[] = []
 
   getSnapshot = (): AppSnapshot => this.state
 
@@ -297,6 +314,7 @@ class Store {
       const integrity = id ? await window.atelier.workspace.integrity(id) : null
       const theme = isThemeMode(prefs.theme) ? prefs.theme : 'system'
       applyTheme(theme)
+      this.resetHistory()
       this.set({
         entries,
         activeId: id,
@@ -317,12 +335,14 @@ class Store {
   async openWorkspace(id: UUID): Promise<void> {
     const workspace = await window.atelier.workspace.open(id)
     const integrity = await window.atelier.workspace.integrity(id)
+    this.resetHistory()
     this.set({
       workspace,
       integrity,
       activeId: id,
       selection: [],
       selectedGroupId: null,
+      selectedDrawingId: null,
       isolatedGroupId: null
     })
   }
@@ -340,6 +360,7 @@ class Store {
 
   async createWorkspace(name: string): Promise<void> {
     const { entries, workspace } = await window.atelier.workspace.create(name, '')
+    this.resetHistory()
     this.set({ entries, workspace, activeId: workspace.id, selection: [] })
   }
 
@@ -368,12 +389,14 @@ class Store {
   async deleteWorkspace(id: UUID): Promise<void> {
     const entries = await window.atelier.workspace.remove(id)
     if (id === this.state.activeId) {
+      this.resetHistory()
       this.set({
         entries,
         workspace: null,
         activeId: null,
         selection: [],
         selectedGroupId: null,
+        selectedDrawingId: null,
         isolatedGroupId: null,
         integrity: null
       })
@@ -388,9 +411,16 @@ class Store {
     return this.state.workspace?.id ?? null
   }
 
-  private mutateWorkspace(fn: (ws: WorkspacePayload) => void): void {
+  /**
+   * `history: true` marca uma edição de verdade (o usuário escolheria desfazer
+   * isto) — empilha o retrato de ANTES no undo. As demais (status de conexão
+   * piscando, z-index de "trouxe pra frente") deixam o padrão `false`: entram
+   * no Ctrl+Z e o usuário nunca pediu para desfazer aquilo.
+   */
+  private mutateWorkspace(fn: (ws: WorkspacePayload) => void, opts: { history?: boolean } = {}): void {
     const ws = this.state.workspace
     if (!ws) return
+    if (opts.history) this.pushHistory(ws)
     const next = {
       ...ws,
       nodes: [...ws.nodes],
@@ -400,6 +430,57 @@ class Store {
     }
     fn(next)
     this.set({ workspace: next })
+  }
+
+  /** Retrato independente (não por referência) do que o Ctrl+Z restaura. */
+  private snapshotOf(ws: WorkspacePayload): HistorySnapshot {
+    return structuredClone({
+      nodes: ws.nodes,
+      connections: ws.connections,
+      groups: ws.groups,
+      drawings: ws.drawings
+    })
+  }
+
+  private pushSnapshot(snap: HistorySnapshot): void {
+    this.past.push(snap)
+    if (this.past.length > MAX_HISTORY) this.past.shift()
+    this.future = []
+  }
+
+  private pushHistory(ws: WorkspacePayload): void {
+    this.pushSnapshot(this.snapshotOf(ws))
+  }
+
+  private resetHistory(): void {
+    this.past = []
+    this.future = []
+  }
+
+  get canUndo(): boolean {
+    return this.past.length > 0
+  }
+
+  get canRedo(): boolean {
+    return this.future.length > 0
+  }
+
+  async undo(): Promise<void> {
+    const ws = this.state.workspace
+    const prev = this.past.pop()
+    if (!ws || !prev) return
+    this.future.push(this.snapshotOf(ws))
+    await window.atelier.workspace.restore(ws.id, prev)
+    this.set({ workspace: { ...ws, ...prev } })
+  }
+
+  async redo(): Promise<void> {
+    const ws = this.state.workspace
+    const next = this.future.pop()
+    if (!ws || !next) return
+    this.past.push(this.snapshotOf(ws))
+    await window.atelier.workspace.restore(ws.id, next)
+    this.set({ workspace: { ...ws, ...next } })
   }
 
   async addNode(
@@ -434,7 +515,7 @@ class Store {
       node = { ...created, frame }
     }
 
-    this.mutateWorkspace((ws) => ws.nodes.push(node))
+    this.mutateWorkspace((ws) => ws.nodes.push(node), { history: true })
     this.set({ selection: [node.id] })
     return node
   }
@@ -448,15 +529,18 @@ class Store {
       return
     }
     await window.atelier.node.remove(id, nodeId)
-    this.mutateWorkspace((ws) => {
-      ws.nodes = ws.nodes.filter((n) => n.id !== nodeId)
-      ws.connections = ws.connections.filter((c) => c.nodeIdA !== nodeId && c.nodeIdB !== nodeId)
-      // A moldura fica, só perde o membro — espelha o WorkspaceManager. Sem
-      // isto o contador da faixa continuaria contando um nó que já não existe.
-      ws.groups = ws.groups.map((g) =>
-        g.nodeIds.includes(nodeId) ? { ...g, nodeIds: g.nodeIds.filter((n) => n !== nodeId) } : g
-      )
-    })
+    this.mutateWorkspace(
+      (ws) => {
+        ws.nodes = ws.nodes.filter((n) => n.id !== nodeId)
+        ws.connections = ws.connections.filter((c) => c.nodeIdA !== nodeId && c.nodeIdB !== nodeId)
+        // A moldura fica, só perde o membro — espelha o WorkspaceManager. Sem
+        // isto o contador da faixa continuaria contando um nó que já não existe.
+        ws.groups = ws.groups.map((g) =>
+          g.nodeIds.includes(nodeId) ? { ...g, nodeIds: g.nodeIds.filter((n) => n !== nodeId) } : g
+        )
+      },
+      { history: true }
+    )
     this.set({ selection: this.state.selection.filter((s) => s !== nodeId) })
   }
 
@@ -702,9 +786,12 @@ class Store {
   async commitFrame(nodeId: UUID, frame: Rect): Promise<void> {
     const id = this.workspaceId
     if (!id) return
-    this.mutateWorkspace((ws) => {
-      ws.nodes = ws.nodes.map((n) => (n.id === nodeId ? { ...n, frame } : n))
-    })
+    this.mutateWorkspace(
+      (ws) => {
+        ws.nodes = ws.nodes.map((n) => (n.id === nodeId ? { ...n, frame } : n))
+      },
+      { history: true }
+    )
     await window.atelier.node.setFrame(id, nodeId, frame)
   }
 
@@ -720,12 +807,15 @@ class Store {
     const id = this.workspaceId
     if (!id || entries.length === 0) return
     const byId = new Map(entries.map((e) => [e.nodeId, e.frame]))
-    this.mutateWorkspace((ws) => {
-      ws.nodes = ws.nodes.map((n) => {
-        const frame = byId.get(n.id)
-        return frame ? { ...n, frame } : n
-      })
-    })
+    this.mutateWorkspace(
+      (ws) => {
+        ws.nodes = ws.nodes.map((n) => {
+          const frame = byId.get(n.id)
+          return frame ? { ...n, frame } : n
+        })
+      },
+      { history: true }
+    )
     await window.atelier.node.setFrames(id, entries)
   }
 
@@ -734,9 +824,12 @@ class Store {
     if (!id) return
     const updated = await window.atelier.node.patchContent(id, nodeId, patch)
     if (!updated) return
-    this.mutateWorkspace((ws) => {
-      ws.nodes = ws.nodes.map((n) => (n.id === nodeId ? updated : n))
-    })
+    this.mutateWorkspace(
+      (ws) => {
+        ws.nodes = ws.nodes.map((n) => (n.id === nodeId ? updated : n))
+      },
+      { history: true }
+    )
   }
 
   async bringToFront(nodeId: UUID): Promise<void> {
@@ -768,25 +861,46 @@ class Store {
     const id = this.workspaceId
     if (!id || points.length < 2) return
     const drawing = await window.atelier.drawing.add(id, points, color, lineWidth)
-    if (drawing) this.mutateWorkspace((ws) => ws.drawings.push(drawing))
+    if (drawing) this.mutateWorkspace((ws) => ws.drawings.push(drawing), { history: true })
   }
 
   async removeDrawing(drawingId: UUID): Promise<void> {
     const id = this.workspaceId
     if (!id) return
     await window.atelier.drawing.remove(id, drawingId)
-    this.mutateWorkspace((ws) => {
-      ws.drawings = ws.drawings.filter((d) => d.id !== drawingId)
-    })
+    this.mutateWorkspace(
+      (ws) => {
+        ws.drawings = ws.drawings.filter((d) => d.id !== drawingId)
+      },
+      { history: true }
+    )
   }
 
   async clearDrawings(): Promise<void> {
     const id = this.workspaceId
     if (!id) return
     await window.atelier.drawing.clear(id)
-    this.mutateWorkspace((ws) => {
-      ws.drawings = []
-    })
+    this.mutateWorkspace(
+      (ws) => {
+        ws.drawings = []
+      },
+      { history: true }
+    )
+  }
+
+  /** Commit de mover/redimensionar um traço — soltar o mouse, não cada frame do arrasto. */
+  async commitDrawingPoints(id: UUID, points: number[][], lineWidth?: number): Promise<void> {
+    const wsId = this.workspaceId
+    if (!wsId) return
+    this.mutateWorkspace(
+      (ws) => {
+        ws.drawings = ws.drawings.map((d) =>
+          d.id === id ? { ...d, points, lineWidth: lineWidth ?? d.lineWidth } : d
+        )
+      },
+      { history: true }
+    )
+    await window.atelier.drawing.setPoints(wsId, id, points, lineWidth)
   }
 
   /**
@@ -1161,7 +1275,7 @@ class Store {
     if (!workspaceId) return null
     const node = await window.atelier.project.addToWorkspace(workspaceId, id, position)
     if (node) {
-      this.mutateWorkspace((ws) => ws.nodes.push(node))
+      this.mutateWorkspace((ws) => ws.nodes.push(node), { history: true })
       this.set({ selection: [node.id] })
     }
     await this.loadProjects()
@@ -1308,7 +1422,7 @@ class Store {
     const id = this.workspaceId
     if (!id) return null
     const conn = await window.atelier.connection.add(id, idA, idB)
-    if (conn) this.mutateWorkspace((ws) => ws.connections.push(conn))
+    if (conn) this.mutateWorkspace((ws) => ws.connections.push(conn), { history: true })
     return conn
   }
 
@@ -1316,9 +1430,12 @@ class Store {
     const id = this.workspaceId
     if (!id) return
     await window.atelier.connection.remove(id, connectionId)
-    this.mutateWorkspace((ws) => {
-      ws.connections = ws.connections.filter((c) => c.id !== connectionId)
-    })
+    this.mutateWorkspace(
+      (ws) => {
+        ws.connections = ws.connections.filter((c) => c.id !== connectionId)
+      },
+      { history: true }
+    )
   }
 
   setConnectionStatus(connectionId: UUID, status: Connection['status']): void {
@@ -1339,16 +1456,25 @@ class Store {
     return this.groups.find((g) => g.id === id) ?? null
   }
 
-  /** Seleciona a moldura. Grupo e nós são exclusivos: escolher um limpa o outro. */
+  /** Seleciona a moldura. Grupo, nós e traço são exclusivos: escolher um limpa os outros. */
   selectGroup(id: UUID | null): void {
-    this.set({ selectedGroupId: id, selection: id ? [] : this.state.selection })
+    this.set({
+      selectedGroupId: id,
+      selection: id ? [] : this.state.selection,
+      selectedDrawingId: id ? null : this.state.selectedDrawingId
+    })
   }
 
   async createGroup(title: string, frame: Rect, nodeIds: UUID[]): Promise<NodeGroup | null> {
     const id = this.workspaceId
     if (!id) return null
+    // Retrato de antes, capturado à parte: este caminho não passa por
+    // mutateWorkspace (o resultado vem de `reload`, não de um patch local), e só
+    // deve empilhar se a criação realmente vingar — não em cada tentativa.
+    const before = this.state.workspace ? this.snapshotOf(this.state.workspace) : null
     const group = await window.atelier.group.create(id, title, frame, nodeIds)
     if (!group) return null
+    if (before) this.pushSnapshot(before)
     // Substitui a lista inteira em vez de só empurrar o novo: o main pode ter
     // tirado membros de outros grupos para honrar a regra de um dono por nó, e
     // a cópia daqui ficaria mostrando o nó nos dois lugares.
@@ -1378,10 +1504,15 @@ class Store {
     if (!id) return
     // Otimista: a moldura acompanha o gesto na hora, e o main confirma depois.
     // O que volta de lá é a mesma coisa — a única regra que ele pode mudar
-    // (dono único) só vale para `nodeIds`, e esse caminho recarrega.
-    this.mutateWorkspace((ws) => {
-      ws.groups = ws.groups.map((g) => (g.id === groupId ? { ...g, ...patch } : g))
-    })
+    // (dono único) só vale para `nodeIds`, e esse caminho recarrega. História só
+    // aqui, não na confirmação abaixo — senão um Ctrl+Z desfaria a mesma edição
+    // duas vezes.
+    this.mutateWorkspace(
+      (ws) => {
+        ws.groups = ws.groups.map((g) => (g.id === groupId ? { ...g, ...patch } : g))
+      },
+      { history: true }
+    )
     const updated = await window.atelier.group.update(id, groupId, patch)
     if (updated) {
       this.mutateWorkspace((ws) => {
@@ -1434,9 +1565,12 @@ class Store {
       for (const nodeId of group?.nodeIds ?? []) await this.removeNode(nodeId, { force: true })
     }
     await window.atelier.group.remove(id, groupId)
-    this.mutateWorkspace((ws) => {
-      ws.groups = ws.groups.filter((g) => g.id !== groupId)
-    })
+    this.mutateWorkspace(
+      (ws) => {
+        ws.groups = ws.groups.filter((g) => g.id !== groupId)
+      },
+      { history: true }
+    )
     this.set({
       selectedGroupId: this.state.selectedGroupId === groupId ? null : this.state.selectedGroupId,
       isolatedGroupId: this.state.isolatedGroupId === groupId ? null : this.state.isolatedGroupId
@@ -1475,7 +1609,16 @@ class Store {
   select(ids: UUID[]): void {
     // Selecionar nó tira a seleção da moldura: são o mesmo "o que está
     // selecionado", e o Delete precisa de uma resposta só.
-    this.set({ selection: ids, selectedGroupId: ids.length > 0 ? null : this.state.selectedGroupId })
+    this.set({
+      selection: ids,
+      selectedGroupId: ids.length > 0 ? null : this.state.selectedGroupId,
+      selectedDrawingId: ids.length > 0 ? null : this.state.selectedDrawingId
+    })
+  }
+
+  /** Seleciona um traço de desenho. Exclusivo com nó e grupo — mesma regra. */
+  selectDrawing(id: UUID | null): void {
+    this.set({ selectedDrawingId: id, selection: id ? [] : this.state.selection, selectedGroupId: id ? null : this.state.selectedGroupId })
   }
 
   toggleSelect(id: UUID): void {

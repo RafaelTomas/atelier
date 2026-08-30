@@ -25,6 +25,7 @@ import { fileWatcher } from './core/projects/file-watcher'
 import { armPopupHandling } from './core/portal/portal-popup'
 import { armPortalZoom } from './core/portal/portal-zoom'
 import { armPortalCDP } from './core/portal/portal-cdp'
+import { armCertificateErrorHandling } from './core/portal/portal-cert'
 import { useSafeStorage } from './core/vault/crypto'
 import { registerIPC } from './ipc/bridge'
 import { createMainWindow } from './window'
@@ -132,6 +133,9 @@ async function boot(): Promise<void> {
   // Nó desmontado pelo culling leva a sessão CDP junto — sem isso o controle
   // ficaria pendurado num webContents morto (Decisão D do controle de portal).
   armPortalCDP()
+  // Certificado inválido num site aberto dentro de um Portal pede confirmação
+  // ao usuário em vez de travar na tela nativa do Chromium sem saída.
+  armCertificateErrorHandling()
   createMainWindow()
 
   log.info('boot', `pronto em ${Date.now() - started}ms`)

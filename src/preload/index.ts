@@ -107,7 +107,12 @@ const api = {
     ): Promise<{ safeMode: boolean; droppedNodes: number; fileSchemaVersion: number } | null> =>
       ipcRenderer.invoke('workspace:integrity', id),
     setViewport: (id: UUID, origin: Point, zoom: number): Promise<void> =>
-      ipcRenderer.invoke('viewport:set', id, origin, zoom)
+      ipcRenderer.invoke('viewport:set', id, origin, zoom),
+    /** Ctrl+Z/Ctrl+Shift+Z: sobrescreve nós/conexões/grupos/desenhos por um retrato anterior. */
+    restore: (
+      id: UUID,
+      snapshot: Pick<WorkspacePayload, 'nodes' | 'connections' | 'groups' | 'drawings'>
+    ): Promise<void> => ipcRenderer.invoke('workspace:restore', id, snapshot)
   },
 
   node: {
@@ -205,6 +210,9 @@ const api = {
       ipcRenderer.invoke('terminal:resize', nodeId, cols, rows),
     kill: (nodeId: UUID): Promise<void> => ipcRenderer.invoke('terminal:kill', nodeId),
     buffer: (nodeId: UUID): Promise<string> => ipcRenderer.invoke('terminal:buffer', nodeId),
+    /** Link clicado na saída do terminal: abre num Portal, não no navegador do sistema. */
+    openLink: (nodeId: UUID, url: string): Promise<void> =>
+      ipcRenderer.invoke('terminal:open-link', nodeId, url),
     onData: (cb: (p: { id: UUID; data: string }) => void): Unsubscribe => on('terminal:data', cb),
     onExit: (cb: (p: { id: UUID; code: number }) => void): Unsubscribe => on('terminal:exit', cb),
     /** Linha de status do agente (tokens, contexto, limites); muda pouco. */
@@ -222,7 +230,14 @@ const api = {
       ipcRenderer.invoke('drawing:add', workspaceId, points, color, lineWidth),
     remove: (workspaceId: UUID, drawingId: UUID): Promise<void> =>
       ipcRenderer.invoke('drawing:remove', workspaceId, drawingId),
-    clear: (workspaceId: UUID): Promise<void> => ipcRenderer.invoke('drawing:clear', workspaceId)
+    clear: (workspaceId: UUID): Promise<void> => ipcRenderer.invoke('drawing:clear', workspaceId),
+    /** Mover/redimensionar um traço — commit único no soltar do mouse. */
+    setPoints: (
+      workspaceId: UUID,
+      drawingId: UUID,
+      points: number[][],
+      lineWidth?: number
+    ): Promise<void> => ipcRenderer.invoke('drawing:set-points', workspaceId, drawingId, points, lineWidth)
   },
 
   /**

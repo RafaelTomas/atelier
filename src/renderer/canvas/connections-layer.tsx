@@ -5,8 +5,10 @@
  * coordenadas de canvas e o pan/zoom sai de graça. Os `d` são escritos direto
  * no DOM pelo tick da física — nunca via estado do React.
  */
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CanvasNode, Connection, Point, UUID } from '@shared/types'
+import { IconScissors } from '../icons'
+import { store } from '../state/store'
 import { RopeSimulation, ropePath } from './rope'
 import { rectCenter, viewport } from './viewport'
 
@@ -34,6 +36,26 @@ export function ConnectionsLayer({
   const svgRef = useRef<SVGSVGElement>(null)
   const simRef = useRef<RopeSimulation | null>(null)
   const pathsRef = useRef(new Map<UUID, SVGPathElement>())
+  // Path invisível e mais grosso por cima de cada corda, só para dar uma área
+  // de clique generosa — a corda visível tem 2px, quase impossível de acertar.
+  const hitPathsRef = useRef(new Map<UUID, SVGPathElement>())
+
+  // Tesourinha no hover: mostra perto do cursor, não na corda (a corda se move
+  // sozinha pela física — perseguir o ponto exato seria mais trabalho para um
+  // ganho que ninguém nota).
+  const [scissors, setScissors] = useState<{ id: UUID; x: number; y: number } | null>(null)
+  const hideTimer = useRef<number | null>(null)
+
+  const cancelHide = (): void => {
+    if (hideTimer.current !== null) {
+      window.clearTimeout(hideTimer.current)
+      hideTimer.current = null
+    }
+  }
+  const scheduleHide = (): void => {
+    cancelHide()
+    hideTimer.current = window.setTimeout(() => setScissors(null), 150)
+  }
 
   /**
    * As cordas que aparecem: basta UMA das pontas estar dobrada para a corda
@@ -58,8 +80,11 @@ export function ConnectionsLayer({
     simRef.current = sim
     sim.onTick = (points) => {
       for (const [id, pts] of points) {
+        const d = ropePath(pts)
         const el = pathsRef.current.get(id)
-        if (el) el.setAttribute('d', ropePath(pts))
+        if (el) el.setAttribute('d', d)
+        const hit = hitPathsRef.current.get(id)
+        if (hit) hit.setAttribute('d', d)
       }
     }
     return () => {
@@ -132,18 +157,55 @@ export function ConnectionsLayer({
   }, [])
 
   return (
-    <svg ref={svgRef} className="connections-layer" overflow="visible">
-      {visible.map((conn) => (
-        <path
-          key={conn.id}
-          ref={(el) => {
-            if (el) pathsRef.current.set(conn.id, el)
-            else pathsRef.current.delete(conn.id)
+    <>
+      <svg ref={svgRef} className="connections-layer" overflow="visible">
+        {visible.map((conn) => (
+          <path
+            key={`hit-${conn.id}`}
+            ref={(el) => {
+              if (el) hitPathsRef.current.set(conn.id, el)
+              else hitPathsRef.current.delete(conn.id)
+            }}
+            fill="none"
+            stroke="transparent"
+            strokeWidth={16}
+            style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+            onMouseMove={(e) => {
+              cancelHide()
+              setScissors({ id: conn.id, x: e.clientX, y: e.clientY })
+            }}
+            onMouseLeave={scheduleHide}
+          />
+        ))}
+        {visible.map((conn) => (
+          <path
+            key={conn.id}
+            ref={(el) => {
+              if (el) pathsRef.current.set(conn.id, el)
+              else pathsRef.current.delete(conn.id)
+            }}
+            className={STATUS_CLASS[conn.status] ?? STATUS_CLASS.idle}
+            fill="none"
+          />
+        ))}
+      </svg>
+
+      {scissors && (
+        <button
+          type="button"
+          className="rope-scissors"
+          title="Cortar conexão"
+          style={{ position: 'fixed', left: scissors.x, top: scissors.y }}
+          onMouseEnter={cancelHide}
+          onMouseLeave={scheduleHide}
+          onClick={() => {
+            void store.removeConnection(scissors.id)
+            setScissors(null)
           }}
-          className={STATUS_CLASS[conn.status] ?? STATUS_CLASS.idle}
-          fill="none"
-        />
-      ))}
-    </svg>
+        >
+          <IconScissors size={14} />
+        </button>
+      )}
+    </>
   )
 }

@@ -21,7 +21,8 @@ import { FormatBar } from '../nodes/format-bar'
 import { NodeActionBar } from '../nodes/node-action-bar'
 import { Dock } from '../dock'
 import { CanvasBackground } from './background'
-import { DrawingsLayer, type LiveStroke } from './drawings-layer'
+import { DrawingsLayer, type LiveDrawingTransform, type LiveStroke } from './drawings-layer'
+import { DrawingSelection } from './drawing-selection'
 import { DrawMenu, type DrawMenuState } from './draw-menu'
 import { GroupsLayer } from './groups-layer'
 import { GroupMenu } from './group-menu'
@@ -35,7 +36,7 @@ import {
 import { Minimap } from './minimap'
 import { ConnectionsLayer } from './connections-layer'
 import { ConnectionPreview, canLink } from './connection-preview'
-import { CULL_MARGIN, KEEP_MARGIN, rectsIntersect, viewport } from './viewport'
+import { CULL_MARGIN, KEEP_MARGIN, rectsIntersect, strokeBounds, viewport } from './viewport'
 
 /**
  * Nome do projeto de um widget FIXADO, para o cabeçalho do nó. Resolvido AQUI,
@@ -77,6 +78,16 @@ type Interaction =
   | { kind: 'marquee'; start: Point; current: Point }
   | { kind: 'placing'; start: Point }
   | { kind: 'drawing' }
+  | { kind: 'draggingDrawing'; id: UUID; start: Point; points: number[][] }
+  | {
+      kind: 'resizingDrawing'
+      id: UUID
+      start: Point
+      frame: Rect
+      points: number[][]
+      lineWidth: number
+      edge: ResizeEdge
+    }
 
 /**
  * De qual borda o redimensionamento partiu. As letras se combinam: 'nw' é a
@@ -87,6 +98,10 @@ type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 /** Piso do nó ao redimensionar. Abaixo disto nem o cabeçalho cabe. */
 const MIN_NODE_WIDTH = 120
 const MIN_NODE_HEIGHT = 60
+
+/** Piso do traço ao redimensionar — bem menor que o do nó: um rabisco pode
+ * nascer pequeno de verdade, e o mínimo do nó o impediria de encolher. */
+const DRAWING_MIN_SIZE = 8
 
 /**
  * O frame novo a partir da borda arrastada.
@@ -140,6 +155,7 @@ export function CanvasView(): JSX.Element {
     workspace,
     selection,
     selectedGroupId,
+    selectedDrawingId,
     isolatedGroupId,
     connectingFrom,
     placing,
@@ -158,6 +174,9 @@ export function CanvasView(): JSX.Element {
   const liveFrames = useRef(new Map<UUID, Point>())
   /** Traço em andamento — escrito a 60fps, fora do estado do React. */
   const liveStroke = useRef<LiveStroke | null>(null)
+  /** Traço selecionado sendo movido/redimensionado — mesmo tratamento: fora
+   * do estado do React, só o retrato final (no soltar) vira commit. */
+  const liveDrawingTransform = useRef<LiveDrawingTransform | null>(null)
   const strokeTick = useRef(0)
   const [visibleIds, setVisibleIds] = useState<Set<UUID>>(new Set())
   /** Espelho de `visibleIds` para o cálculo de culling — ver recomputeVisible. */
@@ -518,7 +537,7 @@ export function CanvasView(): JSX.Element {
     // Mão do espaço antes de qualquer outra coisa: com ela segurada o arrasto é
     // pan, venha de onde vier — a .nodes-layer fica transparente ao mouse, então
     // nem terminal nem portal chegam a ver o clique.
-    if (spacePan && e.button === 0) {
+    if (spacePan && e.button === 0 && !placing) {
       e.preventDefault()
       interaction.current = { kind: 'panning', last: screenPoint(e) }
       return
@@ -529,8 +548,10 @@ export function CanvasView(): JSX.Element {
     }
     // Ferramenta mão: o espaço segurado, só que travado no botão da dock. Vem
     // antes do hit test pelo mesmo motivo — a .nodes-layer está transparente ao
-    // mouse, então o arrasto move o quadro mesmo começando sobre um nó.
-    if (tool === 'pan' && e.button === 0) {
+    // mouse, então o arrasto move o quadro mesmo começando sobre um nó. Mas
+    // colocar um widget novo tem prioridade — senão o clique só arrasta o
+    // quadro e o widget nunca nasce.
+    if (tool === 'pan' && e.button === 0 && !placing) {
       e.preventDefault()
       interaction.current = { kind: 'panning', last: screenPoint(e) }
       return
@@ -583,6 +604,27 @@ export function CanvasView(): JSX.Element {
 
     // Cliques dentro do conteúdo do nó (terminal, editor) são do nó, não do canvas
     if (target.closest('[data-node-interactive]')) return
+
+    // ─── Alças do traço selecionado ─────────────────────────────────────────
+    // Mesma prioridade das alças de grupo: são a única parte clicável do
+    // retrato de seleção, então chegar aqui já decide o gesto.
+    const drawingHandleEl = target.closest('[data-drawing-handle]') as HTMLElement | null
+    if (drawingHandleEl && selectedDrawingId) {
+      const selectedDrawing = drawings.find((d) => d.id === selectedDrawingId)
+      const bounds = selectedDrawing ? strokeBounds(selectedDrawing.points) : null
+      if (selectedDrawing && bounds) {
+        interaction.current = {
+          kind: 'resizingDrawing',
+          id: selectedDrawing.id,
+          start: cp,
+          frame: bounds,
+          points: selectedDrawing.points,
+          lineWidth: selectedDrawing.lineWidth,
+          edge: (drawingHandleEl.dataset.drawingHandle as ResizeEdge) || 'se'
+        }
+        return
+      }
+    }
 
     // ─── Molduras de grupo ───────────────────────────────────────────────────
     // Antes do hit test de nó: a faixa e as alças são as ÚNICAS partes
@@ -678,8 +720,27 @@ export function CanvasView(): JSX.Element {
       return
     }
 
+    // Corpo de um traço: mesmo hit-test da borracha, mas para selecionar em vez
+    // de apagar. Depois do miss de nó — traço fica ATRÁS dos nós no empilhamento
+    // (ver cabeçalho do arquivo), então nó por cima sempre ganha o clique.
+    const hitDrawingId = hitDrawing(cp)
+    if (hitDrawingId) {
+      store.selectDrawing(hitDrawingId)
+      const hitDrawingObj = drawings.find((d) => d.id === hitDrawingId)
+      if (hitDrawingObj) {
+        interaction.current = {
+          kind: 'draggingDrawing',
+          id: hitDrawingId,
+          start: cp,
+          points: hitDrawingObj.points
+        }
+      }
+      return
+    }
+
     store.select([])
     store.selectGroup(null)
+    store.selectDrawing(null)
     interaction.current = { kind: 'marquee', start: cp, current: cp }
   }
 
@@ -823,6 +884,55 @@ export function CanvasView(): JSX.Element {
           }
           break
         }
+        case 'draggingDrawing': {
+          const dx = cp.x - state.start.x
+          const dy = cp.y - state.start.y
+          liveDrawingTransform.current = {
+            id: state.id,
+            anchorX: 0,
+            anchorY: 0,
+            scaleX: 1,
+            scaleY: 1,
+            dx,
+            dy
+          }
+          strokeTick.current++
+          const el = hostRef.current?.querySelector<HTMLElement>(`[data-drawing-id="${state.id}"]`)
+          if (el) el.style.transform = `translate(${dx}px, ${dy}px)`
+          break
+        }
+        case 'resizingDrawing': {
+          const next = resizeFrame(
+            state.frame,
+            state.edge,
+            cp.x - state.start.x,
+            cp.y - state.start.y,
+            DRAWING_MIN_SIZE,
+            DRAWING_MIN_SIZE
+          )
+          // O canto OPOSTO à borda arrastada é o que não se move — mesma regra
+          // do resizeFrame, só que aqui vira o ponto de ancoragem da escala.
+          const anchorX = state.edge.includes('w') ? state.frame.x + state.frame.width : state.frame.x
+          const anchorY = state.edge.includes('n') ? state.frame.y + state.frame.height : state.frame.y
+          liveDrawingTransform.current = {
+            id: state.id,
+            anchorX,
+            anchorY,
+            scaleX: next.width / state.frame.width,
+            scaleY: next.height / state.frame.height,
+            dx: 0,
+            dy: 0
+          }
+          strokeTick.current++
+          const el = hostRef.current?.querySelector<HTMLElement>(`[data-drawing-id="${state.id}"]`)
+          if (el) {
+            el.style.left = `${next.x}px`
+            el.style.top = `${next.y}px`
+            el.style.width = `${next.width}px`
+            el.style.height = `${next.height}px`
+          }
+          break
+        }
       }
     }
 
@@ -943,6 +1053,51 @@ export function CanvasView(): JSX.Element {
           }
           break
         }
+        case 'draggingDrawing': {
+          const dx = cp.x - state.start.x
+          const dy = cp.y - state.start.y
+          liveDrawingTransform.current = null
+          const el = hostRef.current?.querySelector<HTMLElement>(`[data-drawing-id="${state.id}"]`)
+          if (el) el.style.transform = ''
+          const points = state.points.map(([x, y]) => [x + dx, y + dy])
+          void store.commitDrawingPoints(state.id, points)
+          strokeTick.current++
+          break
+        }
+        case 'resizingDrawing': {
+          const next = resizeFrame(
+            state.frame,
+            state.edge,
+            cp.x - state.start.x,
+            cp.y - state.start.y,
+            DRAWING_MIN_SIZE,
+            DRAWING_MIN_SIZE
+          )
+          const anchorX = state.edge.includes('w') ? state.frame.x + state.frame.width : state.frame.x
+          const anchorY = state.edge.includes('n') ? state.frame.y + state.frame.height : state.frame.y
+          const scaleX = next.width / state.frame.width
+          const scaleY = next.height / state.frame.height
+          const points = state.points.map(([x, y]) => [
+            anchorX + (x - anchorX) * scaleX,
+            anchorY + (y - anchorY) * scaleY
+          ])
+          // O sinal do lineWidth marca marca-texto (ver 'drawing' acima) — a
+          // escala não pode virá-lo positivo por engano.
+          const scale = Math.min(Math.abs(scaleX), Math.abs(scaleY))
+          const nextWidth =
+            state.lineWidth < 0 ? -Math.abs(state.lineWidth) * scale : Math.abs(state.lineWidth) * scale
+          liveDrawingTransform.current = null
+          const el = hostRef.current?.querySelector<HTMLElement>(`[data-drawing-id="${state.id}"]`)
+          if (el) {
+            el.style.left = ''
+            el.style.top = ''
+            el.style.width = ''
+            el.style.height = ''
+          }
+          void store.commitDrawingPoints(state.id, points, nextWidth)
+          strokeTick.current++
+          break
+        }
       }
     }
 
@@ -1007,7 +1162,7 @@ export function CanvasView(): JSX.Element {
       const el = document.activeElement as HTMLElement | null
       if (el && (el.isContentEditable || ['INPUT', 'TEXTAREA'].includes(el.tagName))) return
 
-      if ((e.key === 'Backspace' || e.key === 'Delete') && selection.length > 0) {
+      if (e.key === 'Delete' && selection.length > 0) {
         e.preventDefault()
         for (const id of selection) void store.removeNode(id)
       }
@@ -1015,9 +1170,13 @@ export function CanvasView(): JSX.Element {
       // nós. Apagar os membros junto existe, mas só pelo menu de contexto e com
       // confirmação — é o único caminho destrutivo do grupo, e uma tecla é
       // barata demais para ele.
-      if ((e.key === 'Backspace' || e.key === 'Delete') && selectedGroupId) {
+      if (e.key === 'Delete' && selectedGroupId) {
         e.preventDefault()
         void store.removeGroup(selectedGroupId)
+      }
+      if (e.key === 'Delete' && selectedDrawingId) {
+        e.preventDefault()
+        void store.removeDrawing(selectedDrawingId)
       }
       if (e.key === 'Escape') {
         store.cancelPlacing()
@@ -1027,7 +1186,15 @@ export function CanvasView(): JSX.Element {
         setGroupMenu(null)
         setEditingGroup(null)
         store.isolateGroup(null)
+        store.selectDrawing(null)
         store.setTool('select')
+      }
+
+      // Desfazer/refazer, no atalho que todo editor usa — Shift inverte o sentido.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        if (e.shiftKey) void store.redo()
+        else void store.undo()
       }
 
       // Agrupar e desagrupar, no atalho que todo editor de canvas usa.
@@ -1097,7 +1264,7 @@ export function CanvasView(): JSX.Element {
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [selection, selectedGroupId])
+  }, [selection, selectedGroupId, selectedDrawingId])
 
   /**
    * Botão direito no canvas não CRIA nada.
@@ -1218,7 +1385,13 @@ export function CanvasView(): JSX.Element {
     >
       <CanvasBackground mode="grid" />
 
-      <DrawingsLayer drawings={drawings} live={liveStroke} tick={strokeTick} />
+      <DrawingsLayer
+        drawings={drawings}
+        live={liveStroke}
+        tick={strokeTick}
+        liveTransform={liveDrawingTransform}
+      />
+      <DrawingSelection drawing={drawings.find((d) => d.id === selectedDrawingId) ?? null} />
 
       {/* ANTES da .nodes-layer: a moldura é o fundo em que os nós estão. */}
       <GroupsLayer

@@ -266,6 +266,30 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 .group [data-group-handle='sw'] { bottom: -4px; left: -4px; width: 18px; height: 18px; cursor: nesw-resize; }
 .group [data-group-handle='se'] { bottom: -4px; right: -4px; width: 18px; height: 18px; cursor: nwse-resize; }
 
+/* ─── Seleção de traço ────────────────────────────────────────────────────── */
+/* Mesmo tratamento da moldura de grupo (retrato tracejado + 8 alças), para o
+   traço de desenho selecionado. Só um por vez — nasce e morre com a seleção,
+   não precisa de culling. */
+.drawing-selection-layer {
+  position: absolute; top: 0; left: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.drawing-selection {
+  position: absolute;
+  box-sizing: border-box;
+  outline: 2px dashed var(--accent); outline-offset: 6px;
+}
+.drawing-selection [data-drawing-handle] { position: absolute; pointer-events: auto; }
+.drawing-selection [data-drawing-handle='n'] { top: -10px; left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
+.drawing-selection [data-drawing-handle='s'] { bottom: -10px; left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
+.drawing-selection [data-drawing-handle='w'] { left: -10px; top: 14px; bottom: 14px; width: 8px; cursor: ew-resize; }
+.drawing-selection [data-drawing-handle='e'] { right: -10px; top: 14px; bottom: 14px; width: 8px; cursor: ew-resize; }
+.drawing-selection [data-drawing-handle='nw'] { top: -10px; left: -10px; width: 18px; height: 18px; cursor: nwse-resize; }
+.drawing-selection [data-drawing-handle='ne'] { top: -10px; right: -10px; width: 18px; height: 18px; cursor: nesw-resize; }
+.drawing-selection [data-drawing-handle='sw'] { bottom: -10px; left: -10px; width: 18px; height: 18px; cursor: nesw-resize; }
+.drawing-selection [data-drawing-handle='se'] { bottom: -10px; right: -10px; width: 18px; height: 18px; cursor: nwse-resize; }
+
 /* A paleta no menu de contexto do grupo — a mesma das notas. */
 .group-swatches {
   display: flex; flex-wrap: wrap; gap: 4px;
@@ -291,6 +315,22 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 .rope-idle { stroke: var(--rope); stroke-dasharray: 5 4; }
 .rope-communicating { stroke: var(--rope-active); filter: drop-shadow(0 0 4px var(--rope-active)); }
 .rope-error { stroke: var(--rope-error); stroke-dasharray: 3 3; }
+
+/* Tesourinha do hover na corda — segue o cursor, não a corda (ela balança
+   sozinha pela física). */
+.rope-scissors {
+  position: fixed; z-index: 45;
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  transform: translate(10px, -50%);
+  border: 1px solid var(--dock-border); border-radius: var(--r-lg);
+  background: var(--dock-bg);
+  backdrop-filter: blur(var(--floating-blur, 12px));
+  -webkit-backdrop-filter: blur(var(--floating-blur, 12px));
+  color: var(--text); cursor: pointer;
+  box-shadow: 0 4px 14px rgb(0 0 0 / .2);
+}
+.rope-scissors:hover { color: var(--rope-error); border-color: var(--rope-error); }
 
 /* Cabo fantasma do modo conectar: sai do nó de origem e persegue o cursor até
    o clique no destino. Acima dos nós (a .nodes-layer tem transform, logo é um

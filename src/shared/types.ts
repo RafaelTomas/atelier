@@ -1165,6 +1165,17 @@ export interface Preferences {
    */
   dockPlacement: string
   railPlacement: string
+  monitorPlacement: string
+  /**
+   * A tira do monitor na borda. Padrão `true`.
+   *
+   * É a única das pílulas que se pode desligar, e a razão é o custo: ela é
+   * assinante PERMANENTE do amostrador (ver monitor-dock.tsx), então "não
+   * quero pagar por isso" é um pedido legítimo. Perder a chave devolve o
+   * padrão, que é a tira VISÍVEL — nenhum estado em disco pode escondê-la sem
+   * deixar como trazê-la de volta.
+   */
+  monitorDockVisible: boolean
 }
 
 // ─── Posição das pílulas flutuantes ───────────────────────────────────────────
@@ -1211,6 +1222,14 @@ export const PLACEMENTS: Placement[] = PLACEMENT_EDGES.flatMap((edge) =>
 
 export const DOCK_PLACEMENT_DEFAULT: Placement = { edge: 'bottom', offset: 0.5 }
 export const RAIL_PLACEMENT_DEFAULT: Placement = { edge: 'left', offset: 0.5 }
+/**
+ * A base é da dock e a esquerda é da rail: o topo é a borda que sobrou, e nela
+ * a tira assenta abaixo do chip e dos controles de vista pelo `--pill-safe-top`
+ * que já existe. O 0.85 é à direita de propósito — nascer no centro do topo é
+ * nascer em cima de qualquer uma das outras duas que o usuário tenha mudado
+ * para lá.
+ */
+export const MONITOR_PLACEMENT_DEFAULT: Placement = { edge: 'top', offset: 0.85 }
 
 /** Borda esquerda/direita → pílula vertical; topo/base → horizontal. */
 export function isVerticalEdge(edge: PlacementEdge): boolean {

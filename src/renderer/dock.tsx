@@ -66,7 +66,7 @@ interface MenuItem {
 }
 
 export function Dock(): JSX.Element {
-  const { tool, workspace } = useStore()
+  const { tool, workspace, monitorDockVisible } = useStore()
   // Arrastar, menu de contexto e troca de borda: o mesmo comportamento da rail,
   // e por isso num hook compartilhado em vez de duplicado nas duas.
   const pill = usePill('dock')
@@ -281,6 +281,35 @@ export function Dock(): JSX.Element {
     }
   ]
 
+  /**
+   * O nó e a tira, no mesmo ícone — o `IconPulse` já é o do monitor.
+   *
+   * A alternância da tira mora AQUI, e não só no menu de contexto dela: uma
+   * peça que se esconde sem deixar como trazê-la de volta é o estado ruim que
+   * o plano das docks móveis listou em "Ficou para depois". Aqui ele era
+   * inevitável — a tira consome recurso, então desligá-la é um pedido legítimo
+   * —, então as duas pontas nasceram no mesmo passo. Nunca só a segunda.
+   */
+  const MONITOR_MENU: MenuItem[] = [
+    {
+      id: 'monitor-strip',
+      label: monitorDockVisible ? 'Ocultar a tira da borda' : 'Mostrar a tira na borda',
+      hint: monitorDockVisible
+        ? 'para de amostrar a cada 2s'
+        : 'leituras sempre à vista, custa uma amostra a cada 2s',
+      run: () => {
+        setOpenMenu(null)
+        void store.setMonitorDockVisible(!monitorDockVisible)
+      }
+    },
+    {
+      id: 'monitor-node',
+      label: 'Monitor no canvas',
+      hint: 'o painel inteiro, ancorado a uma região',
+      run: () => add('widget', [340, 300], { kind: 'monitor' }, undefined, 'monitor de recursos')
+    }
+  ]
+
   const TEXT_MENU: MenuItem[] = [
     {
       id: 'text',
@@ -431,15 +460,15 @@ export function Dock(): JSX.Element {
         <IconCheck />
       </DockButton>
 
-      <DockButton
+      <DockMenuButton
         label="Monitor"
-        hint="CPU, memória, disco e o uso dos agentes deste canvas"
-        onClick={() =>
-          add('widget', [340, 300], { kind: 'monitor' }, undefined, 'monitor de recursos')
-        }
+        items={MONITOR_MENU}
+        open={openMenu === 'monitor'}
+        onToggle={() => setOpenMenu((v) => (v === 'monitor' ? null : 'monitor'))}
+        edge={pill.placement.edge}
       >
         <IconPulse />
-      </DockButton>
+      </DockMenuButton>
 
       <DockButton
         label="Botão"

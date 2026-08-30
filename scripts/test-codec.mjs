@@ -569,6 +569,34 @@ test('preferences.json SEM as chaves novas carrega no padrão', () => {
   assert.equal(prefs.fontSize, 14)
 })
 
+test('sem as chaves da tira do monitor, ela nasce VISÍVEL no topo', () => {
+  // O arquivo de uma versão anterior à tira — e o que sobra de um save do app
+  // nativo. O padrão de `monitorDockVisible` é `true` de propósito: a tira
+  // custa uma amostra a cada 2s, então desligá-la é um pedido legítimo, mas
+  // nenhum estado em disco pode escondê-la sem deixar como trazê-la de volta.
+  const prefs = decodePreferences({ theme: 'dark' })
+  assert.equal(prefs.monitorPlacement, 'top/0.850')
+  assert.equal(prefs.monitorDockVisible, true)
+  // E o arquivo volta ao disco COM elas: quem regravar já persiste a posição.
+  assert.ok('monitorPlacement' in prefs && 'monitorDockVisible' in prefs)
+})
+
+test('lixo nas chaves da tira também cai no padrão visível', () => {
+  for (const ruim of ['', 'cima/meio', null, 42, { edge: 'top' }]) {
+    const prefs = decodePreferences({ monitorPlacement: ruim, monitorDockVisible: ruim })
+    assert.equal(prefs.monitorPlacement, 'top/0.850', `${JSON.stringify(ruim)} passou`)
+    assert.equal(prefs.monitorDockVisible, true, `${JSON.stringify(ruim)} escondeu a tira`)
+  }
+})
+
+test('desligada em disco, a tira CONTINUA desligada — é uma escolha do usuário', () => {
+  // O contrapeso do teste acima: só o `false` explícito desliga, e ele
+  // sobrevive ao round-trip.
+  const prefs = decodePreferences({ monitorDockVisible: false, monitorPlacement: 'left/end' })
+  assert.equal(prefs.monitorDockVisible, false)
+  assert.equal(prefs.monitorPlacement, 'left/end')
+})
+
 test('com as chaves, carrega e regrava o que estava lá', () => {
   const prefs = decodePreferences({ dockPlacement: 'right/end', railPlacement: 'top/start' })
   assert.equal(prefs.dockPlacement, 'right/end')
@@ -587,6 +615,8 @@ test('makePreferences nasce com a posição histórica das duas peças', () => {
   const base = makePreferences()
   assert.equal(base.dockPlacement, 'bottom/center')
   assert.equal(base.railPlacement, 'left/center')
+  assert.equal(base.monitorPlacement, 'top/0.850')
+  assert.equal(base.monitorDockVisible, true)
 })
 
 // ─── Widget (v6) ─────────────────────────────────────────────────────────────

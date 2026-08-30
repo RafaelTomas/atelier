@@ -20,6 +20,7 @@ import { NodeShell } from '../nodes/node-shell'
 import { FormatBar } from '../nodes/format-bar'
 import { NodeActionBar } from '../nodes/node-action-bar'
 import { Dock } from '../dock'
+import { MonitorDock } from '../monitor-dock'
 import { CanvasBackground } from './background'
 import { DrawingsLayer, type LiveStroke } from './drawings-layer'
 import { DrawMenu, type DrawMenuState } from './draw-menu'
@@ -149,7 +150,8 @@ export function CanvasView(): JSX.Element {
     prefs,
     terminalStatus,
     projects,
-    platform
+    platform,
+    monitorDockVisible
   } = useStore()
   const hostRef = useRef<HTMLDivElement>(null)
   const nodesRef = useRef<HTMLDivElement>(null)
@@ -1377,6 +1379,12 @@ export function CanvasView(): JSX.Element {
       )}
 
       <Dock />
+
+      {/* Condicionada à preferência, e não escondida por CSS: desligada, a tira
+          não é MONTADA, e com ela não existe o `useSystemStats` que assina o
+          amostrador. É isso que faz "desligar" custar zero de verdade — ver a
+          abertura de monitor-dock.tsx. */}
+      {monitorDockVisible && <MonitorDock />}
 
       <div className="canvas-hud">
         {visibleNodes.length}/{nodes.length} nós · {Math.round(viewport.zoom * 100)}%

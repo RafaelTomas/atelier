@@ -9,6 +9,7 @@ import type {
 } from '@shared/types'
 import {
   DOCK_PLACEMENT_DEFAULT,
+  MONITOR_PLACEMENT_DEFAULT,
   PORTAL_POPUP_MODES,
   RAIL_PLACEMENT_DEFAULT,
   formatPlacement,
@@ -121,7 +122,9 @@ export function makePreferences(): Preferences {
     terminalThemes: [],
     portalPopups: 'node',
     dockPlacement: formatPlacement(DOCK_PLACEMENT_DEFAULT),
-    railPlacement: formatPlacement(RAIL_PLACEMENT_DEFAULT)
+    railPlacement: formatPlacement(RAIL_PLACEMENT_DEFAULT),
+    monitorPlacement: formatPlacement(MONITOR_PLACEMENT_DEFAULT),
+    monitorDockVisible: true
   }
 }
 
@@ -161,6 +164,11 @@ export function decodePreferences(value: unknown): Preferences {
     // Os dois casos caem no padrão pelo mesmo caminho, que é o ponto de
     // `parsePlacement` nunca lançar: nenhum estado em disco pode esconder a dock.
     dockPlacement: formatPlacement(parsePlacement(o.dockPlacement, DOCK_PLACEMENT_DEFAULT)),
-    railPlacement: formatPlacement(parsePlacement(o.railPlacement, RAIL_PLACEMENT_DEFAULT))
+    railPlacement: formatPlacement(parsePlacement(o.railPlacement, RAIL_PLACEMENT_DEFAULT)),
+    monitorPlacement: formatPlacement(parsePlacement(o.monitorPlacement, MONITOR_PLACEMENT_DEFAULT)),
+    // O padrão aqui é `true` de propósito: chave ausente, apagada pelo app
+    // nativo ou com lixo dentro deixa a tira VISÍVEL. O contrário esconderia a
+    // peça sem deixar como trazê-la de volta.
+    monitorDockVisible: bool(o.monitorDockVisible, base.monitorDockVisible)
   }
 }

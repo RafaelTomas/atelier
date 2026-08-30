@@ -32,9 +32,19 @@ interface Props {
   fallback: Placement
   onPick: (p: Placement) => void
   onClose: () => void
+  /**
+   * Ação extra no rodapé — hoje só o "Ocultar" da tira do monitor.
+   *
+   * OPCIONAL porque a dock e a rail não podem ser ocultadas: elas não custam
+   * nada, e esconder a barra de ferramentas do canvas seria oferecer um estado
+   * ruim sem razão. A tira custa (assina o amostrador), então desligá-la é um
+   * pedido legítimo — e ela só ganhou este item porque o caminho de VOLTA
+   * nasceu junto, no item da dock.
+   */
+  extra?: { label: string; run: () => void }
 }
 
-export function PillMenu({ x, y, current, fallback, onPick, onClose }: Props): JSX.Element {
+export function PillMenu({ x, y, current, fallback, onPick, onClose, extra }: Props): JSX.Element {
   return (
     <ContextMenu x={x} y={y}>
       <span className="context-menu-label">Posição</span>
@@ -72,6 +82,17 @@ export function PillMenu({ x, y, current, fallback, onPick, onClose }: Props): J
       >
         Restaurar padrão
       </button>
+      {extra && (
+        <button
+          type="button"
+          onClick={() => {
+            onClose()
+            extra.run()
+          }}
+        >
+          {extra.label}
+        </button>
+      )}
     </ContextMenu>
   )
 }

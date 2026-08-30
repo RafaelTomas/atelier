@@ -24,8 +24,9 @@
  */
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { TodoBoard, TodoColumn, TodoItem, UUID } from '@shared/types'
+import type { TaskOrigin, TodoBoard, TodoColumn, TodoItem, UUID } from '@shared/types'
 import { TODO_DEFAULT_COLUMNS } from '@shared/types'
+import { manualOrigin, normalizeOrigin } from '@shared/task-status'
 import { uuid } from '../coding'
 
 /** Espaçamento inicial entre cartões. Esparso para caber inserção no meio. */
@@ -83,21 +84,36 @@ export function parseBoard(raw: string): TodoBoard | null {
         .filter((i): i is Record<string, unknown> => !!i && typeof i === 'object')
         .map((i, n) => {
           const status = str(i.status)
+          const createdAt = str(i.createdAt)
           return {
             id: (str(i.id) || uuid()) as UUID,
-            title: str(i.title),
+            // Cartão sem título NÃO é descartado: ele é o TODO de alguém, e
+            // sumir com ele na leitura seria perder trabalho em silêncio — o
+            // arquivo continuaria com o cartão e ninguém o veria para
+            // consertá-lo. Ganha um nome e fica visível para ser renomeado.
+            title: str(i.title) || 'Tarefa sem título',
             // Status órfão (coluna apagada à mão no JSON) → primeira coluna.
             status: known.has(status) ? status : cols[0].id,
             order: typeof i.order === 'number' && Number.isFinite(i.order) ? i.order : (n + 1) * ORDER_STEP,
             assignee: str(i.assignee),
             notes: str(i.notes),
             tags: Array.isArray(i.tags) ? i.tags.filter((t): t is string => typeof t === 'string') : [],
-            createdAt: str(i.createdAt),
+            createdAt,
             updatedAt: str(i.updatedAt),
-            doneAt: typeof i.doneAt === 'string' ? i.doneAt : null
+            doneAt: typeof i.doneAt === 'string' ? i.doneAt : null,
+            // A MIGRAÇÃO do quadro antigo mora nesta linha: cartão sem origem é
+            // cartão de antes desta feature, e ele nasce `manual` — origem
+            // manual é explícita, nunca ausência de origem. `importedAt` recebe
+            // a data de criação do cartão, e não a de agora: inventar "importado
+            // hoje" para um cartão de março datar errado a timeline.
+            origin: normalizeOrigin(i.origin) ?? manualOrigin(createdAt),
+            // Ponteiro para `plans/<file>.json`. Não é validado aqui — este
+            // módulo não lê aquele arquivo, e um plano apagado à mão vira
+            // "plano inconsistente" do lado do plan-store, que é onde a
+            // informação existe para decidir.
+            activePlanId: typeof i.activePlanId === 'string' && i.activePlanId ? i.activePlanId : null
           }
         })
-        .filter((i) => i.title !== '')
     : []
 
   return {
@@ -164,12 +180,25 @@ function reindex(board: TodoBoard, status: string): void {
 // ─── Operações ────────────────────────────────────────────────────────────────
 
 export type TodoOp =
-  | { type: 'add'; title: string; status?: string; assignee?: string; notes?: string; tags?: string[] }
+  | {
+      type: 'add'
+      title: string
+      status?: string
+      assignee?: string
+      notes?: string
+      tags?: string[]
+      /** Omitida, a origem é `manual` — nunca ausente. */
+      origin?: TaskOrigin | null
+    }
   | { type: 'move'; id: UUID; status: string; before?: UUID | null; after?: UUID | null }
   | { type: 'edit'; id: UUID; title?: string; notes?: string; assignee?: string; tags?: string[] }
   | { type: 'remove'; id: UUID }
   | { type: 'columns'; columns: TodoColumn[] }
   | { type: 'title'; title: string }
+  /** Anexa (ou troca) a origem externa de um cartão. */
+  | { type: 'origin'; id: UUID; origin: TaskOrigin | null }
+  /** Aponta o cartão para um plano — ou desaponta, com `null`. */
+  | { type: 'plan'; id: UUID; planId: string | null }
 
 export interface OpResult {
   board: TodoBoard
@@ -206,7 +235,9 @@ export function applyOp(board: TodoBoard, op: TodoOp, now = new Date()): OpResul
         tags: op.tags ?? [],
         createdAt: at,
         updatedAt: at,
-        doneAt: status === lastColumn(next) ? at : null
+        doneAt: status === lastColumn(next) ? at : null,
+        origin: normalizeOrigin(op.origin) ?? manualOrigin(at),
+        activePlanId: null
       }
       next.items.push(item)
       return { board: next, item }
@@ -276,6 +307,24 @@ export function applyOp(board: TodoBoard, op: TodoOp, now = new Date()): OpResul
     case 'title': {
       next.title = op.title
       return { board: next }
+    }
+
+    case 'origin': {
+      const item = next.items.find((i) => i.id === op.id)
+      if (!item) return { board, error: `no item with id ${op.id}` }
+      // `null` volta a origem para manual, e não para ausente: desanexar um
+      // Jira devolve o cartão à condição de cartão feito à mão.
+      item.origin = normalizeOrigin(op.origin) ?? manualOrigin(at)
+      item.updatedAt = at
+      return { board: next, item }
+    }
+
+    case 'plan': {
+      const item = next.items.find((i) => i.id === op.id)
+      if (!item) return { board, error: `no item with id ${op.id}` }
+      item.activePlanId = op.planId || null
+      item.updatedAt = at
+      return { board: next, item }
     }
   }
 }

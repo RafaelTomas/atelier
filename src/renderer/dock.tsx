@@ -412,7 +412,7 @@ export function Dock(): JSX.Element {
       {/* Ao lado do Monitor: os dois são painéis que o AGENTE alimenta, e
           nenhum dos dois depende de um projeto selecionado. */}
       <DockButton
-        label="TODO"
+        label="Tarefas"
         hint="quadro de trabalho — o agente move os cartões enquanto trabalha"
         onClick={() =>
           add(
@@ -422,9 +422,9 @@ export function Dock(): JSX.Element {
             // `todos/<file>.json`, e sem ele o painel não teria onde gravar. O
             // arquivo em si só passa a existir no primeiro cartão — um quadro
             // vazio não tem nada a persistir.
-            { kind: 'todo', view: { title: 'TODO', mode: 'kanban', file: crypto.randomUUID() } },
+            { kind: 'todo', view: { title: 'Tarefas', mode: 'kanban', file: crypto.randomUUID() } },
             undefined,
-            'quadro de TODO'
+            'quadro de Tarefas'
           )
         }
       >

@@ -23,6 +23,7 @@
 import type {
   Plan,
   PlanStatus,
+  PlanStatusEventType,
   PlanStatusSnapshot,
   PlanStepStatus,
   PlanVersion,
@@ -70,6 +71,28 @@ export const PLAN_STEP_STATUS_LABELS: Record<PlanStepStatus, string> = {
   done: 'Concluída',
   blocked: 'Bloqueada',
   skipped: 'Ignorada'
+}
+
+/**
+ * O que aconteceu, em uma linha — a timeline do painel.
+ *
+ * O mapa é PARCIAL de propósito: `parseBook` deixa passar `type` desconhecido,
+ * porque um evento gravado por uma versão mais nova do app é auditoria, e
+ * descartá-lo perderia história. A UI que o encontra mostra o próprio `type`
+ * cru em vez de sumir com a linha.
+ */
+export const PLAN_EVENT_LABELS: Record<PlanStatusEventType, string> = {
+  task_created: 'Tarefa criada',
+  task_origin_attached: 'Origem anexada',
+  plan_created: 'Plano criado',
+  plan_version_created: 'Nova versão do plano',
+  plan_activated: 'Plano ativado',
+  plan_paused: 'Plano pausado',
+  plan_completed: 'Plano concluído',
+  step_started: 'Etapa iniciada',
+  step_completed: 'Etapa concluída',
+  step_blocked: 'Etapa bloqueada',
+  step_skipped: 'Etapa ignorada'
 }
 
 /**

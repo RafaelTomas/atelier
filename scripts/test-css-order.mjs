@@ -38,6 +38,7 @@ const ESPERADA = [
   ['nodes/image-node',       'depois da casca; sem dependência de ordem com os outros nós'],
   ['nodes/widget-node',      'depois da casca; DEPOIS de panels, porque hospeda os mesmos painéis numa densidade maior'],
   ['nodes/button-widget',    'depois da casca; DEPOIS de nodes/widget-node, porque é uma especialização do mesmo nó'],
+  ['nodes/task-plan',        'DEPOIS de nodes/widget-node, que hospeda o quadro: a camada de Tarefas é desenhada por cima do kanban e precisa vencer no que ajustar'],
   ['nodes/secret-vault-node','depois da casca; sem dependência de ordem com os outros nós'],
   ['nodes/markdown-view',    'depois da casca; sem dependência de ordem com os outros nós'],
   ['nodes/node-action-bar',  'depois da casca'],

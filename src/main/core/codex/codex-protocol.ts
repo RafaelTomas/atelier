@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 import { EventEmitter } from 'node:events'
+import { childEnv } from '../subprocess-env'
 
 export interface JsonRpcProcess {
   stdin: Writable
@@ -73,7 +74,7 @@ export class CodexJsonRpcClient extends EventEmitter {
     this.child.stdin.write(`${JSON.stringify(message)}\n`)
   }
 
-  initialize(params: unknown = {}): Promise<unknown> {
+  initialize(params: unknown = codexInitializeParams()): Promise<unknown> {
     return this.request('initialize', params)
   }
 
@@ -122,9 +123,50 @@ export class CodexJsonRpcClient extends EventEmitter {
   }
 }
 
+export function codexInitializeParams(): unknown {
+  return {
+    clientInfo: {
+      name: 'atelier',
+      title: 'Atelier',
+      version: '0.0.0'
+    },
+    capabilities: {
+      experimentalApi: false,
+      requestAttestation: false
+    }
+  }
+}
+
+/**
+ * Como chamar o `codex` do PATH em cada plataforma.
+ *
+ * No Windows o `codex` do npm sao dois arquivos: um script sh sem extensao e um
+ * `codex.cmd`. O `spawn` sem shell nao roda nenhum dos dois — o primeiro da
+ * `ENOENT` (o CreateProcess nao executa script sem extensao) e o segundo da
+ * `EINVAL`, porque o Node passou a recusar `.bat`/`.cmd` fora do shell desde a
+ * correcao do CVE-2024-27980. Era por aqui que o App Server morria calado no
+ * Windows: o spawn falhava, o servico caia no `catch` e a conta Codex ficava
+ * eternamente em `source: 'none'` — nenhum limite, nenhum token na tela.
+ *
+ * A saida e o proprio `cmd.exe`, que resolve o `.cmd` do PATH. Os argumentos
+ * sao literais fixos, entao nao ha nada vindo do usuario para escapar aqui.
+ */
+export function codexAppServerCommand(
+  platform: NodeJS.Platform = process.platform
+): { command: string; args: string[] } {
+  const args = ['app-server', '--stdio']
+  if (platform !== 'win32') return { command: 'codex', args }
+  return {
+    command: process.env.COMSPEC ?? 'cmd.exe',
+    args: ['/d', '/s', '/c', 'codex', ...args]
+  }
+}
+
 export function spawnCodexAppServer(): CodexJsonRpcClient {
-  const child: ChildProcessWithoutNullStreams = spawn('codex', ['app-server', '--stdio'], {
+  const { command, args } = codexAppServerCommand()
+  const child: ChildProcessWithoutNullStreams = spawn(command, args, {
     stdio: ['pipe', 'pipe', 'pipe'],
+    env: childEnv(),
     windowsHide: true
   })
   return new CodexJsonRpcClient(child)

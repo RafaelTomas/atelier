@@ -14,7 +14,7 @@ const outfile = join(outdir, 'protocol.mjs')
 await esbuild.build({
   stdin: {
     contents: `
-      export { CodexJsonRpcClient, sanitizeStderr } from './src/main/core/codex/codex-protocol.ts'
+      export { CodexJsonRpcClient, codexAppServerCommand, codexInitializeParams, sanitizeStderr } from './src/main/core/codex/codex-protocol.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -26,7 +26,9 @@ await esbuild.build({
   logLevel: 'silent'
 })
 
-const { CodexJsonRpcClient, sanitizeStderr } = await import(pathToFileURL(outfile).href)
+const { CodexJsonRpcClient, codexAppServerCommand, codexInitializeParams, sanitizeStderr } = await import(
+  pathToFileURL(outfile).href
+)
 
 let passed = 0
 let failed = 0
@@ -75,9 +77,13 @@ await test('handshake initialize writes JSON-RPC request', async () => {
   const child = new FakeChild()
   const sent = lines(child.stdin)
   const client = new CodexJsonRpcClient(child)
-  const p = client.initialize({ clientInfo: { name: 'atelier' } })
+  const p = client.initialize()
   await new Promise((r) => setTimeout(r, 0))
   assert.equal(sent[0].method, 'initialize')
+  assert.deepEqual(sent[0].params, codexInitializeParams())
+  assert.equal(sent[0].params.clientInfo.name, 'atelier')
+  assert.equal(sent[0].params.capabilities.experimentalApi, false)
+  assert.equal(sent[0].params.capabilities.requestAttestation, false)
   child.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: sent[0].id, result: { ok: true } }) + '\n')
   assert.deepEqual(await p, { ok: true })
 })
@@ -155,8 +161,9 @@ await test('an error response rejects with the message the server gave', async (
   const child = new FakeChild()
   const sent = lines(child.stdin)
   const client = new CodexJsonRpcClient(child)
-  const p = client.request('account/usage/read')
+  const p = client.request('account/usage/read', {})
   await new Promise((r) => setTimeout(r, 0))
+  assert.deepEqual(sent[0].params, {}, 'leituras de conta exigem params, mesmo vazio')
   child.stdout.write(
     JSON.stringify({
       jsonrpc: '2.0',
@@ -185,8 +192,9 @@ await test('the current camelCase payloads survive a full round trip', async () 
   const child = new FakeChild()
   const sent = lines(child.stdin)
   const client = new CodexJsonRpcClient(child)
-  const p = client.request('account/rateLimits/read')
+  const p = client.request('account/rateLimits/read', {})
   await new Promise((r) => setTimeout(r, 0))
+  assert.deepEqual(sent[0].params, {}, 'o App Server rejeita a omissão de params')
   const snapshot = {
     rateLimitsByLimitId: {
       primary: { usedPercentage: 4, windowDurationMins: 300, resetsAt: 1756512000 },
@@ -202,6 +210,32 @@ await test('stderr sanitizer redacts token-like values', () => {
     sanitizeStderr('access_token="secret" refreshToken=abc id_token: xyz ok'),
     'access_token=[redacted] refreshToken=[redacted] id_token: [redacted] ok'
   )
+})
+
+await test('no Windows o App Server sobe pelo cmd.exe — o `codex` do npm e um .cmd', () => {
+  const comspec = process.env.COMSPEC
+  process.env.COMSPEC = 'C:\WINDOWS\system32\cmd.exe'
+  try {
+    // Sem isto o spawn morre calado: `codex` da ENOENT (script sem extensao) e
+    // `codex.cmd` da EINVAL (o Node recusa .cmd fora do shell). Nos dois casos a
+    // conta Codex nunca sai de `source: 'none'` e o monitor fica sem tokens.
+    assert.deepEqual(codexAppServerCommand('win32'), {
+      command: 'C:\WINDOWS\system32\cmd.exe',
+      args: ['/d', '/s', '/c', 'codex', 'app-server', '--stdio']
+    })
+  } finally {
+    if (comspec === undefined) delete process.env.COMSPEC
+    else process.env.COMSPEC = comspec
+  }
+})
+
+await test('fora do Windows o binario e chamado direto, sem shell no meio', () => {
+  for (const platform of ['linux', 'darwin']) {
+    assert.deepEqual(codexAppServerCommand(platform), {
+      command: 'codex',
+      args: ['app-server', '--stdio']
+    })
+  }
 })
 
 await rm(outdir, { recursive: true, force: true })

@@ -173,7 +173,10 @@ await test('editor list sem editor conectado ensina o caminho de saída', async 
 
 await test('open fora da allowlist recusa e NÃO cria nó', async () => {
   const antes = ws.nodes.length
-  const out = await cli('editor', 'open', '/etc/passwd')
+  // Um arquivo que EXISTE de verdade e mora fora da allowlist — `/etc/passwd`
+  // não existe no Windows, e ali a recusa vinha por "no such file", que é outra
+  // recusa e deixaria a allowlist sem teste justamente onde ela importa.
+  const out = await cli('editor', 'open', process.execPath)
   assert.match(out, /outside the paths/)
   assert.equal(ws.nodes.length, antes, 'criou nó apesar da recusa')
 })

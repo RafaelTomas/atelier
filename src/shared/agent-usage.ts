@@ -362,6 +362,55 @@ export function agoLabel(at: string | null | undefined, nowMs: number = Date.now
   return `há ${Math.floor(h / 24)}d`
 }
 
+// ─── O agregado da tira de borda ─────────────────────────────────────────────
+
+/**
+ * As duas leituras de IA que cabem numa borda: o custo somado e a janela mais
+ * apertada de todas.
+ *
+ * A tira do monitor (`renderer/monitor-dock.tsx`) não mostra a lista de contas
+ * — com três contas, três anéis numa borda deixam de ser legíveis, e essa é a
+ * leitura que o popover faz bem. O que cabe ali é a resposta curta: quanto já
+ * custou, e qual das minhas janelas vai fechar primeiro.
+ *
+ * As duas metades vêm de recortes DIFERENTES de propósito, e a diferença é o
+ * assunto deste arquivo:
+ *
+ *  - o custo é dos AGENTES do canvas, porque dólar é a mesma unidade em todo
+ *    agente e a soma é honesta;
+ *  - a janela é das CONTAS, porque é a conta que tem o limite. Dois agentes na
+ *    mesma conta gastam a MESMA janela, e somá-los faria a tira anunciar um
+ *    aperto que não existe.
+ *
+ * O MÁXIMO, nunca a média: a pergunta é "qual das minhas janelas está mais
+ * apertada", e uma média entre uma conta a 80% e outra a 0% responderia 40%,
+ * escondendo exatamente o que interessa. Empate fica com a PRIMEIRA vista — os
+ * CLIs publicam `5h` antes de `7d`, e desempatar de outro jeito faria a tira
+ * trocar de janela sem que nada tivesse mudado.
+ *
+ * Conta sem leitura não entra em nada: ela não é um zero, é uma ausência. Uma
+ * conta parada ao lado de outra a 62% não pode puxar a tira para "31%", nem
+ * fazer o custo virar `US$ 0,00` quando o certo é `—`.
+ */
+export interface DockSummary {
+  /** Soma dos agentes que publicam custo. `null` = ninguém publicou. */
+  costUsd: number | null
+  /** A janela mais apertada entre as contas. `null` = nenhuma conta tem leitura. */
+  tightest: UsageWindow | null
+}
+
+export function dockSummary(readings: AgentReading[], accounts: AccountUsage[]): DockSummary {
+  let tightest: UsageWindow | null = null
+  for (const account of accounts) {
+    for (const limit of account.limits) {
+      if (!Number.isFinite(limit.pct)) continue
+      // `>` e não `>=`: no empate fica quem chegou primeiro.
+      if (tightest === null || limit.pct > tightest.pct) tightest = limit
+    }
+  }
+  return { costUsd: sumCost(readings), tightest }
+}
+
 // ─── O payload da statusLine ──────────────────────────────────────────────────
 
 /** Leitura defensiva: o payload vem de outro processo, numa versão qualquer. */

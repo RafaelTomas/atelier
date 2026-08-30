@@ -48,11 +48,14 @@
  * de quando ela é grave são piores do que uma tela só.
  */
 import { useMemo } from 'react'
-import { formatBytes } from '@shared/types'
+import type { AccountRow, DockSummary, UsageWindow } from '@shared/agent-usage'
+import { dockSummary, groupByAccount, mergeReading, untilReset } from '@shared/agent-usage'
+import { DEFAULT_CLAUDE_ACCOUNT_ID, formatBytes } from '@shared/types'
 import { PlacementTargets } from './floating/placement-targets'
 import { PillMenu } from './floating/pill-menu'
 import { usePill } from './floating/use-pill'
 import { DANGER_PCT, Sparkline, pair } from './panels/monitor-parts'
+import { useStore } from './state/store'
 import { DEFAULT_INTERVAL, useSystemStats } from './state/use-system-stats'
 
 export function MonitorDock(): JSX.Element {
@@ -66,6 +69,8 @@ export function MonitorDock(): JSX.Element {
     const diskPct = stats && stats.diskTotal > 0 ? (stats.diskUsed / stats.diskTotal) * 100 : null
     return { memPct, diskPct }
   }, [stats])
+
+  const ai = useMonitorDockAI()
 
   return (
     <>
@@ -113,6 +118,26 @@ export function MonitorDock(): JSX.Element {
                 : 'disco sem leitura'
             }
           />
+
+          {/* Só aparece quando há o que dizer: sem agente publicando custo e sem
+              conta com leitura, o traço e dois `—` ocupariam metade da tira para
+              informar nada. */}
+          {(ai.costUsd !== null || ai.tightest !== null) && (
+            <>
+              <span className="monitor-dock-sep" />
+              <span className="monitor-dock-ai">
+                {ai.costUsd !== null && (
+                  <span
+                    className="monitor-dock-cost"
+                    title="soma dos agentes deste canvas que publicam custo"
+                  >
+                    ${ai.costUsd.toFixed(2)}
+                  </span>
+                )}
+                {ai.tightest && <TightestWindow window={ai.tightest} />}
+              </span>
+            </>
+          )}
         </div>
       </div>
 
@@ -161,6 +186,64 @@ function Cell({
       )}
       <span className="monitor-dock-label">{label}</span>
       <span className="monitor-dock-pct">{pct === null ? '—' : `${Math.round(pct)}%`}</span>
+    </span>
+  )
+}
+
+/**
+ * O agregado de IA da tira: quanto já custou, e qual janela fecha primeiro.
+ *
+ * Nada é coletado aqui — os dois canais (o que o agente PUBLICA pela
+ * `statusLine` e o que o raspador de tela consegue ler) já chegam na store, e
+ * as leituras guardadas vieram do disco no boot. Este hook é só o recorte, e
+ * ele é o MESMO que os blocos IA e Perfis do painel fazem: a tira e o popover
+ * não podem discordar sobre o total quando os dois estão abertos lado a lado.
+ *
+ * A conta que resolve `accountId` é a de `configDirFor` no main, repetida aqui
+ * pelo mesmo motivo que no `AccountsBlock`: uma conta apagada cai na padrão, e
+ * divergir faria a tira creditar o consumo a alguém que não existe mais.
+ */
+function useMonitorDockAI(): DockSummary {
+  const { workspace, claudeAccounts, claudeAccountUsage, terminalStatus, terminalUsage } = useStore()
+
+  return useMemo(() => {
+    const known = new Set(claudeAccounts.map((a) => a.id))
+    const rows: AccountRow[] = []
+    for (const node of workspace?.nodes ?? []) {
+      if (node.content.type !== 'terminal') continue
+      const id = node.content.value.claudeAccountId
+      rows.push({
+        accountId: id && known.has(id) ? id : DEFAULT_CLAUDE_ACCOUNT_ID,
+        reading: mergeReading(terminalUsage[node.id], terminalStatus[node.id])
+      })
+    }
+    return dockSummary(
+      rows.map((r) => r.reading),
+      groupByAccount(rows, claudeAccountUsage)
+    )
+  }, [workspace, claudeAccounts, claudeAccountUsage, terminalStatus, terminalUsage])
+}
+
+/**
+ * A janela mais apertada — "5h 62%".
+ *
+ * Só UMA, e não a coluna de janelas do painel: numa borda, duas caixinhas de
+ * percentual ao lado do custo passam a competir com as métricas de máquina, e a
+ * pergunta que a tira responde é "sobra janela?", no singular. Qual delas venceu
+ * e quando ela reabre ficam no `title` — e o popover mostra as duas.
+ */
+function TightestWindow({ window: w }: { window: UsageWindow }): JSX.Element {
+  const falta = untilReset(w.resetsAt)
+  return (
+    <span
+      className={w.pct >= DANGER_PCT ? 'monitor-dock-window is-danger' : 'monitor-dock-window'}
+      title={
+        falta
+          ? `${w.window}: a janela mais apertada entre as contas — reabre em ${falta}`
+          : `${w.window}: a janela mais apertada entre as contas`
+      }
+    >
+      {w.window} {Math.round(w.pct)}%
     </span>
   )
 }

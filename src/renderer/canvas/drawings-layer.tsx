@@ -12,7 +12,7 @@
  * React; só o traço CONCLUÍDO entra pelo estado, já persistido.
  */
 import { useEffect, useRef } from 'react'
-import type { Drawing, Point } from '@shared/types'
+import type { Drawing, Point, UUID } from '@shared/types'
 import { viewport } from './viewport'
 
 export interface LiveStroke {
@@ -23,18 +23,37 @@ export interface LiveStroke {
   translucent: boolean
 }
 
+/**
+ * Mover/redimensionar um traço já existente, ao vivo — sem tocar no array
+ * `drawings` até o soltar do mouse (mesmo tratamento do `live` acima).
+ * `scale` a partir de `(anchorX, anchorY)`, `dx`/`dy` depois: mover é escala 1
+ * com translação, redimensionar é escala sem translação — as duas cabem na
+ * mesma fórmula.
+ */
+export interface LiveDrawingTransform {
+  id: UUID
+  anchorX: number
+  anchorY: number
+  scaleX: number
+  scaleY: number
+  dx: number
+  dy: number
+}
+
 interface Props {
   drawings: Drawing[]
   /** Traço sendo desenhado agora; null quando não há arrasto. */
   live: React.MutableRefObject<LiveStroke | null>
   /** Incrementado a cada ponto novo, para redesenhar fora do ciclo do React. */
   tick: React.MutableRefObject<number>
+  /** Traço selecionado em movimento/resize; null fora do gesto. */
+  liveTransform: React.MutableRefObject<LiveDrawingTransform | null>
 }
 
 /** Mesma opacidade que FreehandContent usa para o marca-texto. */
 const HIGHLIGHTER_ALPHA = 0.4
 
-export function DrawingsLayer({ drawings, live, tick }: Props): JSX.Element {
+export function DrawingsLayer({ drawings, live, tick, liveTransform }: Props): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -70,13 +89,21 @@ export function DrawingsLayer({ drawings, live, tick }: Props): JSX.Element {
         // lineWidth negativo é a marca do marca-texto no formato em disco —
         // ver comentário em canvas-view (o Drawing do Swift não tem campo de tipo).
         const translucent = d.lineWidth < 0
-        const w = Math.abs(d.lineWidth)
+        // Traço em movimento/resize: aplica a transformação ao vivo sem tocar
+        // no array — o commit de verdade só acontece no soltar do mouse.
+        const t = liveTransform.current?.id === d.id ? liveTransform.current : null
+        const w = t ? Math.abs(d.lineWidth) * Math.min(Math.abs(t.scaleX), Math.abs(t.scaleY)) : Math.abs(d.lineWidth)
         ctx.globalAlpha = translucent ? HIGHLIGHTER_ALPHA : 1
         ctx.strokeStyle = d.color
         ctx.lineWidth = Math.max(0.5, w * zoom)
         ctx.beginPath()
         for (let i = 0; i < d.points.length; i++) {
-          const [x, y] = project(d.points[i][0], d.points[i][1], zoom, origin)
+          let [px, py] = d.points[i]
+          if (t) {
+            px = t.anchorX + (px - t.anchorX) * t.scaleX + t.dx
+            py = t.anchorY + (py - t.anchorY) * t.scaleY + t.dy
+          }
+          const [x, y] = project(px, py, zoom, origin)
           if (i === 0) ctx.moveTo(x, y)
           else ctx.lineTo(x, y)
         }
@@ -117,7 +144,7 @@ export function DrawingsLayer({ drawings, live, tick }: Props): JSX.Element {
       cancelAnimationFrame(raf)
       offViewport()
     }
-  }, [drawings, live, tick])
+  }, [drawings, live, tick, liveTransform])
 
   return <canvas ref={canvasRef} className="drawings-layer" />
 }

@@ -264,6 +264,15 @@ export class WorkspaceManager {
     this.markDirty()
   }
 
+  /** Mover/redimensionar um traço já existente — commit no soltar do mouse. */
+  setDrawingPoints(id: UUID, points: number[][], lineWidth?: number): void {
+    const drawing = this.payload.drawings.find((d) => d.id === id)
+    if (!drawing) return
+    drawing.points = points
+    if (lineWidth !== undefined) drawing.lineWidth = lineWidth
+    this.markDirty()
+  }
+
   // ─── Grupos ─────────────────────────────────────────────────────────────────
   // Moldura com título em volta de um conjunto de nós. Vive em payload.groups,
   // fora do array de nós e fora do enum de conteúdo — ver NodeGroup.
@@ -355,6 +364,19 @@ export class WorkspaceManager {
       group.nodeIds.push(id)
     }
     group.lastModifiedAt = nowISO()
+  }
+
+  /**
+   * Desfazer/refazer do renderer: sobrescreve nós, conexões, grupos e desenhos
+   * por um retrato anterior. Viewport e metadados (nome, datas) ficam de fora
+   * de propósito — desfazer uma edição não deve mexer no que não foi editado.
+   */
+  restore(snapshot: Pick<WorkspacePayload, 'nodes' | 'connections' | 'groups' | 'drawings'>): void {
+    this.payload.nodes = snapshot.nodes
+    this.payload.connections = snapshot.connections
+    this.payload.groups = snapshot.groups
+    this.payload.drawings = snapshot.drawings
+    this.markDirty()
   }
 
   // ─── Viewport ───────────────────────────────────────────────────────────────

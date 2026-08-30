@@ -55,7 +55,7 @@ export const QUICK_STARTS: QuickStart[] = [
       }
     }
   },
-  { id: 'antigravity', label: 'Antigravity', agentType: 'antigravity', command: 'antigravity', icon: 'sparkle', color: '#4285F4' },
+  { id: 'antigravity', label: 'Antigravity', agentType: 'antigravity', command: 'agy', icon: 'sparkle', color: '#4285F4' },
   { id: 'opencode', label: 'OpenCode', agentType: 'open_code', command: 'opencode', icon: 'square', color: '#8E8E93' },
   { id: 'shell', label: 'Shell', agentType: 'generic_shell', command: '', icon: 'terminal', color: '#007AFF' }
 ]

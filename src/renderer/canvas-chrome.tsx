@@ -11,7 +11,6 @@
  */
 import { useEffect, useState } from 'react'
 import { dialToZoom, nodesBounds, viewport, zoomToDial } from './canvas/viewport'
-import { GitMenu } from './git-menu'
 import { store, useStore } from './state/store'
 import { WorkspaceChip } from './workspace-chip'
 import type { CanvasNode } from '@shared/types'
@@ -127,12 +126,6 @@ function ViewControls({
 
   return (
     <div className="view-controls">
-      {/* Git antes do zoom: é ação sobre o PROJETO, e as outras são sobre a
-          vista. Junto delas, o commit ficaria a um clique do botão de zoom. */}
-      <div className="floating vc-group is-git">
-        <GitMenu />
-      </div>
-
       <div className="floating vc-group">
         {/* Dial em vez dos botões − e +: o zoom vira um curso contínuo, onde
             uma passada do dedo cobre o que antes eram seis cliques. Os degraus
@@ -199,12 +192,6 @@ function ViewControls({
             ))}
           </div>
         )}
-      </div>
-
-      <div className="floating vc-group">
-        <button type="button" onClick={() => void store.saveNow()}>
-          Salvar
-        </button>
       </div>
     </div>
   )

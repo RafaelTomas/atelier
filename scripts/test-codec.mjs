@@ -703,6 +703,36 @@ test('os CARTÕES não entram no workspace.json — só o nome do arquivo', () =
   assert.equal('items' in view, false, 'os cartões foram parar no workspace.json')
 })
 
+test('nem a origem externa nem o plano entram no workspace.json', () => {
+  // Origem e plano são do CARTÃO, e o cartão mora em `todos/<file>.json`; o
+  // plano, em `plans/<file>.json`. A guarda é a mesma dos cartões: `view` é
+  // [String: String] compartilhado com o app Swift, que descartaria um objeto
+  // aninhado no primeiro save de lá — e a perda seria silenciosa. O que
+  // sobrevive ao round-trip é só o PONTEIRO para o arquivo, e é ele que faz a
+  // exportação/importação do workspace não perder a origem externa: ela viaja
+  // junto com o arquivo do quadro, e não com o documento.
+  const doc = decodeWorkspaceDocument(
+    widgetDoc({
+      kind: 'todo',
+      projectId: null,
+      view: {
+        file: 'abc',
+        title: 'Sprint',
+        origin: { type: 'jira', externalId: 'PROJ-123' },
+        activePlanId: 'PLANO-1'
+      }
+    })
+  )
+  const view = doc.payload.nodes[0].content.value.view
+  assert.equal(view.file, 'abc')
+  assert.equal('origin' in view, false, 'a origem foi parar no workspace.json')
+  // `activePlanId` é string, então ele ATRAVESSA — e atravessar não é o mesmo
+  // que ser a fonte: quem manda é o campo do cartão no arquivo do quadro.
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.equal(back.widget._0.view.file, 'abc')
+  assert.equal(back.widget._0.kind, 'todo')
+})
+
 test('view descarta o que não é string — o Swift lê [String: String]', () => {
   const doc = decodeWorkspaceDocument(
     widgetDoc({ kind: 'git', projectId: null, view: { tab: 'changes', linhas: 40 } })

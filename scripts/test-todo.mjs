@@ -261,11 +261,136 @@ await test('campos com tipo errado não viram NaN nem undefined', () => {
   assert.equal(board.items[0].notes, '')
 })
 
-await test('item sem título é descartado — um cartão em branco não é um cartão', () => {
+await test('item sem título ganha nome em vez de sumir', () => {
+  // Descartar seria perder o TODO de alguém em silêncio: o cartão continuaria no
+  // arquivo e ninguém o veria para renomeá-lo. Mesma regra do status órfão.
   const board = parseBoard(
     JSON.stringify({ columns: [{ id: 'todo', title: 'T' }], items: [{ id: 'a', status: 'todo' }] })
   )
-  assert.equal(board.items.length, 0)
+  assert.equal(board.items.length, 1)
+  assert.equal(board.items[0].title, 'Tarefa sem título')
+})
+
+// ─── Migração para Tarefas ───────────────────────────────────────────────────
+
+await test('quadro ANTIGO carrega sem perder nenhum TODO, e todos viram manuais', () => {
+  // Origem manual é EXPLÍCITA, e não ausência de origem: é isso que distingue
+  // "criado à mão" de "arquivo de antes desta feature".
+  const antigo = JSON.stringify({
+    version: 1,
+    title: 'Sprint de março',
+    columns: [
+      { id: 'todo', title: 'A fazer' },
+      { id: 'doing', title: 'Fazendo' },
+      { id: 'done', title: 'Feito' }
+    ],
+    items: [
+      {
+        id: 'A',
+        title: 'Corrigir importação',
+        status: 'doing',
+        order: 1000,
+        assignee: 'Rita',
+        notes: 'olhar o log',
+        tags: ['bug'],
+        createdAt: '2026-03-01T10:00:00Z',
+        updatedAt: '2026-03-02T10:00:00Z'
+      },
+      { id: 'B', title: 'Publicar', status: 'done', order: 2000, doneAt: '2026-03-03T10:00:00Z' }
+    ]
+  })
+  const board = parseBoard(antigo)
+  assert.equal(board.items.length, 2, 'a migração perdeu um cartão')
+
+  const a = board.items[0]
+  assert.equal(a.assignee, 'Rita', 'o responsável se perdeu na migração')
+  assert.deepEqual(a.tags, ['bug'])
+  assert.equal(a.notes, 'olhar o log')
+  assert.equal(a.order, 1000)
+  assert.equal(board.items[1].doneAt, '2026-03-03T10:00:00Z')
+
+  assert.equal(a.origin.type, 'manual')
+  assert.equal(a.origin.importedAt, '2026-03-01T10:00:00Z', 'inventou "importado hoje"')
+  assert.equal(a.activePlanId, null, 'cartão sem plano nasceu apontando para um')
+})
+
+await test('origem externa sobrevive à leitura, com metadata desconhecida e tudo', () => {
+  const board = parseBoard(
+    JSON.stringify({
+      columns: [{ id: 'todo', title: 'A fazer' }],
+      items: [
+        {
+          id: 'A',
+          title: 'Ticket',
+          status: 'todo',
+          origin: {
+            type: 'jira',
+            externalId: 'PROJ-123',
+            externalUrl: 'https://jira.example.com/browse/PROJ-123',
+            sourceName: 'Plataforma',
+            importedAt: '2026-08-29T10:00:00Z',
+            metadata: { sprint: 7, campoQueNinguemConhece: { fundo: true } }
+          },
+          activePlanId: 'PLANO-1'
+        }
+      ]
+    })
+  )
+  const origem = board.items[0].origin
+  assert.equal(origem.type, 'jira')
+  assert.equal(origem.externalId, 'PROJ-123')
+  assert.equal(origem.metadata.campoQueNinguemConhece.fundo, true)
+  assert.equal(board.items[0].activePlanId, 'PLANO-1')
+})
+
+await test('origem com lixo no lugar do objeto não derruba a leitura', () => {
+  const board = parseBoard(
+    JSON.stringify({
+      columns: [{ id: 'todo', title: 'A fazer' }],
+      items: [
+        { id: 'A', title: 'X', status: 'todo', origin: 'jira', activePlanId: 42 },
+        { id: 'B', title: 'Y', status: 'todo', origin: { type: 'jira', externalId: 7 } }
+      ]
+    })
+  )
+  assert.equal(board.items[0].origin.type, 'manual')
+  assert.equal(board.items[0].activePlanId, null)
+  assert.equal(board.items[1].origin.type, 'jira')
+  assert.equal(board.items[1].origin.externalId, null, 'um número virou id externo')
+})
+
+await test('add carimba origem manual, e as operações NÃO derrubam os campos novos', () => {
+  // O CLI e o painel aplicam operações sobre o quadro inteiro; um `move` que
+  // esquecesse `origin` apagaria a procedência do cartão em silêncio.
+  let b = makeBoard('S')
+  b = applyOp(b, { type: 'add', title: 'A' }).board
+  assert.equal(b.items[0].origin.type, 'manual')
+  assert.equal(b.items[0].activePlanId, null)
+
+  const jira = {
+    type: 'jira',
+    externalId: 'PROJ-9',
+    externalUrl: 'https://jira.example.com/browse/PROJ-9',
+    sourceName: null,
+    importedAt: null,
+    metadata: null
+  }
+  b = applyOp(b, { type: 'origin', id: b.items[0].id, origin: jira }).board
+  b = applyOp(b, { type: 'plan', id: b.items[0].id, planId: 'PLANO-1' }).board
+  b = applyOp(b, { type: 'move', id: b.items[0].id, status: 'doing' }).board
+  b = applyOp(b, { type: 'edit', id: b.items[0].id, notes: 'nota' }).board
+  b = applyOp(b, { type: 'columns', columns: [{ id: 'todo', title: 'A fazer' }] }).board
+
+  assert.equal(b.items[0].origin.externalId, 'PROJ-9', 'a origem se perdeu numa operação')
+  assert.equal(b.items[0].activePlanId, 'PLANO-1', 'o ponteiro do plano se perdeu')
+})
+
+await test('desanexar a origem devolve o cartão à condição de manual', () => {
+  let b = applyOp(makeBoard('S'), { type: 'add', title: 'A' }).board
+  b = applyOp(b, { type: 'origin', id: b.items[0].id, origin: { type: 'slack' } }).board
+  assert.equal(b.items[0].origin.type, 'slack')
+  b = applyOp(b, { type: 'origin', id: b.items[0].id, origin: null }).board
+  assert.equal(b.items[0].origin.type, 'manual', 'ficou sem origem nenhuma')
 })
 
 // ─── Concorrência: o ponto inteiro do módulo ─────────────────────────────────

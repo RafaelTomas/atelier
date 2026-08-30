@@ -69,6 +69,14 @@ export const paths = {
   todoFile: (id: UUID, todoId: string) =>
     join(dataDir(), 'workspaces', id, 'todos', `${todoId}.json`),
   /**
+   * Planos dos cartões daquele quadro — um JSON por nó, com o MESMO nome de
+   * arquivo do quadro. Separado dele porque versões e eventos crescem sem
+   * limite: juntá-los faria cada cartão arrastado reescrever todo o histórico.
+   */
+  plansDir: (id: UUID) => join(dataDir(), 'workspaces', id, 'plans'),
+  planFile: (id: UUID, todoId: string) =>
+    join(dataDir(), 'workspaces', id, 'plans', `${todoId}.json`),
+  /**
    * Cofres de segredos. Um `.vault` por nó, com o blob cifrado pelo
    * `safeStorage`, mais o `access.log` da auditoria — que NUNCA guarda valor.
    * Fora do workspace.json pela mesma regra da nota e da tabela.

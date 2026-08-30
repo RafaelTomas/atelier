@@ -29,6 +29,9 @@ import type {
   Rect,
   SecretVaultKeyRef,
   StoredAccountUsage,
+  Plan,
+  PlanBook,
+  PlanVersion,
   SystemStats,
   TodoBoard,
   UUID,
@@ -516,6 +519,25 @@ const api = {
     /** O agente mexeu no quadro pelo CLI: releia. */
     onChanged: (cb: (p: { workspaceId: UUID; nodeId: UUID }) => void): Unsubscribe =>
       on('todo:changed', cb)
+  },
+
+  /**
+   * Planos dos cartões daquele quadro — mesmo `file` do quadro, outro arquivo.
+   *
+   * A UI não recebe progresso pronto: ele é derivado por `planSnapshot`
+   * (`@shared/task-status`) a partir do plano e da versão atual. Persistir o
+   * número criaria um segundo lugar onde a verdade mora, e os dois divergiriam
+   * no primeiro arquivo editado à mão.
+   */
+  plans: {
+    read: (workspaceId: UUID, file: string): Promise<PlanBook | null> =>
+      ipcRenderer.invoke('plans:read', workspaceId, file),
+    apply: (
+      workspaceId: UUID,
+      file: string,
+      op: unknown
+    ): Promise<{ book: PlanBook; plan?: Plan; version?: PlanVersion } | { error: string }> =>
+      ipcRenderer.invoke('plans:apply', workspaceId, file, op)
   },
 
   /**

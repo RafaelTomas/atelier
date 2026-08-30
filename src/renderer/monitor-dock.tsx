@@ -47,15 +47,23 @@
  * compartilhados com o painel: duas telas que medem a mesma coisa e discordam
  * de quando ela é grave são piores do que uma tela só.
  */
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AccountRow, DockSummary, UsageWindow } from '@shared/agent-usage'
-import { dockSummary, groupByAccount, mergeReading, untilReset } from '@shared/agent-usage'
+import {
+  activeWindows,
+  dockSummary,
+  groupByAccount,
+  mergeReading,
+  untilReset
+} from '@shared/agent-usage'
 import { DEFAULT_CLAUDE_ACCOUNT_ID, formatBytes } from '@shared/types'
 import { PlacementTargets } from './floating/placement-targets'
 import { PillMenu } from './floating/pill-menu'
 import { usePill } from './floating/use-pill'
+import type { MonitorBlocks } from './panels/monitor-panel'
+import { MonitorPanel } from './panels/monitor-panel'
 import { DANGER_PCT, Sparkline, pair } from './panels/monitor-parts'
-import { useStore } from './state/store'
+import { store, useStore } from './state/store'
 import { DEFAULT_INTERVAL, useSystemStats } from './state/use-system-stats'
 
 export function MonitorDock(): JSX.Element {
@@ -72,6 +80,40 @@ export function MonitorDock(): JSX.Element {
 
   const ai = useMonitorDockAI()
 
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * Quais blocos e com que cadência o POPOVER mostra.
+   *
+   * Local, e não preferência: a cadência configurável e persistida ficou para
+   * depois de propósito (mexer nisso antes de alguém pedir é inventar
+   * preferência), e `blocks` é o mesmo caso. O que o `onChange` do painel edita
+   * aqui vale enquanto o popover está aberto — não é o `view` de um nó, e
+   * também não é disco.
+   */
+  const [blocks, setBlocks] = useState<MonitorBlocks>('both')
+  const [interval, setIntervalMs] = useState(DEFAULT_INTERVAL)
+
+  // Fecha em clique fora e no Esc. `mousedown` (não `click`) para o popover
+  // sumir antes de o canvas processar o arrasto embaixo dele — a mesma regra
+  // dos menus da dock.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent): void => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
   return (
     <>
       {/* Os alvos só existem durante o gesto: fora dele são quatro retângulos
@@ -83,11 +125,23 @@ export function MonitorDock(): JSX.Element {
         // A posição AO LONGO da borda é contínua: vai por CSS var, não por um
         // atributo de três valores (ver styles/floating.css).
         style={{ '--pill-offset': String(pill.placement.offset) } as React.CSSProperties}
+        ref={rootRef}
         onMouseDown={(e) => e.stopPropagation()}
         onPointerDown={pill.onPointerDown}
         onContextMenu={pill.onContextMenu}
       >
-        <div className="monitor-dock-strip">
+        {/* A tira INTEIRA é o gatilho do popover: numa borda, um botão de abrir
+            ao lado das leituras roubaria a largura de uma métrica. O arrasto
+            continua funcionando porque o clique só vira gesto depois de 4px —
+            ver DRAG_SLOP em use-placement.ts. */}
+        <button
+          type="button"
+          className="monitor-dock-strip"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          title="Recursos da máquina e dos agentes — clique para o painel inteiro"
+          onClick={() => setOpen((v) => !v)}
+        >
           {/* `cpuPct` nulo é a primeira amostra depois de ligar o timer: não há
               delta ainda, e um 0% ali seria um número que ninguém mediu. */}
           <Cell
@@ -138,7 +192,31 @@ export function MonitorDock(): JSX.Element {
               </span>
             </>
           )}
-        </div>
+        </button>
+
+        {/* O painel de VERDADE, o mesmo componente do nó — não uma segunda
+            implementação que pudesse discordar dele. Abre contra a borda pela
+            conta que os menus da dock já usam (ver monitor-dock.css). */}
+        {open && (
+          <div
+            className="monitor-dock-popover"
+            role="dialog"
+            data-edge={pill.placement.edge}
+            // Sem isto, um `pointerdown` num `select` do painel armaria o
+            // arrasto da pílula e a tira sairia andando com o menu aberto.
+            onPointerDown={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.stopPropagation()}
+          >
+            <MonitorPanel
+              blocks={blocks}
+              intervalMs={interval}
+              onChange={(patch) => {
+                if (patch.blocks) setBlocks(patch.blocks)
+                if (patch.interval) setIntervalMs(Number(patch.interval))
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {pill.menu && (
@@ -149,6 +227,10 @@ export function MonitorDock(): JSX.Element {
           fallback={pill.fallback}
           onPick={pill.apply}
           onClose={pill.closeMenu}
+          // A segunda ponta da alternância. A primeira é o item da dock, e as
+          // duas nasceram no mesmo passo: "Ocultar" sem caminho de volta é o
+          // estado ruim que o plano das docks móveis deixou registrado.
+          extra={{ label: 'Ocultar a tira', run: () => void store.setMonitorDockVisible(false) }}
         />
       )}
     </>
@@ -204,7 +286,14 @@ function Cell({
  * divergir faria a tira creditar o consumo a alguém que não existe mais.
  */
 function useMonitorDockAI(): DockSummary {
-  const { workspace, claudeAccounts, claudeAccountUsage, terminalStatus, terminalUsage } = useStore()
+  const {
+    workspace,
+    claudeAccounts,
+    claudeAccountUsage,
+    codexAccountUsage,
+    terminalStatus,
+    terminalUsage
+  } = useStore()
 
   return useMemo(() => {
     const known = new Set(claudeAccounts.map((a) => a.id))
@@ -217,11 +306,43 @@ function useMonitorDockAI(): DockSummary {
         reading: mergeReading(terminalUsage[node.id], terminalStatus[node.id])
       })
     }
+
+    const accounts = groupByAccount(rows, claudeAccountUsage)
+
+    // A conta do Codex entra na mesma disputa: o bloco de Perfis já a mostra ao
+    // lado das do Claude, e uma tira que ignorasse a janela mais apertada só
+    // porque ela é do Codex discordaria do popover aberto logo acima dela.
+    //
+    // Sem `subscribeCodexAccount` aqui de propósito: a tira usa o que a store
+    // JÁ tem — a leitura guardada que veio do boot, ou a viva se algum painel
+    // de contas estiver aberto. Assinar em permanência é um custo que esta
+    // rodada não decidiu pagar, e a alternativa seria a tira ligar um canal do
+    // App Server por conta própria.
+    if (codexAccountUsage.authMode !== 'api-key' && codexAccountUsage.source !== 'none') {
+      accounts.push({
+        accountId: 'codex',
+        limits: activeWindows(codexAccountUsage.limits),
+        // O Codex não publica custo por sessão — `null` é "não sei", e somá-lo
+        // como zero baixaria o total que a tira mostra.
+        costUsd: null,
+        live: 0,
+        at: codexAccountUsage.at,
+        source: codexAccountUsage.source
+      })
+    }
+
     return dockSummary(
       rows.map((r) => r.reading),
-      groupByAccount(rows, claudeAccountUsage)
+      accounts
     )
-  }, [workspace, claudeAccounts, claudeAccountUsage, terminalStatus, terminalUsage])
+  }, [
+    workspace,
+    claudeAccounts,
+    claudeAccountUsage,
+    codexAccountUsage,
+    terminalStatus,
+    terminalUsage
+  ])
 }
 
 /**

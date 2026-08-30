@@ -27,10 +27,22 @@
   font-size: var(--fs-xs);
 }
 
+/* A tira inteira é o gatilho do popover — daí ser um `<button>`. Numa borda, um
+   botão de abrir ao lado das leituras roubaria a largura de uma métrica.
+   `cursor: inherit` mantém a mão aberta da pílula: a tira é antes de tudo uma
+   peça que se arrasta, e uma mãozinha de link aqui prometeria outra coisa. */
 .monitor-dock-strip {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: inherit;
 }
 
 /* Nas bordas verticais a tira empilha as métricas, como a rail empilha botões:

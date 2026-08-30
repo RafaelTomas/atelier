@@ -1821,6 +1821,23 @@ class Store {
     await window.atelier.prefs.set({ [key]: formatPlacement(placement) })
   }
 
+  /**
+   * Liga e desliga a tira do monitor na borda.
+   *
+   * Desligada, ela não é escondida: deixa de ser MONTADA (ver canvas-view), e
+   * com ela vai embora o `useSystemStats` que assina o amostrador. É o que faz
+   * "não quero pagar por isso" custar zero de fato, e não zero de aparência.
+   *
+   * Quem liga de volta é o item da dock — a alternância nasceu com as duas
+   * pontas de propósito. Um "Ocultar" no menu da pílula sem caminho de volta é
+   * exatamente o estado ruim que o plano das docks móveis deixou registrado.
+   */
+  async setMonitorDockVisible(monitorDockVisible: boolean): Promise<void> {
+    this.set({ monitorDockVisible })
+    this.mirrorPrefs({ monitorDockVisible })
+    await window.atelier.prefs.set({ monitorDockVisible })
+  }
+
   setTheme(theme: ThemeMode): void {
     applyTheme(theme)
     this.set({ theme })

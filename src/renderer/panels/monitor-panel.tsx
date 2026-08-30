@@ -434,16 +434,23 @@ function CodexAccountLine({ usage }: { usage: ReturnType<typeof useStore>['codex
   const windows = activeWindows(usage.limits)
   const source = usage.source
   const danger = usage.spendControlReached === true || usage.rateLimitReachedType !== null
+  const lifetimeTokens = usage.tokenUsage?.summary.lifetimeTokens ?? null
   const label =
     usage.authMode === 'api-key'
       ? 'limites da API não disponíveis aqui'
       : source === 'none'
         ? 'sem leitura'
-        : usage.planType || 'Codex'
+        : [usage.planType, lifetimeTokens !== null ? `${formatTokens(lifetimeTokens)} tok` : null]
+            .filter(Boolean)
+            .join(' · ') || 'Codex'
   const title = [
     usage.planType ? `plano ${usage.planType}` : null,
     usage.authMode ? `auth ${usage.authMode}` : null,
     usage.credits?.unlimited ? 'créditos sem limite' : usage.credits?.balance ? `créditos ${usage.credits.balance}` : null,
+    lifetimeTokens !== null ? `${lifetimeTokens.toLocaleString('pt-BR')} tokens na conta` : null,
+    usage.tokenUsage?.summary.peakDailyTokens !== null && usage.tokenUsage?.summary.peakDailyTokens !== undefined
+      ? `pico diário ${usage.tokenUsage.summary.peakDailyTokens.toLocaleString('pt-BR')}`
+      : null,
     usage.rateLimitReachedType ? `limite atingido: ${usage.rateLimitReachedType}` : null
   ]
     .filter(Boolean)

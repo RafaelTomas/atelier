@@ -3,7 +3,7 @@ import { fromCodexRateLimits, mergeCodexAccount } from '@shared/agent-usage'
 import { notifyRenderer } from '../../ipc/notify'
 import { log } from '../logger'
 import { persistence } from '../persistence/persistence-manager'
-import { CodexJsonRpcClient, spawnCodexAppServer } from './codex-protocol'
+import { CodexJsonRpcClient, codexInitializeParams, spawnCodexAppServer } from './codex-protocol'
 
 const SAVE_DEBOUNCE_MS = 5000
 
@@ -17,6 +17,7 @@ function empty(source: CodexAccountUsage['source'] = 'none'): CodexAccountUsage 
     spendControlReached: null,
     rateLimitReachedType: null,
     resetCreditsAvailable: null,
+    tokenUsage: null,
     at: new Date().toISOString(),
     source
   }
@@ -43,6 +44,7 @@ export class CodexTelemetryService {
       individualLimit: stored.individualLimit,
       spendControlReached: stored.spendControlReached,
       rateLimitReachedType: stored.rateLimitReachedType,
+      tokenUsage: stored.tokenUsage,
       at: stored.at
     }
   }
@@ -69,7 +71,7 @@ export class CodexTelemetryService {
     await this.ensureStarted()
     if (!this.client) return null
     try {
-      return await this.client.request('account/usage/read')
+      return await this.client.request('account/usage/read', {})
     } catch (err) {
       log.warn('codex', 'account/usage/read falhou', err)
       return null
@@ -89,7 +91,8 @@ export class CodexTelemetryService {
         if (method === 'account/rateLimits/updated') void this.readAccount()
         if (method === 'account/updated') this.mergeAccount(params)
       })
-      await this.client.initialize({})
+      await this.client.initialize(codexInitializeParams())
+
       await this.readAccount()
     } catch (err) {
       log.warn('codex', 'Codex App Server indisponivel', err)
@@ -107,13 +110,21 @@ export class CodexTelemetryService {
   private async readAccount(): Promise<void> {
     if (!this.client) return
     try {
-      const [account, limits] = await Promise.all([
-        this.client.request('account/read').catch(() => null),
-        this.client.request('account/rateLimits/read').catch(() => null)
+      const [account, limits, tokenUsage] = await Promise.all([
+        // O App Server declara params como um objeto obrigatório até nas
+        // leituras sem argumentos. Omiti-lo faz o serde rejeitar a chamada
+        // inteira com `Invalid request: missing field params`.
+        this.client.request('account/read', {}).catch(() => null),
+        this.client.request('account/rateLimits/read', {}).catch(() => null),
+        this.client.request('account/usage/read', {}).catch(() => null)
       ])
+      const merged = mergeCodexAccount(
+        mergeCodexAccount(mergeCodexAccount(this.account, account), limits),
+        tokenUsage
+      )
       this.account = {
-        ...mergeCodexAccount(this.account, account),
-        limits: fromCodexRateLimits(limits),
+        ...merged,
+        limits: limits === null ? merged.limits : fromCodexRateLimits(limits),
         at: new Date().toISOString(),
         source: 'live'
       }
@@ -154,6 +165,7 @@ export class CodexTelemetryService {
       individualLimit: this.account.individualLimit,
       spendControlReached: this.account.spendControlReached,
       rateLimitReachedType: this.account.rateLimitReachedType,
+      tokenUsage: this.account.tokenUsage,
       at: this.account.at
     }
     await persistence.saveCodexUsage(entry)

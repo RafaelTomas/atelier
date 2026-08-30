@@ -490,6 +490,35 @@ export function fromCodexTokenUsage(payload: unknown, now = new Date()): AgentUs
   }
 }
 
+/** Normaliza `account/usage/read`; totais da conta nunca viram uso de um terminal. */
+export function fromCodexAccountTokenUsage(
+  payload: unknown
+): CodexAccountUsage['tokenUsage'] {
+  const data = obj(payload)
+  const summary = obj(data.summary)
+  const dailyUsageBuckets = list(data.dailyUsageBuckets)
+    .map((value) => {
+      const bucket = obj(value)
+      const startDate = str(bucket.startDate)
+      const tokens = num(bucket.tokens)
+      return startDate !== null && tokens !== null ? { startDate, tokens } : null
+    })
+    .filter((value): value is { startDate: string; tokens: number } => value !== null)
+
+  const normalized = {
+    summary: {
+      lifetimeTokens: num(summary.lifetimeTokens),
+      peakDailyTokens: num(summary.peakDailyTokens),
+      longestRunningTurnSec: num(summary.longestRunningTurnSec),
+      currentStreakDays: num(summary.currentStreakDays),
+      longestStreakDays: num(summary.longestStreakDays)
+    },
+    dailyUsageBuckets
+  }
+  const hasSummary = Object.values(normalized.summary).some((value) => value !== null)
+  return hasSummary || dailyUsageBuckets.length > 0 ? normalized : null
+}
+
 export function fromCodexRateLimits(snapshot: unknown): UsageLimit[] {
   const data = obj(snapshot)
   const buckets = obj(data.rateLimitsByLimitId)
@@ -498,25 +527,37 @@ export function fromCodexRateLimits(snapshot: unknown): UsageLimit[] {
       ? Object.entries(buckets)
       : list(data.rateLimits).map((value, index) => [String(index), value] as const)
 
-  return entries
-    .map(([id, value]) => {
-      const bucket = obj(value)
-      const used = num(bucket.usedPercentage) ?? num(bucket.used_percentage)
-      if (used === null) return null
-      const minutes = num(bucket.windowDurationMins) ?? num(bucket.window_duration_mins)
-      const name = str(bucket.name) ?? str(bucket.bucketName) ?? str(bucket.bucket_name)
-      const limit: UsageLimit = {
-        provider: 'codex' as const,
-        bucketId: id || null,
-        bucketName: name,
-        window: windowLabel(minutes, name ?? 'limite'),
-        windowMinutes: minutes,
-        pct: Math.round(used * 10) / 10,
-        resetsAt: num(bucket.resetsAt) ?? num(bucket.resets_at)
-      }
-      return limit
-    })
-    .filter((limit): limit is UsageLimit => limit !== null)
+  return entries.flatMap(([id, value]) => {
+    const bucket = obj(value)
+    const name = str(bucket.limitName) ?? str(bucket.name) ?? str(bucket.bucketName) ?? str(bucket.bucket_name)
+    const nested = [
+      ['primary', bucket.primary],
+      ['secondary', bucket.secondary]
+    ] as const
+    const nestedLimits = nested
+      .map(([windowId, raw]) => codexLimit(`${id}:${windowId}`, name, raw))
+      .filter((limit): limit is UsageLimit => limit !== null)
+    if (nestedLimits.length > 0) return nestedLimits
+    const limit = codexLimit(id, name, bucket)
+    return limit ? [limit] : []
+  })
+}
+
+function codexLimit(id: string, name: string | null, value: unknown): UsageLimit | null {
+  const bucket = obj(value)
+  const used =
+    num(bucket.usedPercent) ?? num(bucket.usedPercentage) ?? num(bucket.used_percent) ?? num(bucket.used_percentage)
+  if (used === null) return null
+  const minutes = num(bucket.windowDurationMins) ?? num(bucket.window_duration_mins)
+  return {
+    provider: 'codex',
+    bucketId: id || null,
+    bucketName: name,
+    window: windowLabel(minutes, name ?? 'limite'),
+    windowMinutes: minutes,
+    pct: Math.round(used * 10) / 10,
+    resetsAt: num(bucket.resetsAt) ?? num(bucket.resets_at)
+  }
 }
 
 /**
@@ -573,6 +614,7 @@ export function decodeStoredCodexUsage(
       spendControlReached: null,
       rateLimitReachedType: null,
       resetCreditsAvailable: null,
+      tokenUsage: null,
       at: at ?? '',
       source: 'stored'
     },
@@ -586,6 +628,7 @@ export function decodeStoredCodexUsage(
     individualLimit: base.individualLimit,
     spendControlReached: base.spendControlReached,
     rateLimitReachedType: base.rateLimitReachedType,
+    tokenUsage: base.tokenUsage,
     at: at ?? ''
   }
 }
@@ -607,7 +650,10 @@ export function mergeCodexAccount(
   payload: unknown
 ): CodexAccountUsage {
   const data = obj(payload)
-  const rawCredits = data.credits
+  const account = obj(data.account)
+  const rateLimits = obj(data.rateLimits)
+  const source = Object.keys(rateLimits).length > 0 ? rateLimits : Object.keys(account).length > 0 ? account : data
+  const rawCredits = source.credits
   const credits =
     rawCredits === undefined || rawCredits === null
       ? prev.credits
@@ -617,7 +663,7 @@ export function mergeCodexAccount(
           balance: str(obj(rawCredits).balance)
         }
 
-  const rawIndividual = obj(data.individualLimit)
+  const rawIndividual = obj(source.individualLimit)
   const limit = str(rawIndividual.limit)
   const used = str(rawIndividual.used)
   const remainingPct = num(rawIndividual.remainingPct)
@@ -628,16 +674,24 @@ export function mergeCodexAccount(
     limit !== null && used !== null && remainingPct !== null && individualResetsAt !== null
       ? { limit, used, remainingPct, resetsAt: individualResetsAt }
       : prev.individualLimit
+  const rawTokenUsage =
+    source.tokenUsage !== undefined
+      ? source.tokenUsage
+      : data.tokenUsage !== undefined
+        ? data.tokenUsage
+        : data
+  const tokenUsage = fromCodexAccountTokenUsage(rawTokenUsage) ?? prev.tokenUsage
 
   return {
     ...prev,
-    authMode: str(data.authMode) ?? prev.authMode,
-    planType: str(data.planType) ?? str(obj(data.plan).type) ?? prev.planType,
+    authMode: str(source.authMode) ?? str(account.type) ?? str(data.authMode) ?? prev.authMode,
+    planType: str(source.planType) ?? str(account.planType) ?? str(obj(source.plan).type) ?? str(obj(data.plan).type) ?? prev.planType,
     credits,
     individualLimit,
-    spendControlReached: bool(data.spendControlReached) ?? prev.spendControlReached,
-    rateLimitReachedType: str(data.rateLimitReachedType) ?? prev.rateLimitReachedType,
-    resetCreditsAvailable: num(data.resetCreditsAvailable) ?? prev.resetCreditsAvailable
+    spendControlReached: bool(source.spendControlReached) ?? bool(data.spendControlReached) ?? prev.spendControlReached,
+    rateLimitReachedType: str(source.rateLimitReachedType) ?? str(data.rateLimitReachedType) ?? prev.rateLimitReachedType,
+    resetCreditsAvailable: num(source.resetCreditsAvailable) ?? num(data.resetCreditsAvailable) ?? num(obj(data.rateLimitResetCredits).availableCount) ?? prev.resetCreditsAvailable,
+    tokenUsage
   }
 }
 

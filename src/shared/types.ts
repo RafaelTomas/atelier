@@ -862,8 +862,23 @@ export interface CodexAccountUsage {
   spendControlReached: boolean | null
   rateLimitReachedType: string | null
   resetCreditsAvailable: number | null
+  tokenUsage: CodexAccountTokenUsage | null
   at: string
   source: 'live' | 'stored' | 'none'
+}
+
+export interface CodexAccountTokenUsage {
+  summary: {
+    lifetimeTokens: number | null
+    peakDailyTokens: number | null
+    longestRunningTurnSec: number | null
+    currentStreakDays: number | null
+    longestStreakDays: number | null
+  }
+  dailyUsageBuckets: Array<{
+    startDate: string
+    tokens: number
+  }>
 }
 
 export interface StoredCodexUsage {
@@ -873,6 +888,7 @@ export interface StoredCodexUsage {
   individualLimit: CodexAccountUsage['individualLimit']
   spendControlReached: boolean | null
   rateLimitReachedType: string | null
+  tokenUsage: CodexAccountTokenUsage | null
   at: string
 }
 

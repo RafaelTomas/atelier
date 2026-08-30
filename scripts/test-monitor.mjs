@@ -48,6 +48,7 @@ await esbuild.build({
         countReporting,
         decodeStoredCodexUsage,
         dockSummary,
+        fromCodexAccountTokenUsage,
         fromCodexRateLimits,
         fromCodexTokenUsage,
         groupByAccount,
@@ -87,6 +88,7 @@ const {
   countReporting,
   decodeStoredCodexUsage,
   dockSummary,
+  fromCodexAccountTokenUsage,
   fromCodexRateLimits,
   fromCodexTokenUsage,
   groupByAccount,
@@ -489,6 +491,25 @@ test('rate limits Codex derivam a janela pela duração e preservam buckets', ()
   ])
 })
 
+test('rate limits Codex leem o payload real primary/secondary do App Server', () => {
+  const limits = fromCodexRateLimits({
+    rateLimitsByLimitId: {
+      codex: {
+        limitId: 'codex',
+        limitName: null,
+        primary: { usedPercent: 9, windowDurationMins: 300, resetsAt: 111 },
+        secondary: { usedPercent: 17, windowDurationMins: 10080, resetsAt: 222 },
+        credits: { hasCredits: false, unlimited: false, balance: '0' },
+        planType: 'plus'
+      }
+    }
+  })
+  assert.deepEqual(limits.map((l) => [l.bucketId, l.window, l.windowMinutes, l.pct, l.resetsAt]), [
+    ['codex:primary', '5h', 300, 9, 111],
+    ['codex:secondary', '7d', 10080, 17, 222]
+  ])
+})
+
 test('windowLabel nomeia a janela pela DURAÇÃO, e o irregular não vira 5h', () => {
   // O rótulo é a duração publicada, não a posição do bucket no payload: o dia
   // em que o Codex mudar `primary` para 7d, um `5h` escrito na mão mentiria.
@@ -579,9 +600,66 @@ const contaCodex = (over = {}) => ({
   spendControlReached: null,
   rateLimitReachedType: null,
   resetCreditsAvailable: null,
+  tokenUsage: null,
   at: '2026-08-29T12:00:00.000Z',
   source: 'live',
   ...over
+})
+
+test('conta Codex le os envelopes reais de account/read e rateLimits/read', () => {
+  const account = mergeCodexAccount(contaCodex({ authMode: null, planType: null }), {
+    account: { type: 'chatgpt', email: 'user@example.com', planType: 'plus' },
+    requiresOpenaiAuth: true
+  })
+  assert.equal(account.authMode, 'chatgpt')
+  assert.equal(account.planType, 'plus')
+
+  const limits = mergeCodexAccount(account, {
+    rateLimits: {
+      credits: { hasCredits: false, unlimited: false, balance: '0' },
+      individualLimit: null,
+      spendControlReached: false,
+      planType: 'plus',
+      rateLimitReachedType: null
+    },
+    rateLimitResetCredits: { availableCount: 2, credits: [] }
+  })
+  assert.deepEqual(limits.credits, { hasCredits: false, unlimited: false, balance: '0' })
+  assert.equal(limits.spendControlReached, false)
+  assert.equal(limits.resetCreditsAvailable, 2)
+})
+
+test('uso de tokens da conta Codex le o payload real e entra no merge', () => {
+  const payload = {
+    summary: {
+      lifetimeTokens: 22710468,
+      peakDailyTokens: 22710468,
+      longestRunningTurnSec: 1713,
+      currentStreakDays: 1,
+      longestStreakDays: 1
+    },
+    dailyUsageBuckets: [{ startDate: '2026-08-29', tokens: 22710468 }],
+    threadUsage: null
+  }
+  assert.deepEqual(fromCodexAccountTokenUsage(payload), {
+    summary: payload.summary,
+    dailyUsageBuckets: payload.dailyUsageBuckets
+  })
+  assert.equal(mergeCodexAccount(contaCodex(), payload).tokenUsage.summary.lifetimeTokens, 22710468)
+})
+
+test('payload invalido de uso da conta preserva a leitura Codex anterior', () => {
+  const previous = contaCodex({
+    tokenUsage: fromCodexAccountTokenUsage({
+      summary: { lifetimeTokens: 1200 },
+      dailyUsageBuckets: []
+    })
+  })
+  assert.equal(fromCodexAccountTokenUsage({ summary: { lifetimeTokens: 'muitos' } }), null)
+  assert.equal(
+    mergeCodexAccount(previous, { summary: { lifetimeTokens: 'muitos' } }).tokenUsage,
+    previous.tokenUsage
+  )
 })
 
 test('atualização esparsa não apaga plano nem créditos anteriores', () => {
@@ -636,6 +714,10 @@ test('a janela persistida cujo reset já passou não volta do disco', () => {
     {
       at: '2026-08-29T11:00:00.000Z',
       planType: 'plus',
+      tokenUsage: {
+        summary: { lifetimeTokens: 1200 },
+        dailyUsageBuckets: [{ startDate: '2026-08-29', tokens: 1200 }]
+      },
       limits: [
         { provider: 'codex', bucketId: 'primary', window: '5h', pct: 4, resetsAt: secs(30) },
         { provider: 'codex', bucketId: 'secondary', window: '7d', pct: 1, resetsAt: secs(-10) },
@@ -650,6 +732,7 @@ test('a janela persistida cujo reset já passou não volta do disco', () => {
     'vencida e sem prazo não sobrevivem ao restart'
   )
   assert.equal(stored.planType, 'plus')
+  assert.equal(stored.tokenUsage.summary.lifetimeTokens, 1200)
 })
 
 test('arquivo Codex vazio ou corrompido não vira conta zerada', () => {

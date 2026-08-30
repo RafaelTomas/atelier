@@ -336,6 +336,7 @@ const initial: AppSnapshot = {
     spendControlReached: null,
     rateLimitReachedType: null,
     resetCreditsAvailable: null,
+    tokenUsage: null,
     at: '',
     source: 'none'
   },

@@ -571,11 +571,29 @@ await test('recruit recusa modelo com metacaractere sem criar nó', async () => 
   assert.doesNotMatch(await cli(['list'], terminalId), /Injetado/)
 })
 
-await test('recruit recusa --model em preset que não é claude', async () => {
-  const out = await cli(['recruit', 'Sem Model', '--preset', 'codex', '--model', 'haiku'], terminalId)
-  assert.match(out, /--model only applies/)
+await test('recruit --preset codex --model cria um no Codex, e nao um shell', async () => {
+  // O contorno antigo era `--command "codex --model X"`, e ele criava um no
+  // `shell`: sem agentType, sem icone, sem cor e sem vinculo com a telemetria.
+  // O alias resolvido volta na resposta para quem pediu conferir.
+  const out = await cli(['recruit', 'Terra', '--preset', 'codex', '--model', 'terra'], terminalId)
+  assert.match(out, /model 'gpt-5\.6-terra' \(alias 'terra'\)/)
+  const no = ws.nodes.find(
+    (n) => n.content.type === 'terminal' && n.content.value.name === 'Terra'
+  )
+  assert.equal(no.content.value.command, 'codex --model gpt-5.6-terra')
+  assert.equal(no.content.value.agentType, 'codex', 'o no continua sendo Codex')
+  assert.equal(no.content.value.recruitedBy, terminalId)
+})
+
+await test('recruit recusa --model em preset sem seletor de modelo', async () => {
+  const out = await cli(
+    ['recruit', 'Sem Model', '--preset', 'antigravity', '--model', 'haiku'],
+    terminalId
+  )
+  assert.match(out, /does not apply/)
   assert.doesNotMatch(await cli(['list'], terminalId), /Sem Model/)
 })
+
 
 await test('recruit sem nome devolve o uso', async () => {
   assert.match(await cli(['recruit'], terminalId), /usage: atelier recruit/)

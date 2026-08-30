@@ -59,7 +59,7 @@ agent that is still working, and do not edit files another agent is modifying.
 ## Recruit another agent
 
 \`\`\`
-atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd /path] [--role "Role"] [--account "Account"] [--model opus|sonnet|haiku]
+atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd /path] [--role "Role"] [--account "Account"] [--model opus|sonnet|haiku|luna|terra|sol|model-id]
 atelier recruit "Name" --command "claude --resume <session-id>" [--cwd /path]
 \`\`\`
 
@@ -94,8 +94,16 @@ starting over — redoing finished work is how a restart turns into a regression
 
 ### Pick the model for the work, not the biggest one
 
-\`--model\` sets which Claude the recruit runs (it only applies to the \`claude\`
-preset). Choose it deliberately every time you recruit:
+Before recruiting, run \`atelier list\`. Reuse a connected agent whose role
+already covers the work; do not create a duplicate. Recruit only when the task
+can advance independently or needs truly separate context or expertise. For
+Codex, use \`luna\` for focused/routine/high-volume work, \`terra\` for everyday
+implementation, analysis and review, and \`sol\` only for difficult, ambiguous,
+architectural or high-risk problems. Do not use Sol by default.
+
+\`--model\` sets which model the recruit runs. It applies to \`claude\` and
+\`codex\`: Claude accepts its usual aliases and ids; Codex accepts \`luna\`,
+\`terra\`, \`sol\`, or full ids like \`gpt-5.6-terra\`. Choose it deliberately every time you recruit:
 
 - \`--model haiku\` — mechanical, verifiable work: run the tests and report,
   find every occurrence of X, apply a patch that is already decided, rename
@@ -105,6 +113,9 @@ preset). Choose it deliberately every time you recruit:
   fix a bug that is already localized.
 - No \`--model\` — architecture judgment, security review, or debugging a cause
   nobody has found yet.
+
+For Codex, do not leave difficult work implicit: pass \`--model sol\` only when
+the scope really needs it.
 
 When two levels both look defensible, **take the cheaper one and escalate if the
 recruit struggles**: re-running a task on a bigger model costs less than running

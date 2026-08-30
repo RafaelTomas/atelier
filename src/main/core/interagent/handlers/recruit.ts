@@ -28,7 +28,7 @@ import { requireTerminalId, workspaceForTerminal } from './context'
 const TERMINAL_SIZE = { width: 560, height: 360 }
 
 const USAGE =
-  'error: usage: atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell | --command "cmd"] [--cwd /path] [--role "Role"] [--account "Account"] [--model opus|sonnet|haiku]'
+  'error: usage: atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell | --command "cmd"] [--cwd /path] [--role "Role"] [--account "Account"] [--model opus|sonnet|haiku|luna|terra|sol|model-id]'
 
 /**
  * O modelo vai CONCATENADO num comando que é escrito no PTY do recrutado, então
@@ -38,6 +38,7 @@ const USAGE =
  * também passa, porque fechar a lista a envelheceria a cada modelo novo.
  */
 const MODEL_TOKEN = /^[a-z0-9][a-z0-9.-]*$/
+const MODEL_FLAG_RE = /(^|\s)(--model|-m)(\s|=)|(^|\s)-c\s+model=/
 
 const FLAGS = ['--preset', '--cwd', '--role', '--account', '--model', '--command']
 
@@ -53,6 +54,50 @@ function takeFlags(argv: string[]): { rest: string[]; flags: Map<string, string>
     }
   }
   return { rest, flags }
+}
+
+export function resolvePresetModel(
+  presetId: string,
+  raw: string
+): { ok: true; id: string; alias: string | null } | { ok: false; error: string } {
+  const preset = presetById(presetId)
+  if (!preset?.model) {
+    return { ok: false, error: `error: --model does not apply to the '${presetId}' preset.` }
+  }
+
+  const model = raw.trim().toLowerCase()
+  if (!MODEL_TOKEN.test(model)) {
+    const aliases = Object.keys(preset.model.aliases).join(', ')
+    return {
+      ok: false,
+      error: `error: invalid model '${raw}'. Use an alias (${aliases}) or a model id.`
+    }
+  }
+
+  const resolved = preset.model.aliases[model]
+  return { ok: true, id: resolved ?? model, alias: resolved ? model : null }
+}
+
+export function commandWithPresetModel(
+  presetId: string,
+  raw: string
+): { ok: true; command: string; id: string; alias: string | null } | { ok: false; error: string } {
+  const preset = presetById(presetId)
+  if (!preset) return { ok: false, error: `error: unknown preset '${presetId}'.` }
+  if (MODEL_FLAG_RE.test(preset.command)) {
+    return {
+      ok: false,
+      error: `error: preset '${presetId}' already chooses a model in its command. Remove that model from the preset command or omit --model.`
+    }
+  }
+  const selected = resolvePresetModel(presetId, raw)
+  if (!selected.ok) return selected
+  return {
+    ok: true,
+    command: `${preset.command} ${preset.model?.flag ?? '--model'} ${selected.id}`,
+    id: selected.id,
+    alias: selected.alias
+  }
 }
 
 export async function handleRecruit(argv: string[], terminalId: UUID | null): Promise<string> {
@@ -140,20 +185,23 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
     claudeAccountId = match === 'default' ? null : match.id
   }
 
-  // Modelo: só o preset `claude` tem `--model`. Aceitar a flag nos outros e não
-  // fazer nada seria pior do que recusar — quem pediu haiku para economizar
-  // acharia que economizou. Codex usa `-m`, os demais não têm equivalente.
+  // Modelo: quem declara a capacidade é o PRESET (`model` em terminal-presets),
+  // e não um `if` por agente aqui. Claude e Codex têm seletor; Antigravity,
+  // OpenCode e shell não, e neles a flag é recusada em vez de ignorada — aceitar
+  // em silêncio faria quem pediu o modelo barato achar que economizou.
   const model = flags.get('model')
+  let resolvedModel: { id: string; alias: string | null } | null = null
+  let presetCommand = preset.command
   if (model !== undefined) {
     if (freeCommand !== undefined) {
       return 'error: --model does not apply to --command. Put the flag in the command itself.'
     }
-    if (presetId !== 'claude') {
-      return `error: --model only applies to the 'claude' preset (got '${presetId}').`
+    const selected = commandWithPresetModel(presetId, model)
+    if (!selected.ok) {
+      return selected.error
     }
-    if (!MODEL_TOKEN.test(model)) {
-      return `error: invalid model '${model}'. Use an alias (opus, sonnet, haiku) or a model id.`
-    }
+    resolvedModel = { id: selected.id, alias: selected.alias }
+    presetCommand = selected.command
   }
 
   const name = args[1]
@@ -169,7 +217,7 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
     // é texto livre, já aparece no diálogo de edição e já passa pelo mesmo
     // `resolveTemplate` do spawn. Um campo próprio duplicaria isso em types,
     // bridge, store e diálogo sem o usuário ganhar nada que já não veja.
-    command: freeCommand ?? (model ? `${preset.command} --model ${model}` : preset.command),
+    command: freeCommand ?? presetCommand,
     icon: preset.icon,
     color: preset.color,
     workingDirectory,
@@ -190,7 +238,9 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
   const what = freeCommand !== undefined ? `command '${freeCommand}'` : preset.label
   const role = assignedRoleId ? `, role '${roles.get(assignedRoleId)?.name}'` : ''
   const account = claudeAccountId ? `, Claude account '${claudeAccounts.labelFor(claudeAccountId)}'` : ''
-  const onModel = model ? `, model '${model}'` : ''
+  const onModel = resolvedModel
+    ? `, model '${resolvedModel.id}'${resolvedModel.alias ? ` (alias '${resolvedModel.alias}')` : ''}`
+    : ''
   return [
     `Recruited '${name}' (${what}) in ${where}${role}${account}${onModel}, connected to this terminal.`,
     "It boots when its node is on screen — run 'atelier list' and wait for it to leave [not started]",

@@ -9,6 +9,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal } from '@xterm/xterm'
 import type { CanvasNode, TerminalContent, TerminalTheme, UUID } from '@shared/types'
 import { viewport } from '../canvas/viewport'
@@ -79,6 +80,14 @@ export function TerminalNode({
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
+    // Link na saída do terminal abre num Portal do próprio Atelier, não no
+    // navegador do sistema — o handler custom troca o comportamento padrão do
+    // addon (que seria window.open, negado por setWindowOpenHandler).
+    term.loadAddon(
+      new WebLinksAddon((_event, uri) => {
+        void window.atelier.terminal.openLink(node.id, uri)
+      })
+    )
     const host = hostRef.current
     term.open(host)
 

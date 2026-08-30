@@ -1,5 +1,11 @@
 import { join } from 'node:path'
-import { BrowserWindow, shell } from 'electron'
+import { BrowserWindow, nativeImage, shell } from 'electron'
+
+// No Linux não existe Dock para setar o ícone (como faz o index.ts no macOS) —
+// sem passar `icon` aqui direto pro BrowserWindow, a janela cai no ícone
+// genérico do Electron na barra de tarefas/alt-tab, mesmo com o pacote
+// (electron-builder) configurado certo.
+const appIcon = nativeImage.createFromPath(join(__dirname, '../../build/icon.png'))
 
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -9,6 +15,7 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 600,
     show: false,
     backgroundColor: '#f5f5f7',
+    icon: appIcon.isEmpty() ? undefined : appIcon,
     // Title bar embutida no macOS, como o .windowStyle(.hiddenTitleBar) do app nativo
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: process.platform === 'darwin' ? { x: 14, y: 16 } : undefined,

@@ -253,6 +253,17 @@ export function IconTrash(p: IconProps): JSX.Element {
   )
 }
 
+/** Cortar uma conexão entre nós — aparece no hover da corda. */
+export function IconScissors(p: IconProps): JSX.Element {
+  return (
+    <Svg {...p}>
+      <circle cx="6.5" cy="6.5" r="2.5" />
+      <circle cx="6.5" cy="17.5" r="2.5" />
+      <path d="M8.5 8 20 19M20 5 8.5 16" />
+    </Svg>
+  )
+}
+
 /** Revelar um segredo. */
 export function IconEye(p: IconProps): JSX.Element {
   return (

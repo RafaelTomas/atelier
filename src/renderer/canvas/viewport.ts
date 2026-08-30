@@ -356,3 +356,25 @@ export function nodesBounds(nodes: { frame: Rect }[]): Rect | null {
   // dividiria por ele.
   return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) }
 }
+
+/**
+ * Retângulo que contém um traço de desenho — para a moldura de seleção e os
+ * handles de resize. Calculado sob demanda a partir dos pontos, nunca
+ * guardado: um bbox salvo à parte dessincronizaria do traço na primeira
+ * edição feita por outro caminho (CLI, undo).
+ */
+export function strokeBounds(points: number[][]): Rect | null {
+  if (points.length === 0) return null
+
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const [x, y] of points) {
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x)
+    maxY = Math.max(maxY, y)
+  }
+  return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) }
+}

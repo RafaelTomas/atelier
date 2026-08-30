@@ -19,11 +19,12 @@
  * As amostras NÃO passam pela store — ver `use-system-stats.ts`, que é onde a
  * regra está escrita.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AccountRow, AccountUsage, AgentReading, UsageWindow } from '@shared/agent-usage'
 import {
   aggregateLimits,
   agoLabel,
+  activeWindows,
   groupByAccount,
   mergeReading,
   sumCost,
@@ -345,6 +346,8 @@ function AgentRow({ name, reading }: { name: string; reading: AgentReading }): J
         title={
           reading.source === 'statusline'
             ? 'publicado pelo agente (statusLine)'
+            : reading.source === 'app-server'
+              ? 'publicado pelo Codex App Server'
             : reading.source === 'screen'
               ? 'lido da tela do agente — sem statusLine neste preset'
               : 'sem leitura'
@@ -400,9 +403,16 @@ function AgentRow({ name, reading }: { name: string; reading: AgentReading }): J
  * exigiria uma chamada por conta, gasta da mesma janela que o painel mede.
  */
 function AccountsBlock(): JSX.Element {
-  const { workspace, claudeAccounts, claudeAccountUsage, terminalStatus, terminalUsage } = useStore()
+  const { workspace, claudeAccounts, claudeAccountUsage, codexAccountUsage, terminalStatus, terminalUsage } = useStore()
   const [adding, setAdding] = useState(false)
   const [label, setLabel] = useState('')
+
+  useEffect(() => {
+    void store.subscribeCodexAccount()
+    return () => {
+      void store.unsubscribeCodexAccount()
+    }
+  }, [])
 
   const usage = useMemo(() => {
     // Conta que não existe mais cai na padrão — a MESMA regra do `configDirFor`
@@ -434,13 +444,16 @@ function AccountsBlock(): JSX.Element {
   return (
     <section className="monitor-block">
       <h4 className="monitor-title">
-        Perfis Claude Code
+        Contas de IA
         <span className="monitor-title-actions">
           <button
             type="button"
             className="icon-btn ghost-btn"
-            title="Reler contas e o consumo guardado de cada uma"
-            onClick={() => void store.refreshClaudeAccounts()}
+            title="Reler contas Claude e limites Codex"
+            onClick={() => {
+              void store.refreshClaudeAccounts()
+              void store.refreshCodexAccount()
+            }}
           >
             <IconReload size={12} />
           </button>
@@ -474,6 +487,12 @@ function AccountsBlock(): JSX.Element {
         </div>
       )}
 
+      <ul className="monitor-accounts">
+        <CodexAccountLine usage={codexAccountUsage} />
+      </ul>
+
+      <div className="monitor-account-section">Claude</div>
+
       {claudeAccounts.length === 0 ? (
         <p className="monitor-empty">contas não carregadas</p>
       ) : (
@@ -484,6 +503,64 @@ function AccountsBlock(): JSX.Element {
         </ul>
       )}
     </section>
+  )
+}
+
+function CodexAccountLine({ usage }: { usage: ReturnType<typeof useStore>['codexAccountUsage'] }): JSX.Element {
+  const windows = activeWindows(usage.limits)
+  const source = usage.source
+  const danger = usage.spendControlReached === true || usage.rateLimitReachedType !== null
+  const label =
+    usage.authMode === 'api-key'
+      ? 'limites da API não disponíveis aqui'
+      : source === 'none'
+        ? 'sem leitura'
+        : usage.planType || 'Codex'
+  const title = [
+    usage.planType ? `plano ${usage.planType}` : null,
+    usage.authMode ? `auth ${usage.authMode}` : null,
+    usage.credits?.unlimited ? 'créditos sem limite' : usage.credits?.balance ? `créditos ${usage.credits.balance}` : null,
+    usage.rateLimitReachedType ? `limite atingido: ${usage.rateLimitReachedType}` : null
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  return (
+    <>
+      <div className="monitor-account-section">Codex</div>
+      <li className={danger ? 'monitor-account is-danger' : 'monitor-account'}>
+        <span
+          className={`monitor-source is-${source === 'live' ? 'live' : source === 'stored' ? 'stored' : 'none'}`}
+          title={
+            source === 'live'
+              ? 'publicado pelo Codex App Server'
+              : source === 'stored'
+                ? 'última leitura Codex guardada'
+                : 'sem leitura Codex'
+          }
+        />
+        <span className="monitor-account-name" title={title || label}>
+          Codex
+        </span>
+        <span className="monitor-account-warn">{label}</span>
+        {usage.authMode === 'api-key'
+          ? null
+          : (windows.length > 0
+              ? windows
+              : [
+                  { window: '5h', pct: Number.NaN, resetsAt: null },
+                  { window: '7d', pct: Number.NaN, resetsAt: null }
+                ]
+            ).map((limit) => (
+              <WindowDonut
+                key={`${limit.bucketId ?? ''}-${limit.window}`}
+                name={limit.window}
+                limit={Number.isFinite(limit.pct) ? limit : null}
+                ago={source === 'stored' ? agoLabel(usage.at) : null}
+              />
+            ))}
+      </li>
+    </>
   )
 }
 

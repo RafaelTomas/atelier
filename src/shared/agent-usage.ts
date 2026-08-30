@@ -38,12 +38,23 @@
  * `5h:80%` na tela, a célula fica vazia. Estimar a partir de tokens seria
  * fabricar justamente a métrica mais consultada do painel.
  */
-import type { AgentStatus, AgentUsage, StoredAccountUsage } from './types'
+import type {
+  AgentStatus,
+  AgentUsage,
+  CodexAccountUsage,
+  StoredAccountUsage,
+  StoredCodexUsage,
+  UsageLimit
+} from './types'
 
 /** Uma janela de limite agregada entre os agentes vivos. */
 export interface UsageWindow {
+  provider?: 'claude' | 'codex'
+  bucketId?: string | null
+  bucketName?: string | null
   /** Como o agente a nomeia: `5h`, `7d`. */
   window: string
+  windowMinutes?: number | null
   /** O MAIOR percentual visto nesta janela, entre os agentes que a publicam. */
   pct: number
   /** Época em segundos, quando alguma fonte a publicou. */
@@ -52,7 +63,7 @@ export interface UsageWindow {
 
 /** Qualquer coisa que carregue janelas de limite — as duas fontes carregam. */
 interface HasLimits {
-  limits: { window: string; pct: number; resetsAt?: number | null }[]
+  limits: UsageLimit[]
 }
 
 /**
@@ -75,11 +86,17 @@ export function aggregateLimits(sources: (HasLimits | undefined | null)[]): Usag
   const max = new Map<string, UsageWindow>()
   for (const source of sources) {
     if (!source?.limits) continue
-    for (const { window, pct, resetsAt } of source.limits) {
+    for (const { provider, bucketId, bucketName, window, windowMinutes, pct, resetsAt } of source.limits) {
       if (!Number.isFinite(pct)) continue
-      const seen = max.get(window)
+      const key = `${provider ?? ''}\u0000${bucketId ?? ''}\u0000${window}`
+      const seen = max.get(key)
       if (seen === undefined || pct > seen.pct) {
-        max.set(window, { window, pct, resetsAt: resetsAt ?? null })
+        const next: UsageWindow = { window, pct, resetsAt: resetsAt ?? null }
+        if (provider) next.provider = provider
+        if (bucketId !== undefined) next.bucketId = bucketId
+        if (bucketName !== undefined) next.bucketName = bucketName
+        if (windowMinutes !== undefined) next.windowMinutes = windowMinutes
+        max.set(key, next)
       }
     }
   }
@@ -99,14 +116,20 @@ export function countReporting(statuses: (AgentStatus | undefined | null)[]): nu
 
 /** O que a linha de um agente mostra, venha de onde vier. */
 export interface AgentReading {
+  provider: 'claude' | 'codex' | null
   /** Qual Claude está rodando. Só a fonte publicada sabe. */
   model: string | null
   tokens: number | null
   contextPct: number | null
   /** 200000 ou 1000000 — é o que dá sentido ao percentual. */
   contextWindowSize: number | null
+  sessionTokens: number | null
+  cachedInputTokens: number | null
+  cacheWriteInputTokens: number | null
+  outputTokens: number | null
+  reasoningOutputTokens: number | null
   costUsd: number | null
-  limits: { window: string; pct: number; resetsAt?: number | null }[]
+  limits: UsageLimit[]
   /**
    * Quando o agente publicou. `null` na leitura raspada — a tela não traz hora,
    * e inventar `Date.now()` aqui faria um número velho parecer recém-lido.
@@ -120,7 +143,7 @@ export interface AgentReading {
    * De onde veio. Vai para a UI: `screen` é uma leitura de segunda mão, e o
    * usuário merece saber quando está olhando para uma.
    */
-  source: 'statusline' | 'screen' | 'none'
+  source: 'statusline' | 'app-server' | 'screen' | 'none'
 }
 
 /**
@@ -141,10 +164,16 @@ export function mergeReading(
 ): AgentReading {
   if (!usage) {
     return {
+      provider: null,
       model: null,
       tokens: status?.tokens ?? null,
       contextPct: status?.contextPct ?? null,
       contextWindowSize: null,
+      sessionTokens: null,
+      cachedInputTokens: null,
+      cacheWriteInputTokens: null,
+      outputTokens: null,
+      reasoningOutputTokens: null,
       costUsd: null,
       limits: status?.limits ?? [],
       at: null,
@@ -152,14 +181,20 @@ export function mergeReading(
     }
   }
   return {
+    provider: usage.provider ?? 'claude',
     model: usage.model,
     tokens: usage.inputTokens ?? status?.tokens ?? null,
     contextPct: usage.usedPercentage ?? status?.contextPct ?? null,
     contextWindowSize: usage.contextWindowSize,
+    sessionTokens: usage.sessionTokens ?? null,
+    cachedInputTokens: usage.cachedInputTokens ?? null,
+    cacheWriteInputTokens: usage.cacheWriteInputTokens ?? null,
+    outputTokens: usage.outputTokens ?? null,
+    reasoningOutputTokens: usage.reasoningOutputTokens ?? null,
     costUsd: usage.costUsd,
     limits: usage.limits.length > 0 ? usage.limits : (status?.limits ?? []),
     at: usage.at,
-    source: 'statusline'
+    source: usage.provider === 'codex' ? 'app-server' : 'statusline'
   }
 }
 
@@ -338,8 +373,223 @@ function str(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null
 }
 
+function bool(v: unknown): boolean | null {
+  return typeof v === 'boolean' ? v : null
+}
+
 function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+}
+
+function list(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : []
+}
+
+export function windowLabel(minutes: number | null | undefined, fallback = 'limite'): string {
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) return fallback
+  if (minutes === 300) return '5h'
+  if (minutes === 10080) return '7d'
+  if (minutes % 1440 === 0) return `${minutes / 1440}d`
+  if (minutes % 60 === 0) return `${minutes / 60}h`
+  return `${minutes}min`
+}
+
+export function contextPctFromCodex(
+  lastInputTokens: number | null | undefined,
+  modelContextWindow: number | null | undefined
+): number | null {
+  if (
+    typeof lastInputTokens !== 'number' ||
+    typeof modelContextWindow !== 'number' ||
+    !Number.isFinite(lastInputTokens) ||
+    !Number.isFinite(modelContextWindow) ||
+    modelContextWindow <= 0
+  ) {
+    return null
+  }
+  return Math.max(0, Math.min(100, (lastInputTokens / modelContextWindow) * 100))
+}
+
+export function fromCodexTokenUsage(payload: unknown, now = new Date()): AgentUsage | null {
+  const data = obj(payload)
+  const total = obj(data.total)
+  const last = obj(data.last)
+  const contextWindowSize = num(data.modelContextWindow)
+  const inputTokens = num(last.inputTokens)
+
+  return {
+    provider: 'codex',
+    model: null,
+    modelId: null,
+    inputTokens,
+    outputTokens: num(last.outputTokens),
+    contextWindowSize,
+    usedPercentage: contextPctFromCodex(inputTokens, contextWindowSize),
+    sessionTokens: num(total.totalTokens),
+    cachedInputTokens: num(last.cachedInputTokens),
+    cacheWriteInputTokens: num(last.cacheWriteInputTokens),
+    reasoningOutputTokens: num(last.reasoningOutputTokens),
+    costUsd: null,
+    linesAdded: null,
+    linesRemoved: null,
+    limits: [],
+    effort: null,
+    fastMode: null,
+    sessionId: null,
+    version: null,
+    at: now.toISOString()
+  }
+}
+
+export function fromCodexRateLimits(snapshot: unknown): UsageLimit[] {
+  const data = obj(snapshot)
+  const buckets = obj(data.rateLimitsByLimitId)
+  const entries =
+    Object.keys(buckets).length > 0
+      ? Object.entries(buckets)
+      : list(data.rateLimits).map((value, index) => [String(index), value] as const)
+
+  return entries
+    .map(([id, value]) => {
+      const bucket = obj(value)
+      const used = num(bucket.usedPercentage) ?? num(bucket.used_percentage)
+      if (used === null) return null
+      const minutes = num(bucket.windowDurationMins) ?? num(bucket.window_duration_mins)
+      const name = str(bucket.name) ?? str(bucket.bucketName) ?? str(bucket.bucket_name)
+      const limit: UsageLimit = {
+        provider: 'codex' as const,
+        bucketId: id || null,
+        bucketName: name,
+        window: windowLabel(minutes, name ?? 'limite'),
+        windowMinutes: minutes,
+        pct: Math.round(used * 10) / 10,
+        resetsAt: num(bucket.resetsAt) ?? num(bucket.resets_at)
+      }
+      return limit
+    })
+    .filter((limit): limit is UsageLimit => limit !== null)
+}
+
+/**
+ * O `codex-usage.json` de volta do disco, campo a campo.
+ *
+ * Puro e aqui — e não dentro do `PersistenceManager` — porque o arquivo foi
+ * escrito por uma versão anterior do Atelier e é entrada externa como qualquer
+ * payload do App Server: o que muda de forma entre versões vira `null`, e o que
+ * não dá para julgar some.
+ *
+ * A regra dura é a da janela: sem `resetsAt` ela NÃO sobrevive ao restart. Uma
+ * janela sem prazo só é confiável vinda de um terminal vivo (é de agora); em
+ * disco, ela é um percentual de idade desconhecida sobre um contador que pode
+ * ter zerado três vezes desde então. `resetsAt` vencido cai pelo mesmo motivo.
+ */
+export function decodeStoredCodexUsage(
+  raw: unknown,
+  nowMs: number = Date.now()
+): StoredCodexUsage | null {
+  const data = obj(raw)
+  const nowSecs = Math.floor(nowMs / 1000)
+
+  const limits = list(data.limits)
+    .map((entry): UsageLimit | null => {
+      const l = obj(entry)
+      const pct = num(l.pct)
+      const resetsAt = num(l.resetsAt)
+      const window = str(l.window)
+      if (window === null || pct === null || resetsAt === null) return null
+      if (resetsAt <= nowSecs) return null
+      return {
+        provider: 'codex',
+        bucketId: str(l.bucketId),
+        bucketName: str(l.bucketName),
+        window,
+        windowMinutes: num(l.windowMinutes),
+        pct,
+        resetsAt
+      }
+    })
+    .filter((l): l is UsageLimit => l !== null)
+
+  const at = str(data.at)
+  // Nem janela válida nem data: o arquivo não afirma nada que dê para mostrar.
+  if (limits.length === 0 && at === null) return null
+
+  const base = mergeCodexAccount(
+    {
+      authMode: null,
+      planType: null,
+      limits,
+      credits: null,
+      individualLimit: null,
+      spendControlReached: null,
+      rateLimitReachedType: null,
+      resetCreditsAvailable: null,
+      at: at ?? '',
+      source: 'stored'
+    },
+    data
+  )
+
+  return {
+    limits,
+    planType: base.planType,
+    credits: base.credits,
+    individualLimit: base.individualLimit,
+    spendControlReached: base.spendControlReached,
+    rateLimitReachedType: base.rateLimitReachedType,
+    at: at ?? ''
+  }
+}
+
+/**
+ * Conta Codex: a notificação é ESPARSA, então o merge é campo a campo.
+ *
+ * `account/rateLimits/updated` e `account/updated` chegam com o que mudou, não
+ * com a conta inteira. Sobrescrever tudo com o payload apagaria plano, créditos
+ * e limite individual a cada notificação — o que a UI leria como "a conta
+ * perdeu o plano", quando o servidor só disse "o contador andou". Campo ausente
+ * (ou com tipo errado) preserva o valor anterior; nunca vira `null`.
+ *
+ * `at` e `source` ficam com quem chama: só o serviço sabe se a leitura é uma
+ * fotografia viva ou a que veio do disco.
+ */
+export function mergeCodexAccount(
+  prev: CodexAccountUsage,
+  payload: unknown
+): CodexAccountUsage {
+  const data = obj(payload)
+  const rawCredits = data.credits
+  const credits =
+    rawCredits === undefined || rawCredits === null
+      ? prev.credits
+      : {
+          hasCredits: bool(obj(rawCredits).hasCredits) ?? false,
+          unlimited: bool(obj(rawCredits).unlimited) ?? false,
+          balance: str(obj(rawCredits).balance)
+        }
+
+  const rawIndividual = obj(data.individualLimit)
+  const limit = str(rawIndividual.limit)
+  const used = str(rawIndividual.used)
+  const remainingPct = num(rawIndividual.remainingPct)
+  const individualResetsAt = num(rawIndividual.resetsAt)
+  // Parcial não entra: um limite individual sem prazo ou sem valor usado não
+  // tem como ser desenhado, e meia leitura na tela é pior que nenhuma.
+  const individualLimit =
+    limit !== null && used !== null && remainingPct !== null && individualResetsAt !== null
+      ? { limit, used, remainingPct, resetsAt: individualResetsAt }
+      : prev.individualLimit
+
+  return {
+    ...prev,
+    authMode: str(data.authMode) ?? prev.authMode,
+    planType: str(data.planType) ?? str(obj(data.plan).type) ?? prev.planType,
+    credits,
+    individualLimit,
+    spendControlReached: bool(data.spendControlReached) ?? prev.spendControlReached,
+    rateLimitReachedType: str(data.rateLimitReachedType) ?? prev.rateLimitReachedType,
+    resetCreditsAvailable: num(data.resetCreditsAvailable) ?? prev.resetCreditsAvailable
+  }
 }
 
 /**
@@ -372,6 +622,7 @@ export function parseStatusLine(raw: string, now = new Date()): AgentUsage | nul
   const effort = obj(data.effort)
 
   return {
+    provider: 'claude',
     model: str(model.display_name),
     modelId: str(model.id),
     inputTokens: num(ctx.total_input_tokens),
@@ -402,11 +653,11 @@ export function parseStatusLine(raw: string, now = new Date()): AgentUsage | nul
 function readWindow(
   name: string,
   raw: unknown
-): { window: string; pct: number; resetsAt: number | null } | null {
+): UsageLimit | null {
   const w = obj(raw)
   const pct = num(w.used_percentage)
   if (pct === null) return null
-  return { window: name, pct: Math.round(pct * 10) / 10, resetsAt: num(w.resets_at) }
+  return { provider: 'claude', window: name, pct: Math.round(pct * 10) / 10, resetsAt: num(w.resets_at) }
 }
 
 /**

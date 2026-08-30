@@ -15,6 +15,7 @@ import type {
   ClaudeAccount,
   ClaudeAccountInfo,
   ClaudeSessionSummary,
+  CodexAccountUsage,
   DiscoveredProject,
   Connection,
   Drawing,
@@ -167,6 +168,15 @@ const api = {
     /** `deleteFiles` leva junto a credencial — o login precisa ser refeito. */
     remove: (id: string, deleteFiles: boolean): Promise<ClaudeAccountInfo[]> =>
       ipcRenderer.invoke('claude-account:remove', id, deleteFiles)
+  },
+
+  codex: {
+    subscribe: (): Promise<CodexAccountUsage> => ipcRenderer.invoke('codex:subscribe'),
+    unsubscribe: (): Promise<void> => ipcRenderer.invoke('codex:unsubscribe'),
+    refreshAccount: (): Promise<CodexAccountUsage> => ipcRenderer.invoke('codex:refresh-account'),
+    accountUsage: (): Promise<unknown | null> => ipcRenderer.invoke('codex:account-usage'),
+    onAccount: (cb: (usage: CodexAccountUsage) => void): Unsubscribe =>
+      on('codex:account', cb)
   },
 
   role: {

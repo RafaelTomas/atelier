@@ -25,6 +25,7 @@ import type {
   UUID
 } from '@shared/types'
 import { claudeAccounts } from '../core/claude/accounts'
+import { codexTelemetry } from '../core/codex/codex-telemetry'
 import { Constants } from '../core/constants'
 import { log } from '../core/logger'
 import {
@@ -542,6 +543,11 @@ export function registerIPC(): void {
   // outra: a lista muda quando o usuário cria uma conta, isto a cada mensagem
   // que um agente manda.
   ipcMain.handle('claude-account:usage', () => accountUsage())
+
+  ipcMain.handle('codex:subscribe', () => codexTelemetry.subscribe())
+  ipcMain.handle('codex:unsubscribe', () => codexTelemetry.unsubscribe())
+  ipcMain.handle('codex:refresh-account', () => codexTelemetry.refreshAccount())
+  ipcMain.handle('codex:account-usage', () => codexTelemetry.accountUsage())
 
   ipcMain.handle('claude-account:create', async (_e, label: string) => {
     const { account, warnings } = await claudeAccounts.create(String(label ?? ''))

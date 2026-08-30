@@ -48,6 +48,7 @@ export const paths = {
    * misturar as duas cadências arriscaria a lista por causa da telemetria.
    */
   claudeUsage: () => join(dataDir(), 'claude-usage.json'),
+  codexUsage: () => join(dataDir(), 'codex-usage.json'),
   /** O `CLAUDE_CONFIG_DIR` de uma conta — um ~/.claude só dela. */
   claudeAccountDir: (id: string) => join(dataDir(), 'claude-accounts', id),
   /** Arquivos efêmeros — hoje só as imagens coladas dentro de um terminal. */

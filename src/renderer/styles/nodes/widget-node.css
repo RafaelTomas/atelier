@@ -133,6 +133,7 @@
   align-self: center;
 }
 .monitor-source.is-statusline { background: var(--accent); }
+.monitor-source.is-app-server { background: var(--rope-active); }
 .monitor-source.is-screen { box-shadow: inset 0 0 0 1px var(--text-dim); }
 .monitor-source.is-none { box-shadow: inset 0 0 0 1px var(--border); }
 
@@ -168,7 +169,14 @@
   list-style: none; margin: 0; padding: 0;
   display: flex; flex-direction: column; gap: 3px;
 }
+.monitor-account-section {
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
 .monitor-account { display: flex; align-items: center; gap: 5px; }
+.monitor-account.is-danger .monitor-account-warn { color: var(--rope-error); }
 
 /* Procedência da leitura, na mesma gramática do ponto do bloco IA: cheio = há
    terminal medindo agora, vazado = é a última leitura conhecida, apagado = não

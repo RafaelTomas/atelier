@@ -26,12 +26,14 @@ import {
 import { dirname, join } from 'node:path'
 import type { VaultFile } from '@shared/vault'
 import { decodeVaultFile, emptyVaultFile } from '@shared/vault'
+import { decodeStoredCodexUsage } from '@shared/agent-usage'
 import type {
   AgentRole,
   AppStateData,
   ClaudeAccount,
   Preferences,
   ProjectIndex,
+  StoredCodexUsage,
   StoredAccountUsage,
   UUID,
   WorkspaceManifest,
@@ -356,6 +358,14 @@ class PersistenceManager {
 
   async saveClaudeUsage(entries: StoredAccountUsage[]): Promise<void> {
     await this.atomicWrite(paths.claudeUsage(), this.stringify(entries))
+  }
+
+  async loadCodexUsage(): Promise<StoredCodexUsage | null> {
+    return decodeStoredCodexUsage(await this.readJSON(paths.codexUsage()))
+  }
+
+  async saveCodexUsage(entry: StoredCodexUsage): Promise<void> {
+    await this.atomicWrite(paths.codexUsage(), this.stringify(entry))
   }
 
   /**

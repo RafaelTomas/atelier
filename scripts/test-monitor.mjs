@@ -42,12 +42,18 @@ await esbuild.build({
         activeWindows,
         aggregateLimits,
         agoLabel,
+        contextPctFromCodex,
         countReporting,
+        decodeStoredCodexUsage,
+        fromCodexRateLimits,
+        fromCodexTokenUsage,
         groupByAccount,
+        mergeCodexAccount,
         mergeReading,
         parseStatusLine,
         sumCost,
-        untilReset
+        untilReset,
+        windowLabel
       } from './src/shared/agent-usage.ts'
       export { isClaudeCommand, statusLineSettings } from './src/main/core/terminal/status-line.ts'
     `,
@@ -74,12 +80,18 @@ const {
   activeWindows,
   aggregateLimits,
   agoLabel,
+  contextPctFromCodex,
   countReporting,
+  decodeStoredCodexUsage,
+  fromCodexRateLimits,
+  fromCodexTokenUsage,
   groupByAccount,
+  mergeCodexAccount,
   mergeReading,
   parseStatusLine,
   sumCost,
   untilReset,
+  windowLabel,
   isClaudeCommand,
   statusLineSettings
 } = await import(pathToFileURL(outfile).href)
@@ -324,14 +336,14 @@ test('as janelas saem com o reset, e em ordem fixa: 5h antes de 7d', () => {
   // A ordem das chaves de um objeto JSON não é garantida; a das colunas é.
   const u = parseStatusLine(PAYLOAD)
   assert.deepEqual(u.limits, [
-    { window: '5h', pct: 23.5, resetsAt: 1738425600 },
-    { window: '7d', pct: 41.2, resetsAt: 1738857600 }
+    { provider: 'claude', window: '5h', pct: 23.5, resetsAt: 1738425600 },
+    { provider: 'claude', window: '7d', pct: 41.2, resetsAt: 1738857600 }
   ])
 })
 
 test('janela ausente some da lista em vez de virar 0%', () => {
   const u = parseStatusLine(JSON.stringify({ rate_limits: { five_hour: { used_percentage: 10 } } }))
-  assert.deepEqual(u.limits, [{ window: '5h', pct: 10, resetsAt: null }])
+  assert.deepEqual(u.limits, [{ provider: 'claude', window: '5h', pct: 10, resetsAt: null }])
 })
 
 test('payload vazio ou com campos faltando vira null, nunca NaN', () => {
@@ -427,6 +439,237 @@ test('ninguém publicando custo devolve null, e não US$ 0,00', () => {
   // honesta num canvas de agentes que só raspam a tela.
   assert.equal(sumCost([{ costUsd: null, limits: [] }]), null)
   assert.equal(sumCost([]), null)
+})
+
+test('Codex usa last.inputTokens sobre modelContextWindow, não total acumulado', () => {
+  const u = fromCodexTokenUsage({
+    total: { totalTokens: 815300 },
+    last: {
+      inputTokens: 81722,
+      cachedInputTokens: 79616,
+      cacheWriteInputTokens: 12,
+      outputTokens: 366,
+      reasoningOutputTokens: 110
+    },
+    modelContextWindow: 258400
+  })
+  assert.equal(u.provider, 'codex')
+  assert.equal(u.inputTokens, 81722)
+  assert.equal(u.sessionTokens, 815300)
+  assert.equal(Math.round(u.usedPercentage * 10) / 10, 31.6)
+  assert.equal(u.cachedInputTokens, 79616)
+  assert.equal(u.outputTokens, 366)
+  assert.equal(u.reasoningOutputTokens, 110)
+  assert.equal(u.costUsd, null, 'créditos/quota do Codex não viram custo de sessão')
+})
+
+test('contexto Codex não subtrai cache e entradas inválidas viram null', () => {
+  assert.equal(contextPctFromCodex(100, 200), 50)
+  assert.equal(contextPctFromCodex(150, 0), null)
+  assert.equal(contextPctFromCodex(Number.NaN, 200), null)
+  assert.equal(contextPctFromCodex(500, 200), 100)
+})
+
+test('rate limits Codex derivam a janela pela duração e preservam buckets', () => {
+  const limits = fromCodexRateLimits({
+    rateLimitsByLimitId: {
+      primary: { usedPercentage: 4, windowDurationMins: 300, resetsAt: 111 },
+      secondary: { usedPercentage: 1, windowDurationMins: 10080, resetsAt: 222 },
+      other: { usedPercentage: 9, windowDurationMins: 90, resetsAt: 333 }
+    }
+  })
+  assert.deepEqual(limits.map((l) => [l.bucketId, l.window, l.windowMinutes, l.pct]), [
+    ['primary', '5h', 300, 4],
+    ['secondary', '7d', 10080, 1],
+    ['other', '90min', 90, 9]
+  ])
+})
+
+test('windowLabel nomeia a janela pela DURAÇÃO, e o irregular não vira 5h', () => {
+  // O rótulo é a duração publicada, não a posição do bucket no payload: o dia
+  // em que o Codex mudar `primary` para 7d, um `5h` escrito na mão mentiria.
+  assert.equal(windowLabel(300), '5h')
+  assert.equal(windowLabel(10080), '7d')
+  assert.equal(windowLabel(1440), '1d')
+  assert.equal(windowLabel(4320), '3d')
+  assert.equal(windowLabel(60), '1h')
+  assert.equal(windowLabel(90), '90min')
+  assert.equal(windowLabel(null), 'limite')
+  assert.equal(windowLabel(0), 'limite')
+  assert.equal(windowLabel(Number.NaN, 'weekly'), 'weekly')
+})
+
+test('primary/secondary saem pela duração, não pela ordem em que vieram', () => {
+  // O payload aqui está TROCADO de propósito: `primary` dura uma semana.
+  const limits = fromCodexRateLimits({
+    rateLimitsByLimitId: {
+      primary: { usedPercentage: 12, windowDurationMins: 10080, resetsAt: 111 },
+      secondary: { usedPercentage: 40, windowDurationMins: 300, resetsAt: 222 }
+    }
+  })
+  assert.deepEqual(
+    limits.map((l) => [l.bucketId, l.window]),
+    [
+      ['primary', '7d'],
+      ['secondary', '5h']
+    ]
+  )
+})
+
+test('dois buckets de MESMA duração continuam separados', () => {
+  // `codex` e `codex_other` são contadores diferentes que por acaso duram 5h.
+  // Fundi-los pelo rótulo mostraria um número só para duas quotas distintas.
+  const limits = fromCodexRateLimits({
+    rateLimitsByLimitId: {
+      codex: { usedPercentage: 4, windowDurationMins: 300, resetsAt: 111 },
+      codex_other: { usedPercentage: 77, windowDurationMins: 300, resetsAt: 222 }
+    }
+  })
+  assert.equal(limits.length, 2)
+  const janelas = aggregateLimits([{ limits }])
+  assert.deepEqual(
+    janelas.map((j) => [j.bucketId, j.window, j.pct]),
+    [
+      ['codex', '5h', 4],
+      ['codex_other', '5h', 77]
+    ]
+  )
+})
+
+test('payload de tokens quebrado vira null, nunca NaN', () => {
+  const u = fromCodexTokenUsage({
+    total: {},
+    last: { inputTokens: 'muitos' },
+    modelContextWindow: null
+  })
+  assert.equal(u.inputTokens, null)
+  assert.equal(u.sessionTokens, null)
+  assert.equal(u.usedPercentage, null)
+  assert.equal(u.contextWindowSize, null)
+  assert.equal(fromCodexTokenUsage(null).usedPercentage, null)
+  assert.equal(fromCodexTokenUsage('nada disso').inputTokens, null)
+})
+
+test('a leitura Codex se declara app-server, e não statusline', () => {
+  const r = mergeReading(
+    fromCodexTokenUsage({ last: { inputTokens: 50 }, modelContextWindow: 200 }),
+    null
+  )
+  assert.equal(r.source, 'app-server')
+  assert.equal(r.provider, 'codex')
+  assert.equal(r.contextPct, 25)
+  assert.equal(sumCost([r]), null, 'créditos do Codex não entram na soma de custo')
+})
+
+// ─── Conta Codex ────────────────────────────────────────────────────
+//
+// A notificação do App Server é ESPARSA: ela diz o que mudou, não a conta
+// inteira. Todo o assunto destes casos é o que NÃO pode sumir no caminho.
+
+const contaCodex = (over = {}) => ({
+  authMode: 'chatgpt',
+  planType: 'plus',
+  limits: [],
+  credits: { hasCredits: true, unlimited: false, balance: '12.50' },
+  individualLimit: null,
+  spendControlReached: null,
+  rateLimitReachedType: null,
+  resetCreditsAvailable: null,
+  at: '2026-08-29T12:00:00.000Z',
+  source: 'live',
+  ...over
+})
+
+test('atualização esparsa não apaga plano nem créditos anteriores', () => {
+  const merged = mergeCodexAccount(contaCodex(), { rateLimitReachedType: 'primary' })
+  assert.equal(merged.planType, 'plus')
+  assert.equal(merged.authMode, 'chatgpt')
+  assert.deepEqual(merged.credits, { hasCredits: true, unlimited: false, balance: '12.50' })
+  assert.equal(merged.rateLimitReachedType, 'primary')
+})
+
+test('campo com tipo errado preserva o valor anterior em vez de virar null', () => {
+  const merged = mergeCodexAccount(contaCodex(), {
+    planType: 42,
+    spendControlReached: 'sim',
+    resetCreditsAvailable: 'muitos'
+  })
+  assert.equal(merged.planType, 'plus')
+  assert.equal(merged.spendControlReached, null)
+  assert.equal(merged.resetCreditsAvailable, null)
+})
+
+test('créditos e limite individual ficam em string — não viram número', () => {
+  const merged = mergeCodexAccount(contaCodex({ credits: null }), {
+    credits: { hasCredits: true, unlimited: false, balance: '3.20' },
+    individualLimit: { limit: '20.00', used: '4.10', remainingPct: 79.5, resetsAt: 999 }
+  })
+  assert.equal(typeof merged.credits.balance, 'string')
+  assert.equal(typeof merged.individualLimit.limit, 'string')
+  assert.equal(merged.individualLimit.remainingPct, 79.5)
+})
+
+test('limite individual pela metade não entra na conta', () => {
+  const merged = mergeCodexAccount(contaCodex(), {
+    individualLimit: { limit: '20.00', remainingPct: 79.5 }
+  })
+  assert.equal(merged.individualLimit, null)
+})
+
+test('créditos ilimitados são um estado, e não uma quota de 0%', () => {
+  const merged = mergeCodexAccount(contaCodex({ credits: null }), {
+    credits: { hasCredits: true, unlimited: true, balance: null }
+  })
+  assert.equal(merged.credits.unlimited, true)
+  assert.equal(merged.credits.balance, null)
+  assert.equal(merged.limits.length, 0, 'sem leitura de janela não se inventa 0%')
+})
+
+test('a janela persistida cujo reset já passou não volta do disco', () => {
+  const agora = Date.parse('2026-08-29T12:00:00.000Z')
+  const secs = (min) => Math.floor(agora / 1000) + min * 60
+  const stored = decodeStoredCodexUsage(
+    {
+      at: '2026-08-29T11:00:00.000Z',
+      planType: 'plus',
+      limits: [
+        { provider: 'codex', bucketId: 'primary', window: '5h', pct: 4, resetsAt: secs(30) },
+        { provider: 'codex', bucketId: 'secondary', window: '7d', pct: 1, resetsAt: secs(-10) },
+        { provider: 'codex', bucketId: 'sem-prazo', window: '5h', pct: 90 }
+      ]
+    },
+    agora
+  )
+  assert.deepEqual(
+    stored.limits.map((l) => l.bucketId),
+    ['primary'],
+    'vencida e sem prazo não sobrevivem ao restart'
+  )
+  assert.equal(stored.planType, 'plus')
+})
+
+test('arquivo Codex vazio ou corrompido não vira conta zerada', () => {
+  assert.equal(decodeStoredCodexUsage(null), null)
+  assert.equal(decodeStoredCodexUsage({}), null)
+  assert.equal(decodeStoredCodexUsage({ limits: 'nada' }), null)
+  // Só a data: a conta existe, mas sem janela nenhuma para mostrar.
+  const so = decodeStoredCodexUsage({ at: '2026-08-29T11:00:00.000Z' })
+  assert.deepEqual(so.limits, [])
+  assert.equal(so.planType, null)
+})
+
+test('Claude 5h e Codex 5h não são fundidos no agregado', () => {
+  const janelas = aggregateLimits([
+    { limits: [{ provider: 'claude', window: '5h', pct: 48, resetsAt: 111 }] },
+    { limits: [{ provider: 'codex', bucketId: 'primary', window: '5h', pct: 4, resetsAt: 222 }] }
+  ])
+  assert.deepEqual(
+    janelas.map((j) => [j.provider, j.bucketId ?? null, j.window, j.pct]),
+    [
+      ['claude', null, '5h', 48],
+      ['codex', 'primary', '5h', 4]
+    ]
+  )
 })
 
 // ─── Por conta (bloco de perfis) ──────────────────────────────────────────────

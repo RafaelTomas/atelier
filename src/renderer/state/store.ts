@@ -15,6 +15,7 @@ import type {
   ButtonConfig,
   CanvasNode,
   ClaudeAccountInfo,
+  CodexAccountUsage,
   Connection,
   DiscoveredProject,
   Drawing,
@@ -160,6 +161,7 @@ export interface AppSnapshot {
    * na store por outro caminho.
    */
   claudeAccountUsage: StoredAccountUsage[]
+  codexAccountUsage: CodexAccountUsage
   /** Diálogo "Novo Terminal" aberto — a dock dispara, o App renderiza. */
   newTerminalOpen: boolean
   /** Área desenhada antes do diálogo abrir — o terminal nasce nela. */
@@ -296,6 +298,18 @@ const initial: AppSnapshot = {
   roles: [],
   claudeAccounts: [],
   claudeAccountUsage: [],
+  codexAccountUsage: {
+    authMode: null,
+    planType: null,
+    limits: [],
+    credits: null,
+    individualLimit: null,
+    spendControlReached: null,
+    rateLimitReachedType: null,
+    resetCreditsAvailable: null,
+    at: '',
+    source: 'none'
+  },
   newTerminalOpen: false,
   newTerminalFrame: null,
   editTerminalId: null,
@@ -1480,6 +1494,25 @@ class Store {
     ])
     this.set({ claudeAccounts, claudeAccountUsage })
     return claudeAccounts
+  }
+
+  async subscribeCodexAccount(): Promise<void> {
+    const usage = await window.atelier.codex.subscribe()
+    this.set({ codexAccountUsage: usage })
+  }
+
+  async unsubscribeCodexAccount(): Promise<void> {
+    await window.atelier.codex.unsubscribe()
+  }
+
+  setCodexAccountUsage(usage: CodexAccountUsage): void {
+    this.set({ codexAccountUsage: usage })
+  }
+
+  async refreshCodexAccount(): Promise<CodexAccountUsage> {
+    const usage = await window.atelier.codex.refreshAccount()
+    this.set({ codexAccountUsage: usage })
+    return usage
   }
 
   /**

@@ -49,6 +49,9 @@ export function App(): JSX.Element {
     const offUsage = window.atelier.terminal.onUsage(({ id, usage }) => {
       store.setTerminalUsage(id, usage)
     })
+    const offCodex = window.atelier.codex.onAccount((usage) => {
+      store.setCodexAccountUsage(usage)
+    })
     const offStatus2 = window.atelier.terminal.onStatus(({ id, status }) => {
       store.setTerminalStatus(id, status)
     })
@@ -73,6 +76,7 @@ export function App(): JSX.Element {
       offStatus()
       offStatus2()
       offUsage()
+      offCodex()
       offCandidates()
       offFile()
       offWake()

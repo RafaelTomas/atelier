@@ -20,6 +20,7 @@ export type RendererEvent =
   // A leitura que o PRÓPRIO agente publica (statusLine do Claude Code), em vez
   // da raspada da tela. Ver core/terminal/status-line.ts.
   | 'terminal:usage'
+  | 'codex:account'
   | 'project:scan-progress'
   | 'project:scan-done'
   | 'project:changed'

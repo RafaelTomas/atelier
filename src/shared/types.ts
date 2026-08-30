@@ -557,7 +557,20 @@ export interface AgentStatus {
   /** Percentual de contexto usado. */
   contextPct: number | null
   /** Janelas de limite de uso: `5h` 80%, `7d` 58%. */
-  limits: { window: string; pct: number }[]
+  limits: UsageLimit[]
+}
+
+export type AgentUsageSource = 'statusline' | 'app-server' | 'screen' | 'none'
+export type AgentProvider = 'claude' | 'codex'
+
+export interface UsageLimit {
+  provider?: AgentProvider
+  bucketId?: string | null
+  bucketName?: string | null
+  window: string
+  windowMinutes?: number | null
+  pct: number
+  resetsAt?: number | null
 }
 
 /**
@@ -579,6 +592,7 @@ export interface AgentStatus {
  * isso não sai de cena — ver `mergeReading` em shared/agent-usage.ts.
  */
 export interface AgentUsage {
+  provider?: AgentProvider | null
   /** `model.display_name` — qual Claude está de fato rodando neste nó. */
   model: string | null
   modelId: string | null
@@ -589,6 +603,10 @@ export interface AgentUsage {
   contextWindowSize: number | null
   /** Já calculado pelo CLI, sobre tokens de entrada. */
   usedPercentage: number | null
+  sessionTokens?: number | null
+  cachedInputTokens?: number | null
+  cacheWriteInputTokens?: number | null
+  reasoningOutputTokens?: number | null
   /**
    * Custo estimado da SESSÃO, em dólares. Diferente de tokens, esta unidade é
    * a mesma para todo agente — é o único número deste tipo que dá para somar
@@ -602,7 +620,7 @@ export interface AgentUsage {
    * `resetsAt` é o que o raspador nunca teve: sem ele, "7d 58%" é um número
    * sem prazo.
    */
-  limits: { window: string; pct: number; resetsAt: number | null }[]
+  limits: UsageLimit[]
   effort: string | null
   fastMode: boolean | null
   sessionId: string | null
@@ -631,8 +649,40 @@ export interface AgentUsage {
 export interface StoredAccountUsage {
   /** `DEFAULT_CLAUDE_ACCOUNT_ID` para a conta padrão (~/.claude). */
   accountId: string
-  limits: { window: string; pct: number; resetsAt: number | null }[]
+  limits: UsageLimit[]
   /** Quando o agente publicou. ISO 8601. */
+  at: string
+}
+
+export interface CodexAccountUsage {
+  authMode: string | null
+  planType: string | null
+  limits: UsageLimit[]
+  credits: {
+    hasCredits: boolean
+    unlimited: boolean
+    balance: string | null
+  } | null
+  individualLimit: {
+    limit: string
+    used: string
+    remainingPct: number
+    resetsAt: number
+  } | null
+  spendControlReached: boolean | null
+  rateLimitReachedType: string | null
+  resetCreditsAvailable: number | null
+  at: string
+  source: 'live' | 'stored' | 'none'
+}
+
+export interface StoredCodexUsage {
+  limits: UsageLimit[]
+  planType: string | null
+  credits: CodexAccountUsage['credits']
+  individualLimit: CodexAccountUsage['individualLimit']
+  spendControlReached: boolean | null
+  rateLimitReachedType: string | null
   at: string
 }
 

@@ -1953,7 +1953,11 @@ await test('statusline pelo socket registra a leitura publicada pelo agente', as
   // O tamanho da janela é o que a raspagem de tela nunca soube: sem ele, "8%"
   // não diz de quanto.
   assert.equal(usage.contextWindowSize, 1000000)
-  assert.deepEqual(usage.limits, [{ window: '7d', pct: 41.2, resetsAt: 1738857600 }])
+  // O provedor viaja junto desde que o Codex tambem publica janelas: `5h` do
+  // Claude e `5h` do Codex sao contadores diferentes, e so o provedor separa.
+  assert.deepEqual(usage.limits, [
+    { provider: 'claude', window: '7d', pct: 41.2, resetsAt: 1738857600 }
+  ])
 
   // A resposta vira a BARRA DE STATUS do agente — é texto para o usuário ler.
   assert.match(out, /Opus/)

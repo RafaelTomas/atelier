@@ -233,6 +233,76 @@ export function fitAlongEdge(
 }
 
 /**
+ * O mesmo encaixe, agora contra VÁRIAS irmãs na borda — as pílulas viraram três.
+ *
+ * `fitAlongEdge` responde por um par, e um par de cada vez não basta: empurrar
+ * a rail para longe da dock pode encostá-la na tira do monitor, e a resposta
+ * "ok" do primeiro par teria escondido a sobreposição que o segundo criou.
+ *
+ * A ordem das `others` é a ordem de resolução, e ela é FIXA em quem chama
+ * (dock → rail → monitor). Não é indiferente: o resultado de empurrar A antes
+ * de B não é o mesmo de empurrar B antes de A, e uma ordem que dependesse de
+ * quem renderizou primeiro daria posições diferentes para o mesmo gesto.
+ *
+ * A pílula arrastada NUNCA se move — ela é a única posição que o usuário de
+ * fato pediu. Cada irmã é acomodada contra a arrastada E contra as irmãs já
+ * acomodadas; a que sobrar sem lugar recebe `swap`, e aí quem decide é
+ * `resolveCollision`.
+ *
+ * A saída tem um veredito por irmã, na mesma ordem em que elas entraram.
+ */
+export function fitAmong(
+  moved: PillSpan,
+  others: PillSpan[],
+  total: number,
+  edge: PlacementEdge
+): EdgeFit[] {
+  // Quem já tem lugar garantido nesta borda. A arrastada abre a lista.
+  const fixed: PillSpan[] = [moved]
+  const out: EdgeFit[] = []
+
+  for (const other of others) {
+    let cur = other
+    let verdict: EdgeFit = { kind: 'ok' }
+
+    // Uma passada por vizinho já fixado: cada empurrão pode criar um cruzamento
+    // novo com quem já estava, e é a volta seguinte que o desfaz. Com três
+    // pílulas o teto é dois, e ele existe para o laço terminar sempre.
+    for (let pass = 0; pass < fixed.length; pass++) {
+      let moveu = false
+      for (const f of fixed) {
+        const fit = fitAlongEdge(f, cur, total, edge)
+        if (fit.kind === 'ok') continue
+        if (fit.kind === 'swap') {
+          verdict = { kind: 'swap' }
+          break
+        }
+        cur = { offset: fit.offset, length: cur.length }
+        verdict = { kind: 'push', offset: fit.offset }
+        moveu = true
+      }
+      if (!moveu || verdict.kind === 'swap') break
+    }
+
+    // A garantia, e não a esperança: se depois das voltas ainda houver um
+    // cruzamento, esta irmã não tem lugar aqui e vai para outra borda. Sem esta
+    // conferência, um caso apertado sairia do laço com duas empilhadas — que é
+    // o único estado de fato quebrado.
+    if (
+      verdict.kind !== 'swap' &&
+      fixed.some((f) => fitAlongEdge(f, cur, total, edge).kind !== 'ok')
+    ) {
+      verdict = { kind: 'swap' }
+    }
+
+    out.push(verdict)
+    if (verdict.kind !== 'swap') fixed.push(cur)
+  }
+
+  return out
+}
+
+/**
  * A saída de último caso quando as duas pílulas não cabem na mesma borda.
  *
  * Dividir a borda é o caminho normal (ver `fitAlongEdge`); esta função só entra

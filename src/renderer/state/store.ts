@@ -35,6 +35,7 @@ import { UNDO_STACK_LIMIT, UNDO_WINDOW_MS, captureRemoval, restoreRemoval } from
 import {
   DEFAULT_CLAUDE_ACCOUNT_ID,
   DOCK_PLACEMENT_DEFAULT,
+  MONITOR_PLACEMENT_DEFAULT,
   RAIL_PLACEMENT_DEFAULT,
   formatPlacement,
   parsePlacement,
@@ -48,6 +49,24 @@ import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { quoteForShell } from '../paths'
 import { PDF_NODE_SIZE, isPdf } from '../pdf-viewer'
 import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
+import type { PillId } from '../floating/use-pill'
+
+/**
+ * Qual chave de `preferences.json` guarda cada pílula.
+ *
+ * Um mapa, e não o ternário que servia a duas: com três pílulas um ternário
+ * aninhado deixa de ser legível, e — pior — o compilador para de reclamar
+ * quando um `PillId` novo não tem chave, porque o ramo final vira o pega-tudo.
+ * O `Record` obriga a decidir.
+ *
+ * A importação de `PillId` é SÓ DE TIPO: em runtime o hook importa a store, e
+ * um import de valor fecharia o ciclo.
+ */
+const PILL_PREF_KEY: Record<PillId, 'dockPlacement' | 'railPlacement' | 'monitorPlacement'> = {
+  dock: 'dockPlacement',
+  rail: 'railPlacement',
+  monitor: 'monitorPlacement'
+}
 
 /**
  * Ferramenta ativa do canvas. 'select' é o comportamento de sempre (arrastar
@@ -254,6 +273,16 @@ export interface AppSnapshot {
    */
   dockPlacement: PillPlacement
   railPlacement: PillPlacement
+  monitorPlacement: PillPlacement
+  /**
+   * A tira do monitor está na borda? DERIVADO de `prefs`, como as posições.
+   *
+   * Ela é a única pílula que se desliga, porque é a única que custa: assina o
+   * amostrador enquanto existe. O padrão é `true` em todos os caminhos —
+   * ausente, apagada pelo app nativo ou com lixo dentro —, senão um estado
+   * gravado esconderia a peça sem deixar como trazê-la de volta.
+   */
+  monitorDockVisible: boolean
   /**
    * Plataforma, vinda do bootInfo. O renderer não tem `process`, e quem cola um
    * caminho no terminal precisa saber com que aspas o shell de lá se entende.
@@ -332,6 +361,8 @@ const initial: AppSnapshot = {
   closingEditor: null,
   dockPlacement: DOCK_PLACEMENT_DEFAULT,
   railPlacement: RAIL_PLACEMENT_DEFAULT,
+  monitorPlacement: MONITOR_PLACEMENT_DEFAULT,
+  monitorDockVisible: true,
   platform: 'linux',
   loading: true,
   bootError: null
@@ -401,6 +432,10 @@ class Store {
         // aqui em vez de a cada render das duas peças.
         dockPlacement: parsePlacement(prefs.dockPlacement, DOCK_PLACEMENT_DEFAULT),
         railPlacement: parsePlacement(prefs.railPlacement, RAIL_PLACEMENT_DEFAULT),
+        monitorPlacement: parsePlacement(prefs.monitorPlacement, MONITOR_PLACEMENT_DEFAULT),
+        // `!== false` e não `Boolean(...)`: a chave ausente (versão anterior,
+        // ou save do app nativo) tem de deixar a tira VISÍVEL.
+        monitorDockVisible: prefs.monitorDockVisible !== false,
         loading: false
       })
     } catch (err) {
@@ -1779,8 +1814,8 @@ class Store {
    * gravar durante o arrasto escreveria `preferences.json` sessenta vezes por
    * segundo por uma posição da qual só a última importa.
    */
-  async setPillPlacement(id: 'dock' | 'rail', placement: PillPlacement): Promise<void> {
-    const key = id === 'dock' ? 'dockPlacement' : 'railPlacement'
+  async setPillPlacement(id: PillId, placement: PillPlacement): Promise<void> {
+    const key = PILL_PREF_KEY[id]
     this.set({ [key]: placement } as Partial<AppSnapshot>)
     this.mirrorPrefs({ [key]: formatPlacement(placement) })
     await window.atelier.prefs.set({ [key]: formatPlacement(placement) })

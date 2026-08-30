@@ -86,7 +86,7 @@ function widgetOf(node: CanvasNode): WidgetContent {
 }
 
 function boardTitle(node: CanvasNode): string {
-  return widgetOf(node).view.title || 'TODO'
+  return widgetOf(node).view.title || 'Tarefas'
 }
 
 /**

@@ -32,7 +32,7 @@ await esbuild.build({
   logLevel: 'silent',
   alias: { '@shared': join(ROOT, 'src/shared') }
 })
-const { UNDO_WINDOW_MS, UNDO_STACK_LIMIT, captureRemoval, restoreRemoval, pendingRestores } =
+const { UNDO_WINDOW_MS, captureRemoval, restoreRemoval, pendingRestores } =
   await import(pathToFileURL(outfile).href)
 
 // O outro lado do undo: os bytes da imagem, que ficam de molho no main até a
@@ -248,9 +248,10 @@ test('pendingRestores conta só o que falta', () => {
 
 console.log('\njanela')
 
-test('a janela de undo é finita e a pilha é limitada', () => {
+test('a janela de undo é finita', () => {
+  // O limite de passos não mora mais aqui: o delete entrou no histórico único
+  // do store, e quem conta os passos dele é o MAX_HISTORY de lá.
   assert.ok(UNDO_WINDOW_MS > 0 && UNDO_WINDOW_MS <= 5 * 60_000)
-  assert.ok(UNDO_STACK_LIMIT >= 1)
 })
 
 console.log('\nimagem de molho')
@@ -305,6 +306,200 @@ await asyncTest('apagar → desfazer → apagar de novo conta a janela do últim
   scheduleImageDelete('n4', 'ws', 'novo.png', s.remove)
   await flushImageDeletes()
   assert.deepEqual(s.calls, ['ws/novo.png'])
+})
+
+// ─── O histórico único do store ──────────────────────────────────────────────
+//
+// Até aqui os testes olham a REGRA (o que volta junto com o nó). O que segue
+// olha a PILHA: o delete deixou de ter um desfazer próprio e passou a ser mais
+// um passo do Ctrl+Z. Isso só é verificável contra o store de verdade — a
+// versão anterior tinha duas pilhas que não se falavam, e nenhum teste de
+// função pura seria capaz de perceber que o mesmo ⌘Z mexia nas duas.
+//
+// O `window.atelier` abaixo é um processo principal de mentira: guarda um
+// grafo, poda no `node.remove`, recoloca no `node.restore` e anota a ordem das
+// chamadas. É o bastante para afirmar o que importa — que desfazer um delete
+// passa pelo main, e não só pelo retrato do renderer.
+
+const storeFile = join(outdir, 'store.mjs')
+await esbuild.build({
+  stdin: {
+    contents: `export { store } from './src/renderer/state/store.ts'`,
+    resolveDir: ROOT,
+    loader: 'ts'
+  },
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  jsx: 'automatic',
+  define: { 'process.env.NODE_ENV': '"production"' },
+  external: ['electron'],
+  outfile: storeFile,
+  logLevel: 'silent',
+  alias: { '@shared': join(ROOT, 'src/shared') }
+})
+
+/** O main de mentira, com o grafo dentro. Devolve o `window.atelier` e o log. */
+function fakeMain() {
+  const graph = base()
+  const state = {
+    id: 'ws',
+    name: 'ws',
+    nodes: graph.nodes,
+    connections: graph.connections,
+    groups: graph.groups,
+    drawings: []
+  }
+  const calls = []
+  const atelier = {
+    workspace: {
+      open: async () => structuredClone(state),
+      integrity: async () => null,
+      restore: async (_id, snapshot) => {
+        calls.push('workspace.restore')
+        Object.assign(state, structuredClone(snapshot))
+      }
+    },
+    node: {
+      add: async (_id, _kind, position) => {
+        const created = node(`novo-${state.nodes.length}`, {
+          frame: { ...position, width: 100, height: 100 }
+        })
+        state.nodes = [...state.nodes, created]
+        return structuredClone(created)
+      },
+      remove: async (_id, nodeId) => {
+        calls.push(`node.remove:${nodeId}`)
+        Object.assign(state, removeNodes(state, [nodeId]))
+      },
+      restore: async (_id, snapshots) => {
+        calls.push('node.restore')
+        Object.assign(state, restoreRemoval(state, snapshots))
+        return snapshots.map((s) => s.node.id)
+      }
+    }
+  }
+  return { atelier, state, calls }
+}
+
+/** Um store zerado, já com o workspace aberto e o main de mentira no lugar. */
+async function comStore() {
+  const main = fakeMain()
+  globalThis.window = { atelier: main.atelier }
+  const { store } = await import(`${pathToFileURL(storeFile).href}?t=${Math.random()}`)
+  await store.openWorkspace('ws')
+  return { store, ...main }
+}
+
+const ids = (store) =>
+  store
+    .getSnapshot()
+    .workspace.nodes.map((n) => n.id)
+    .sort()
+
+console.log('\nhistórico único')
+
+await asyncTest('o delete é um passo do ⌘Z — um só, para a seleção inteira', async () => {
+  const { store } = await comStore()
+  await store.removeNodes(['a', 'b'])
+  assert.deepEqual(ids(store), ['c'])
+  await store.undo()
+  assert.deepEqual(ids(store), ['a', 'b', 'c'], 'um ⌘Z devolve os dois')
+  store.dismissNotice()
+})
+
+await asyncTest('desfazer um delete passa pelo main ANTES do retrato', async () => {
+  // O retrato sozinho redesenharia a tela e deixaria os bytes da imagem
+  // condenados: quem cancela a exclusão é o `node:restore`.
+  const { store, calls } = await comStore()
+  await store.removeNodes(['a'])
+  await store.undo()
+  const restore = calls.indexOf('node.restore')
+  assert.ok(restore >= 0, 'o main precisa saber que o nó voltou')
+  assert.ok(restore < calls.indexOf('workspace.restore'), 'o main vem antes do retrato')
+  store.dismissNotice()
+})
+
+await asyncTest('o nó volta selecionado — responde "onde ele foi parar"', async () => {
+  const { store } = await comStore()
+  await store.removeNodes(['a'])
+  await store.undo()
+  assert.deepEqual(store.getSnapshot().selection, ['a'])
+  store.dismissNotice()
+})
+
+await asyncTest('refazer NÃO apaga de novo: o redo para no delete', async () => {
+  const { store } = await comStore()
+  await store.removeNodes(['a'])
+  await store.undo()
+  assert.equal(store.canRedo, false, 'não há o que refazer em cima de um delete')
+  await store.redo()
+  assert.deepEqual(ids(store), ['a', 'b', 'c'], 'o nó continua vivo')
+  store.dismissNotice()
+})
+
+await asyncTest('a edição comum continua indo e voltando pelo mesmo histórico', async () => {
+  const { store } = await comStore()
+  await store.addNode('note', { x: 10, y: 10 })
+  assert.equal(ids(store).length, 4)
+  await store.undo()
+  assert.equal(ids(store).length, 3, 'desfez a criação')
+  assert.equal(store.canRedo, true)
+  await store.redo()
+  assert.equal(ids(store).length, 4, 'refez a criação')
+})
+
+await asyncTest('⌘Z depois do delete anda para o passo anterior, não para outra pilha', async () => {
+  const { store } = await comStore()
+  await store.addNode('note', { x: 10, y: 10 })
+  await store.removeNodes(['a'])
+  await store.undo()
+  assert.deepEqual(ids(store), ['a', 'b', 'c', 'novo-3'], 'primeiro volta o delete')
+  await store.undo()
+  assert.deepEqual(ids(store), ['a', 'b', 'c'], 'depois desfaz a criação')
+  store.dismissNotice()
+})
+
+console.log('\njanela, no store')
+
+/** Roda `fn` com o relógio adiantado — a janela de undo fechada. */
+async function passadaAJanela(fn) {
+  const real = Date.now
+  Date.now = () => real.call(Date) + UNDO_WINDOW_MS + 1000
+  try {
+    await fn()
+  } finally {
+    Date.now = real
+  }
+}
+
+await asyncTest('nó comum desfaz mesmo depois da janela — o arquivo dele ficou', async () => {
+  const { store } = await comStore()
+  await store.removeNodes(['a'])
+  await passadaAJanela(() => store.undo())
+  assert.deepEqual(ids(store), ['a', 'b', 'c'])
+  store.dismissNotice()
+})
+
+await asyncTest('imagem fora da janela não volta, e o histórico anterior cai junto', async () => {
+  // Passada a janela os bytes já saíram do disco. O retrato ANTERIOR aponta
+  // para os mesmos bytes, então desfazer mais fundo devolveria outra moldura
+  // vazia — a pilha inteira é descartada, e não só o passo do delete.
+  const { store } = await comStore()
+  await store.addNode('note', { x: 10, y: 10 })
+  store.getSnapshot().workspace.nodes.find((n) => n.id === 'a').content = {
+    type: 'image',
+    value: { fileName: 'a.png' }
+  }
+  await store.removeNodes(['a'])
+  await passadaAJanela(() => store.undo())
+  assert.deepEqual(ids(store), ['b', 'c', 'novo-3'], 'a imagem não volta vazia')
+  assert.equal(store.canUndo, false, 'o que estava embaixo também não é mais restaurável')
+  assert.equal(
+    store.getSnapshot().notice?.text,
+    'a imagem apagada já saiu do disco — não dá para desfazer'
+  )
+  store.dismissNotice()
 })
 
 await rm(outdir, { recursive: true, force: true })

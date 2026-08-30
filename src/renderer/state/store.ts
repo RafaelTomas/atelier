@@ -31,7 +31,7 @@ import type {
   WorkspacePayload
 } from '@shared/types'
 import type { RemovedNodeSnapshot } from '@shared/node-undo'
-import { UNDO_STACK_LIMIT, UNDO_WINDOW_MS, captureRemoval, restoreRemoval } from '@shared/node-undo'
+import { UNDO_WINDOW_MS, captureRemoval } from '@shared/node-undo'
 import {
   DEFAULT_CLAUDE_ACCOUNT_ID,
   DOCK_PLACEMENT_DEFAULT,
@@ -379,6 +379,38 @@ const initial: AppSnapshot = {
  * datas) não é "conteúdo editável" e fica de fora de propósito. */
 type HistorySnapshot = Pick<WorkspacePayload, 'nodes' | 'connections' | 'groups' | 'drawings'>
 
+/**
+ * O que morreu num delete, e quando.
+ *
+ * Um retrato do grafo bastaria para redesenhar a tela, mas não para devolver o
+ * NÓ: os arquivos que vivem por nodeId (scrollback, `.session.json`, o `.md` da
+ * nota, os bytes da imagem) são do processo principal, e só ele sabe cancelar a
+ * exclusão que já estava marcada. Por isso a entrada de um delete carrega, além
+ * do retrato, o que `node:restore` precisa receber.
+ */
+interface RemovalMark {
+  snapshots: RemovedNodeSnapshot[]
+  /** Quando o delete aconteceu — a janela de `UNDO_WINDOW_MS` conta daqui. */
+  at: number
+}
+
+/**
+ * Um passo do histórico: o grafo ANTES da edição e, se a edição foi um delete,
+ * o que ele levou junto.
+ *
+ * Uma pilha só, e não duas. Antes havia o Ctrl+Z genérico (retratos do grafo) e
+ * um desfazer só do delete (snapshots + restore pelo main) vivendo lado a lado,
+ * e o preço era alto: o mesmo Ctrl+Z disparava os dois, o genérico ressuscitava
+ * um nó de imagem sem avisar o main (que apagava os bytes assim que a janela
+ * fechava, deixando a moldura vazia), e nenhum dos dois sabia da existência do
+ * outro para se manter em ordem. `removal` é o que faltava para o histórico
+ * único conseguir tratar o delete sem deixar de ser um histórico só.
+ */
+interface HistoryEntry {
+  snapshot: HistorySnapshot
+  removal: RemovalMark | null
+}
+
 /** Além disso o app não guarda mais passos — histórico não é o arquivo. */
 const MAX_HISTORY = 100
 
@@ -389,9 +421,16 @@ class Store {
   /** Esta varredura pediu descrição automática? Ver startScan/finishScan. */
   private armedAutoDescribe = false
 
-  /** Pilhas do Ctrl+Z/Ctrl+Shift+Z — uma por workspace aberto, zeradas ao trocar. */
-  private past: HistorySnapshot[] = []
-  private future: HistorySnapshot[] = []
+  /**
+   * Pilhas do Ctrl+Z/Ctrl+Shift+Z — uma por workspace aberto, zeradas ao trocar.
+   *
+   * Em MEMÓRIA, fora do snapshot do React e fora do `workspace.json`: nada na
+   * tela depende delas a não ser o aviso, que já é estado, e um histórico
+   * persistido seria um campo que o app nativo Swift descartaria no primeiro
+   * save — além de ressuscitar, na sessão seguinte, um nó que ⌘Z não prometeu.
+   */
+  private past: HistoryEntry[] = []
+  private future: HistoryEntry[] = []
 
   getSnapshot = (): AppSnapshot => this.state
 
@@ -546,11 +585,17 @@ class Store {
    * isto) — empilha o retrato de ANTES no undo. As demais (status de conexão
    * piscando, z-index de "trouxe pra frente") deixam o padrão `false`: entram
    * no Ctrl+Z e o usuário nunca pediu para desfazer aquilo.
+   *
+   * `removal` só vem do delete, e é o que distingue aquele passo dos outros na
+   * hora de desfazer — ver `HistoryEntry`.
    */
-  private mutateWorkspace(fn: (ws: WorkspacePayload) => void, opts: { history?: boolean } = {}): void {
+  private mutateWorkspace(
+    fn: (ws: WorkspacePayload) => void,
+    opts: { history?: boolean; removal?: RemovalMark } = {}
+  ): void {
     const ws = this.state.workspace
     if (!ws) return
-    if (opts.history) this.pushHistory(ws)
+    if (opts.history) this.pushHistory(ws, opts.removal ?? null)
     const next = {
       ...ws,
       nodes: [...ws.nodes],
@@ -572,14 +617,28 @@ class Store {
     })
   }
 
-  private pushSnapshot(snap: HistorySnapshot): void {
-    this.past.push(snap)
+  private pushSnapshot(entry: HistoryEntry): void {
+    this.past.push(entry)
     if (this.past.length > MAX_HISTORY) this.past.shift()
     this.future = []
   }
 
-  private pushHistory(ws: WorkspacePayload): void {
-    this.pushSnapshot(this.snapshotOf(ws))
+  private pushHistory(ws: WorkspacePayload, removal: RemovalMark | null = null): void {
+    this.pushSnapshot({ snapshot: this.snapshotOf(ws), removal })
+  }
+
+  /**
+   * O delete de uma imagem tem prazo — os outros não.
+   *
+   * Passada a janela, o main já apagou os bytes (ver
+   * core/persistence/pending-image-delete.ts) e o nó que voltasse voltaria
+   * vazio: a moldura certa, no lugar certo, sem imagem. Nó de texto, terminal,
+   * nota ou tabela não tem esse prazo — os arquivos deles ficam no disco, e
+   * desfazer meia hora depois devolve o nó inteiro.
+   */
+  private expired(removal: RemovalMark): boolean {
+    if (Date.now() - removal.at <= UNDO_WINDOW_MS) return false
+    return removal.snapshots.some((s) => s.node.content.type === 'image')
   }
 
   private resetHistory(): void {
@@ -592,25 +651,70 @@ class Store {
   }
 
   get canRedo(): boolean {
-    return this.future.length > 0
+    const top = this.future[this.future.length - 1]
+    return top !== undefined && top.removal === null
   }
 
+  /**
+   * Desfaz o último passo — inclusive quando esse passo foi um delete.
+   *
+   * O delete não volta só pelo retrato. Ele passa ANTES por `node:restore`,
+   * que é quem cancela a exclusão dos bytes da imagem e recoloca o nó com o
+   * MESMO id, para os arquivos por nodeId não ficarem órfãos ao lado de um nó
+   * vazio. O retrato vem depois e alinha o resto do grafo (desenhos, e o que
+   * mais tenha mudado no mesmo passo) — as duas chamadas descrevem o mesmo
+   * estado final, então a ordem entre elas é a única coisa que importa.
+   */
   async undo(): Promise<void> {
     const ws = this.state.workspace
-    const prev = this.past.pop()
-    if (!ws || !prev) return
-    this.future.push(this.snapshotOf(ws))
-    await window.atelier.workspace.restore(ws.id, prev)
-    this.set({ workspace: { ...ws, ...prev } })
+    const entry = this.past[this.past.length - 1]
+    if (!ws || !entry) return
+
+    // Fora da janela, o retrato ANTERIOR a este também aponta para bytes que já
+    // saíram do disco — desfazer mais fundo devolveria outra moldura vazia. O
+    // histórico inteiro cai junto, e dizer isso é melhor que restaurar um nó
+    // que mente sobre o próprio conteúdo.
+    if (entry.removal && this.expired(entry.removal)) {
+      this.past = []
+      this.future = []
+      this.showNotice('a imagem apagada já saiu do disco — não dá para desfazer')
+      return
+    }
+
+    this.past.pop()
+    this.future.push({ snapshot: this.snapshotOf(ws), removal: entry.removal })
+    if (entry.removal) await window.atelier.node.restore(ws.id, entry.removal.snapshots)
+    await window.atelier.workspace.restore(ws.id, entry.snapshot)
+    this.set({ workspace: { ...ws, ...entry.snapshot } })
+    // Selecionar o que voltou responde "onde ele foi parar" sem procurar. O
+    // terminal volta PARADO: o `.session.json` sobreviveu à remoção, então quem
+    // quiser a conversa de volta liga o nó e o boot retoma pelo id gravado.
+    if (entry.removal) {
+      this.set({ selection: entry.removal.snapshots.map((s) => s.node.id) })
+      this.dismissNotice()
+    }
   }
 
+  /**
+   * Refaz — mas PARA no delete, em vez de atravessá-lo.
+   *
+   * Refazer uma remoção é apagar de novo, e um gesto destrutivo atrás do
+   * atalho que a pessoa usa justamente para corrigir engano é caro demais. O
+   * passo fica onde está: quem quiser mesmo apagar aperta Delete, que é
+   * explícito e deixa o próprio desfazer para trás.
+   */
   async redo(): Promise<void> {
     const ws = this.state.workspace
-    const next = this.future.pop()
-    if (!ws || !next) return
-    this.past.push(this.snapshotOf(ws))
-    await window.atelier.workspace.restore(ws.id, next)
-    this.set({ workspace: { ...ws, ...next } })
+    const entry = this.future[this.future.length - 1]
+    if (!ws || !entry) return
+    if (entry.removal) {
+      this.showNotice('refazer não apaga de novo')
+      return
+    }
+    this.future.pop()
+    this.past.push({ snapshot: this.snapshotOf(ws), removal: null })
+    await window.atelier.workspace.restore(ws.id, entry.snapshot)
+    this.set({ workspace: { ...ws, ...entry.snapshot } })
   }
 
   async addNode(
@@ -683,88 +787,37 @@ class Store {
     const snapshots = captureRemoval(ws, targets)
     await Promise.all(targets.map((nodeId) => window.atelier.node.remove(id, nodeId)))
     const dead = new Set(targets)
-    this.mutateWorkspace((w) => {
-      w.nodes = w.nodes.filter((n) => !dead.has(n.id))
-      w.connections = w.connections.filter((c) => !dead.has(c.nodeIdA) && !dead.has(c.nodeIdB))
-      // A moldura fica, só perde o membro — espelha o WorkspaceManager. Sem
-      // isto o contador da faixa continuaria contando um nó que já não existe.
-      w.groups = w.groups.map((g) =>
-        g.nodeIds.some((n) => dead.has(n))
-          ? { ...g, nodeIds: g.nodeIds.filter((n) => !dead.has(n)) }
-          : g
-      )
-    })
+    // UM passo no histórico para o gesto inteiro: apagar cinco nós e ter de
+    // desfazer cinco vezes não é desfazer o que se fez.
+    this.mutateWorkspace(
+      (w) => {
+        w.nodes = w.nodes.filter((n) => !dead.has(n.id))
+        w.connections = w.connections.filter((c) => !dead.has(c.nodeIdA) && !dead.has(c.nodeIdB))
+        // A moldura fica, só perde o membro — espelha o WorkspaceManager. Sem
+        // isto o contador da faixa continuaria contando um nó que já não existe.
+        w.groups = w.groups.map((g) =>
+          g.nodeIds.some((n) => dead.has(n))
+            ? { ...g, nodeIds: g.nodeIds.filter((n) => !dead.has(n)) }
+            : g
+        )
+      },
+      { history: true, removal: { snapshots, at: Date.now() } }
+    )
     this.set({ selection: this.state.selection.filter((sel) => !dead.has(sel)) })
-    this.pushUndo({ workspaceId: id, snapshots, at: Date.now() })
+    // O botão do aviso e o ⌘Z são o MESMO gesto agora — os dois desfazem o
+    // topo do histórico, que acabou de ser este delete.
     this.showNotice(noticeForRemoval(snapshots), {
       label: 'Desfazer',
-      run: () => void this.undoLastRemoval()
+      run: () => void this.undo()
     })
-  }
-
-  // ─── Desfazer o delete ──────────────────────────────────────────────────────
-  // Pilha em MEMÓRIA, fora do snapshot do React: ela muda junto com o workspace
-  // e nada na tela depende dela a não ser o aviso, que já é estado. Fora do
-  // workspace.json também — um histórico de undo persistido seria um campo que
-  // o app nativo Swift descartaria no primeiro save, e ressuscitar um nó de uma
-  // sessão anterior não é o que ⌘Z promete.
-
-  private undoStack: { workspaceId: UUID; snapshots: RemovedNodeSnapshot[]; at: number }[] = []
-  /** Editores com alteração pendente ainda por perguntar, na ordem. */
-  private closingQueue: UUID[] = []
-
-  private pushUndo(entry: { workspaceId: UUID; snapshots: RemovedNodeSnapshot[]; at: number }): void {
-    this.undoStack.push(entry)
-    if (this.undoStack.length > UNDO_STACK_LIMIT) this.undoStack.shift()
-  }
-
-  /**
-   * Desfaz o último delete que ainda está dentro da janela.
-   *
-   * A janela não é decoração: passada ela, o main já apagou os bytes da imagem
-   * (ver core/persistence/pending-image-delete.ts), e um nó de imagem que
-   * voltasse depois disso voltaria vazio. Melhor dizer que não dá do que
-   * devolver uma moldura em branco.
-   *
-   * Entradas de OUTRO workspace são descartadas na mesma passada: o canvas
-   * mudou, e o nó que voltasse não estaria na tela de ninguém.
-   */
-  async undoLastRemoval(): Promise<void> {
-    const id = this.workspaceId
-    if (!id) return
-    const now = Date.now()
-    while (this.undoStack.length > 0) {
-      const top = this.undoStack[this.undoStack.length - 1]
-      if (top.workspaceId === id && now - top.at <= UNDO_WINDOW_MS) break
-      this.undoStack.pop()
-    }
-    const entry = this.undoStack.pop()
-    if (!entry) {
-      this.showNotice('nada para desfazer')
-      return
-    }
-    const restored = await window.atelier.node.restore(id, entry.snapshots)
-    if (restored.length === 0) {
-      this.showNotice('nada para desfazer')
-      return
-    }
-    this.mutateWorkspace((w) => {
-      const next = restoreRemoval(w, entry.snapshots)
-      w.nodes = next.nodes
-      w.connections = next.connections
-      w.groups = next.groups
-    })
-    // Selecionar o que voltou responde "onde ele foi parar" sem procurar. O
-    // terminal volta PARADO: o `.session.json` sobreviveu à remoção, então quem
-    // quiser a conversa de volta liga o nó e o boot retoma pelo id gravado.
-    this.set({ selection: restored })
-    this.dismissNotice()
   }
 
   // ─── Editor de código ───────────────────────────────────────────────────────
 
   /** Nós de editor com alteração pendente. Fora do snapshot: muda a cada tecla. */
   private dirtyEditors = new Set<UUID>()
+  /** Editores com alteração pendente ainda por perguntar, na ordem. */
+  private closingQueue: UUID[] = []
   /** path → quem quer saber que o arquivo mudou em disco. */
   private fileListeners = new Map<string, Set<(text: string) => void>>()
 
@@ -1781,7 +1834,7 @@ class Store {
     const before = this.state.workspace ? this.snapshotOf(this.state.workspace) : null
     const group = await window.atelier.group.create(id, title, frame, nodeIds)
     if (!group) return null
-    if (before) this.pushSnapshot(before)
+    if (before) this.pushSnapshot({ snapshot: before, removal: null })
     // Substitui a lista inteira em vez de só empurrar o novo: o main pode ter
     // tirado membros de outros grupos para honrar a regra de um dono por nó, e
     // a cópia daqui ficaria mostrando o nó nos dois lugares.

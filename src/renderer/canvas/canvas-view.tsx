@@ -1202,6 +1202,13 @@ export function CanvasView(): JSX.Element {
       }
 
       // Desfazer/refazer, no atalho que todo editor usa — Shift inverte o sentido.
+      //
+      // É UM histórico só, delete incluído: este bloco era disparado junto com
+      // um segundo, que desfazia o último delete por outra pilha, e o mesmo
+      // ⌘Z rodava os dois. Refazer não apaga de novo — o store para no delete
+      // em vez de atravessá-lo, e quem quiser mesmo apagar aperta Delete. A
+      // guarda lá de cima já protege quem está digitando: dentro de uma nota ou
+      // do editor o ⌘Z é do texto, e nem chega aqui.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         if (e.shiftKey) void store.redo()
@@ -1216,16 +1223,6 @@ export function CanvasView(): JSX.Element {
         } else if (selection.length > 0) {
           void store.groupSelection()
         }
-      }
-
-      // Desfazer o último delete, no atalho universal. Não há Shift+⌘Z: o que
-      // se desfaz aqui é uma REMOÇÃO, e "refazer" seria apagar de novo — gesto
-      // destrutivo demais para ficar atrás de um atalho de correção. A guarda
-      // lá de cima já protege quem está digitando: dentro de uma nota ou do
-      // editor o ⌘Z é do texto, e nem chega aqui.
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
-        e.preventDefault()
-        void store.undoLastRemoval()
       }
 
       // Atalhos das ferramentas, no padrão de editor de canvas

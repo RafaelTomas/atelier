@@ -26,9 +26,6 @@ import type { CanvasNode, Connection, NodeGroup, UUID } from './types'
  */
 export const UNDO_WINDOW_MS = 60_000
 
-/** Quantos deletes seguidos o histórico guarda. */
-export const UNDO_STACK_LIMIT = 10
-
 /**
  * Tudo o que morreu junto com um nó. Serializável: atravessa o IPC como está.
  */

@@ -4,10 +4,22 @@ import { notifyRenderer } from '../../ipc/notify'
 import { log } from '../logger'
 import { persistence } from '../persistence/persistence-manager'
 import { CodexJsonRpcClient, codexInitializeParams, spawnCodexAppServer } from './codex-protocol'
+import { hasCodexAccount } from './codex-presence'
 
 const SAVE_DEBOUNCE_MS = 5000
 
-function empty(source: CodexAccountUsage['source'] = 'none'): CodexAccountUsage {
+/**
+ * Quanto tempo esperar antes de tentar o App Server de novo depois que ele
+ * falhou. Existe conta no disco mas o `codex` não sobe (não instalado, PATH
+ * diferente do da sessão gráfica): sem esta trava, cada painel que abre paga um
+ * spawn e escreve mais um stack trace de ENOENT no log.
+ */
+const RETRY_AFTER_MS = 60_000
+
+function empty(
+  source: CodexAccountUsage['source'] = 'none',
+  available = false
+): CodexAccountUsage {
   return {
     authMode: null,
     planType: null,
@@ -19,7 +31,8 @@ function empty(source: CodexAccountUsage['source'] = 'none'): CodexAccountUsage 
     resetCreditsAvailable: null,
     tokenUsage: null,
     at: new Date().toISOString(),
-    source
+    source,
+    available
   }
 }
 
@@ -28,16 +41,23 @@ export class CodexTelemetryService {
   private client: CodexJsonRpcClient | null = null
   private account: CodexAccountUsage = empty()
   private saveTimer: NodeJS.Timeout | null = null
+  /** null = ainda não perguntamos ao disco. */
+  private hasAccount: boolean | null = null
+  private lastFailureAt = 0
 
   get current(): CodexAccountUsage {
     return this.account
   }
 
   async loadStored(): Promise<void> {
+    // A pergunta vem antes da leitura guardada de propósito: quem desfez o
+    // login no Codex não quer ver o plano e os tokens da conta antiga
+    // ressuscitarem no monitor a cada boot.
+    if (!(await this.detectAccount())) return
     const stored = await persistence.loadCodexUsage()
     if (!stored) return
     this.account = {
-      ...empty('stored'),
+      ...empty('stored', true),
       planType: stored.planType,
       limits: stored.limits,
       credits: stored.credits,
@@ -61,6 +81,10 @@ export class CodexTelemetryService {
   }
 
   async refreshAccount(): Promise<CodexAccountUsage> {
+    // O ↻ é o gesto de quem acabou de fazer `codex login` na outra janela:
+    // relê o disco e derruba o backoff, em vez de repetir a resposta velha.
+    this.hasAccount = null
+    this.lastFailureAt = 0
     await this.ensureStarted()
     if (!this.client) return this.account
     await this.readAccount()
@@ -85,6 +109,10 @@ export class CodexTelemetryService {
 
   private async ensureStarted(): Promise<void> {
     if (this.client) return
+    // Sem conta cadastrada não há o que perguntar — e `detectAccount` já
+    // deixou a leitura zerada para o monitor.
+    if (!(await this.detectAccount())) return
+    if (Date.now() - this.lastFailureAt < RETRY_AFTER_MS) return
     try {
       this.client = spawnCodexAppServer()
       this.client.on('notification', (method: string, params: unknown) => {
@@ -96,10 +124,27 @@ export class CodexTelemetryService {
       await this.readAccount()
     } catch (err) {
       log.warn('codex', 'Codex App Server indisponivel', err)
+      this.lastFailureAt = Date.now()
       this.client?.close()
       this.client = null
-      if (this.account.source !== 'stored') this.account = empty('none')
+      if (this.account.source !== 'stored') this.account = empty('none', true)
     }
+  }
+
+  /**
+   * Existe conta do Codex no disco? Memoizado porque `ensureStarted` roda a
+   * cada assinatura de painel; `refreshAccount` limpa a memória para que um
+   * login feito com o Atelier aberto seja notado.
+   */
+  private async detectAccount(): Promise<boolean> {
+    if (this.hasAccount === null) {
+      this.hasAccount = await hasCodexAccount()
+      if (!this.hasAccount) {
+        this.stop()
+        this.account = empty('none', false)
+      }
+    }
+    return this.hasAccount
   }
 
   private stop(): void {
@@ -126,7 +171,8 @@ export class CodexTelemetryService {
         ...merged,
         limits: limits === null ? merged.limits : fromCodexRateLimits(limits),
         at: new Date().toISOString(),
-        source: 'live'
+        source: 'live',
+        available: true
       }
       this.persistSoon()
       notifyRenderer('codex:account', this.account)
@@ -139,7 +185,8 @@ export class CodexTelemetryService {
     this.account = {
       ...mergeCodexAccount(this.account, payload),
       at: new Date().toISOString(),
-      source: this.account.source === 'none' ? 'live' : this.account.source
+      source: this.account.source === 'none' ? 'live' : this.account.source,
+      available: true
     }
     this.persistSoon()
     notifyRenderer('codex:account', this.account)

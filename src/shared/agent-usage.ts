@@ -674,7 +674,10 @@ export function decodeStoredCodexUsage(
       resetCreditsAvailable: null,
       tokenUsage: null,
       at: at ?? '',
-      source: 'stored'
+      source: 'stored',
+      // Há arquivo de leitura guardada, logo houve conta em algum momento;
+      // quem decide se ela ainda existe é `codex-presence`, no main.
+      available: true
     },
     data
   )

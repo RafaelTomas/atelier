@@ -879,6 +879,12 @@ export interface CodexAccountUsage {
   tokenUsage: CodexAccountTokenUsage | null
   at: string
   source: 'live' | 'stored' | 'none'
+  /**
+   * Existe conta do Codex no disco (o `auth.json` do CODEX_HOME). false = o
+   * usuário nunca logou no CLI, e então o monitor não desenha a seção Codex e
+   * o main não levanta o App Server. Ver `core/codex/codex-presence`.
+   */
+  available: boolean
 }
 
 export interface CodexAccountTokenUsage {

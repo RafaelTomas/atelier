@@ -181,6 +181,16 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 .canvas-host.is-space-pan:active { cursor: grabbing; }
 .canvas-host.is-space-pan .nodes-layer { pointer-events: none; }
 
+/* Gesto em curso (arrasto, resize, marquee, pan): o `<webview>` do Portal fica
+   transparente ao mouse.
+
+   O guest do webview é outro processo — quando o cursor entra nele, o
+   `mousemove`/`mouseup` para lá e nunca sobe para o DOM do host, que é quem
+   escuta o gesto (ver markGesture em canvas/canvas-view.tsx). Sem esta regra um
+   resize que passasse por cima do portal perdia o soltar do botão e ficava
+   preso. Só o webview: o resto do nó continua respondendo. */
+.canvas-host.is-gesturing webview { pointer-events: none; }
+
 /* Um transform só para todos os nós — pan/zoom composto pela GPU */
 .nodes-layer {
   position: absolute; top: 0; left: 0;

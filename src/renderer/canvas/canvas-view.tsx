@@ -536,7 +536,33 @@ export function CanvasView(): JSX.Element {
 
   // ─── Mouse ──────────────────────────────────────────────────────────────────
 
+  /**
+   * Marca no host que um gesto está em curso — e é o `<webview>` do Portal que
+   * precisa disso.
+   *
+   * O guest de um webview é OUTRO PROCESSO: assim que o cursor entra nele, os
+   * `mousemove`/`mouseup` vão para lá e NUNCA sobem para o DOM do host. Como
+   * este arquivo escuta os dois na `window`, um arrasto ou um resize que passe
+   * por cima de um portal perdia o `mouseup` — a interação ficava presa em
+   * `resizing`, o nó continuava esticando sozinho no movimento seguinte e o
+   * commit final podia jogá-lo para fora da faixa de culling, o que desmonta o
+   * webview e recarrega a página (o "reinicia o navegador").
+   *
+   * `pointer-events: none` no webview enquanto o gesto dura resolve na raiz: o
+   * guest não vê mouse nenhum e o host continua recebendo o gesto inteiro.
+   */
+  const markGesture = (): void => {
+    hostRef.current?.classList.toggle('is-gesturing', interaction.current.kind !== 'idle')
+  }
+
   const onMouseDown = (e: React.MouseEvent): void => {
+    // A classe é sincronizada DEPOIS de decidir o gesto — beginInteraction tem
+    // uma dúzia de saídas, e cada uma delas escreve interaction.current.
+    beginInteraction(e)
+    markGesture()
+  }
+
+  const beginInteraction = (e: React.MouseEvent): void => {
     // Mão do espaço antes de qualquer outra coisa: com ela segurada o arrasto é
     // pan, venha de onde vier — a .nodes-layer fica transparente ao mouse, então
     // nem terminal nem portal chegam a ver o clique.
@@ -786,6 +812,15 @@ export function CanvasView(): JSX.Element {
       const state = interaction.current
       if (state.kind === 'idle') return
 
+      // Rede de segurança: o botão já foi solto e o `mouseup` não chegou (o
+      // gesto terminou fora da janela, ou em cima de algo que não devolve o
+      // evento). Fecha o gesto aqui em vez de deixá-lo preso, seguindo o mouse
+      // para sempre.
+      if (e.buttons === 0) {
+        onUp(e)
+        return
+      }
+
       const sp = screenPoint(e)
       const cp = viewport.toCanvas(sp)
 
@@ -942,6 +977,7 @@ export function CanvasView(): JSX.Element {
     const onUp = (e: MouseEvent): void => {
       const state = interaction.current
       interaction.current = { kind: 'idle' }
+      hostRef.current?.classList.remove('is-gesturing')
       if (releasePanOnUp.current) {
         releasePanOnUp.current = false
         setSpacePan(false)

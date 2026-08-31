@@ -23,7 +23,13 @@
   --accent: #007aff;
   --canvas-bg: #ffffff;
   --canvas-grid: #e8e8ec;
-  --rope: #9a9aa2;
+  /* `--rope-theme` é o cinza de repouso DO TEMA; `--rope` é o que os cabos
+     pintam de fato, e é ele que a escolha de cor sobrescreve inline no :root.
+     A separação existe para quem precisa mostrar o padrão mesmo com uma cor
+     escolhida — a amostra "Padrão do tema" do seletor de cabos —, que senão
+     exibiria a cor escolhida em vez do cinza que ela promete. */
+  --rope-theme: #9a9aa2;
+  --rope: var(--rope-theme);
   --rope-scale: 1;
   --rope-active: #2ecc71;
   --rope-error: #e74c3c;
@@ -56,7 +62,7 @@
     --text-dim: #9a9aa4;
     --canvas-bg: #17171a;
     --canvas-grid: #26262c;
-    --rope: #5a5a64;
+    --rope-theme: #5a5a64;
     --term-bg: #101014;
     --term-fg: #e6e6e6;
     --dock-bg: rgb(30 30 35 / .86);
@@ -78,7 +84,7 @@
   --text-dim: #9a9aa4;
   --canvas-bg: #17171a;
   --canvas-grid: #26262c;
-  --rope: #5a5a64;
+  --rope-theme: #5a5a64;
   --term-bg: #101014;
   --term-fg: #e6e6e6;
   --dock-bg: rgb(30 30 35 / .86);

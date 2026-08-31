@@ -411,9 +411,11 @@ function AccountsBlock(): JSX.Element {
         </div>
       )}
 
-      <ul className="monitor-accounts">
-        <CodexAccountLine usage={codexAccountUsage} />
-      </ul>
+      {codexAccountUsage.available && (
+        <ul className="monitor-accounts">
+          <CodexAccountLine usage={codexAccountUsage} />
+        </ul>
+      )}
 
       <div className="monitor-account-section">Claude</div>
 

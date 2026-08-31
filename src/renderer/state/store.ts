@@ -344,7 +344,10 @@ const initial: AppSnapshot = {
     resetCreditsAvailable: null,
     tokenUsage: null,
     at: '',
-    source: 'none'
+    source: 'none',
+    // Começa fechado: quem diz se existe conta do Codex é o main, na primeira
+    // assinatura. Assumir que sim faria a seção piscar na tela de quem não tem.
+    available: false
   },
   newTerminalOpen: false,
   newTerminalFrame: null,

@@ -331,7 +331,11 @@ function useMonitorDockAI(): DockSummary {
     // de contas estiver aberto. Assinar em permanência é um custo que esta
     // rodada não decidiu pagar, e a alternativa seria a tira ligar um canal do
     // App Server por conta própria.
-    if (codexAccountUsage.authMode !== 'api-key' && codexAccountUsage.source !== 'none') {
+    if (
+      codexAccountUsage.available &&
+      codexAccountUsage.authMode !== 'api-key' &&
+      codexAccountUsage.source !== 'none'
+    ) {
       accounts.push({
         accountId: 'codex',
         limits: activeWindows(codexAccountUsage.limits),

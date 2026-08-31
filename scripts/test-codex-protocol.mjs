@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { PassThrough } from 'node:stream'
@@ -15,6 +15,7 @@ await esbuild.build({
   stdin: {
     contents: `
       export { CodexJsonRpcClient, codexAppServerCommand, codexInitializeParams, sanitizeStderr } from './src/main/core/codex/codex-protocol.ts'
+      export { codexAuthPath, codexHome, hasCodexAccount } from './src/main/core/codex/codex-presence.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -26,9 +27,15 @@ await esbuild.build({
   logLevel: 'silent'
 })
 
-const { CodexJsonRpcClient, codexAppServerCommand, codexInitializeParams, sanitizeStderr } = await import(
-  pathToFileURL(outfile).href
-)
+const {
+  CodexJsonRpcClient,
+  codexAppServerCommand,
+  codexInitializeParams,
+  sanitizeStderr,
+  codexAuthPath,
+  codexHome,
+  hasCodexAccount
+} = await import(pathToFileURL(outfile).href)
 
 let passed = 0
 let failed = 0
@@ -236,6 +243,26 @@ await test('fora do Windows o binario e chamado direto, sem shell no meio', () =
       args: ['app-server', '--stdio']
     })
   }
+})
+
+await test('sem auth.json nao ha conta Codex — nada de App Server, nada no monitor', async () => {
+  const home = join(outdir, 'codex-home-vazio')
+  await mkdir(home, { recursive: true })
+  assert.equal(await hasCodexAccount({ CODEX_HOME: home }), false)
+})
+
+await test('com auth.json ha conta — e o CODEX_HOME manda no caminho', async () => {
+  const home = join(outdir, 'codex-home-logado')
+  await mkdir(home, { recursive: true })
+  await writeFile(join(home, 'auth.json'), '{"tokens":{}}')
+  assert.equal(codexHome({ CODEX_HOME: home }), home)
+  assert.equal(codexAuthPath({ CODEX_HOME: home }), join(home, 'auth.json'))
+  assert.equal(await hasCodexAccount({ CODEX_HOME: home }), true)
+})
+
+await test('CODEX_HOME vazio cai no ~/.codex, o padrao do CLI', () => {
+  assert.equal(codexHome({ CODEX_HOME: '  ' }), join(homedir(), '.codex'))
+  assert.equal(codexHome({}), join(homedir(), '.codex'))
 })
 
 await rm(outdir, { recursive: true, force: true })

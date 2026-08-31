@@ -1212,6 +1212,20 @@ export interface Preferences {
    * deixar como trazê-la de volta.
    */
   monitorDockVisible: boolean
+  /**
+   * Qual CONTA a tira do monitor está mostrando. `''` = automática.
+   *
+   * A tira mostra as janelas de UMA conta, e essa é a escolha do usuário — não
+   * um estado de sessão. Quem trabalha com duas contas alterna entre elas o dia
+   * inteiro; perder a escolha a cada abertura do app faria a peça esquecer
+   * justamente o que se pediu para ela lembrar.
+   *
+   * `''` (o padrão, e também a chave ausente ou com lixo dentro) é a conta MAIS
+   * APERTADA no momento, que é o comportamento com que a tira nasceu. Um id de
+   * conta apagada cai de volta nele: a tira mostra a automática, não um vazio
+   * sem explicação.
+   */
+  monitorDockAccountId: string
 }
 
 // ─── Posição das pílulas flutuantes ───────────────────────────────────────────

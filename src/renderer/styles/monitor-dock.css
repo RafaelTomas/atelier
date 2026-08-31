@@ -23,7 +23,12 @@
    painel — o limiar é compartilhado em código (DANGER_PCT), e a cor tinha de
    ser compartilhada junto. */
 
-.pill.monitor {
+/* `monitor-dock` e não `monitor`: `.monitor` é a classe do PAINEL do monitor
+   (panels.css), e ela casaria com esta pílula — trazendo junto o
+   `overflow-y: auto` que existe para o painel rolar dentro do nó. Numa pílula
+   esse overflow RECORTA o que abre para fora dela: o popover e o menu de contas
+   ficavam no DOM, na posição certa, e invisíveis. */
+.pill.monitor-dock {
   /* Sem `cursor: grab`: a tira inteira é área de arrasto, e a mão aberta é o
      que diz isso antes de o usuário tentar. O `grabbing` durante o gesto vem
      de `.pill.is-dragging`. */
@@ -32,11 +37,21 @@
   font-size: var(--fs-xs);
 }
 
-/* A tira inteira é o gatilho do popover — daí ser um `<button>`. Numa borda, um
-   botão de abrir ao lado das leituras roubaria a largura de uma métrica.
+/* A tira é a linha das peças; quase todas elas abrem o popover, e por isso são
+   `<button>`. Numa borda, um botão de abrir ao lado das leituras roubaria a
+   largura de uma métrica.
+
    `cursor: inherit` mantém a mão aberta da pílula: a tira é antes de tudo uma
-   peça que se arrasta, e uma mãozinha de link aqui prometeria outra coisa. */
+   peça que se arrasta, e uma mãozinha de link aqui prometeria outra coisa. A
+   exceção é o chip da conta, que tem destino próprio e diz isso com o ponteiro.
+   */
 .monitor-dock-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.monitor-dock-part {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -88,7 +103,9 @@
    mesma borda. */
 
 .pill[data-edge='left'] .monitor-dock-strip,
-.pill[data-edge='right'] .monitor-dock-strip {
+.pill[data-edge='right'] .monitor-dock-strip,
+.pill[data-edge='left'] .monitor-dock-part,
+.pill[data-edge='right'] .monitor-dock-part {
   flex-direction: column;
   align-items: center;
   gap: 8px;
@@ -113,20 +130,24 @@
   color: var(--dock-fg-strong);
 }
 
-/* O agregado de IA empilha junto: custo e janelas lado a lado numa coluna de
-   44px sairiam pela pílula, pelo mesmo motivo das métricas. */
-.pill[data-edge='left'] .monitor-dock-ai,
-.pill[data-edge='right'] .monitor-dock-ai {
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+/* O chip da conta na coluna: a pista de 92px do deitado não cabe em 44, e o
+   nome passa a ser cortado na largura da própria coluna. O chevron sai — em pé
+   ele empurraria o nome para uma ou duas letras, e o que o chip precisa dizer
+   ali é DE QUEM é o percentual logo abaixo. Que ele abre um menu continua no
+   `title` e no `aria-haspopup`. */
+.pill[data-edge='left'] .monitor-dock-account,
+.pill[data-edge='right'] .monitor-dock-account {
   width: 100%;
-}
-.pill[data-edge='left'] .monitor-dock-cost,
-.pill[data-edge='right'] .monitor-dock-cost {
-  min-width: 0;
-  text-align: center;
+  justify-content: center;
   font-size: var(--fs-2xs);
+}
+.pill[data-edge='left'] .monitor-dock-account svg,
+.pill[data-edge='right'] .monitor-dock-account svg {
+  display: none;
+}
+.pill[data-edge='left'] .monitor-dock-account-name,
+.pill[data-edge='right'] .monitor-dock-account-name {
+  max-width: 100%;
 }
 
 /* A caixinha da janela segue a mesma forma da célula: medidor, nome embaixo e o
@@ -158,10 +179,10 @@
   text-align: center;
 }
 
-/* ─── O agregado de IA ────────────────────────────────────────────────────────
-   O custo somado e a janela mais apertada entre as contas. Separados das
-   métricas de máquina por um traço, porque são de outra ordem de grandeza de
-   preocupação: uma diz se a máquina aguenta, a outra se a CONTA aguenta. */
+/* ─── A conta e as janelas dela ───────────────────────────────────────────────
+   O nome da conta em foco e os limites dela. Separados das métricas de máquina
+   por um traço, porque são de outra ordem de grandeza de preocupação: uma diz
+   se a máquina aguenta, a outra se a CONTA aguenta. */
 
 .monitor-dock-sep {
   flex-shrink: 0;
@@ -175,20 +196,78 @@
   height: 1px;
 }
 
-.monitor-dock-ai {
+/* O chip da conta. Tem moldura, ao contrário de tudo o mais na tira, porque é a
+   única peça com destino PRÓPRIO: as outras abrem o painel, esta troca o que a
+   tira mostra. Sem a moldura, o nome pareceria mais um rótulo como `CPU`.
+
+   Pista fixa de 92px pelo mesmo motivo das métricas: nomes de conta têm
+   larguras diferentes, e sem ela a tira refluiria a cada troca — o `ellipsis`
+   corta o nome comprido em vez de esticar a pílula. */
+.monitor-dock-account {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
+  flex: 0 0 auto;
+  max-width: 92px;
+  margin: 0;
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--dock-fg-strong);
+  font: inherit;
+  cursor: pointer;
+}
+.monitor-dock-account:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* A conta que a tira elegeu sozinha é dita em itálico esmaecido: o nome é
+   verdadeiro, mas ele pode trocar quando outra conta apertar mais — e quem
+   fixou uma conta merece ver que a dela NÃO troca. */
+.monitor-dock-account.is-auto .monitor-dock-account-name {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.monitor-dock-account-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* Mesma pista reservada das métricas, pelo mesmo motivo: `$0,40` e `$128,90`
-   têm larguras diferentes, e o custo sobe a sessão inteira. */
-.monitor-dock-cost {
-  min-width: 52px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+/* ─── O menu de contas ──────────────────────────────────────────────────────── */
+
+.monitor-dock-account-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.monitor-dock-account-item:hover { background: var(--surface-2); }
+
+/* O ✓ é desenhado no pseudo-elemento para o item marcado não ficar mais alto
+   que os outros quando a marca aparece. */
+.monitor-dock-account-item.is-on .monitor-dock-account-item-label::after {
+  content: ' ✓';
   color: var(--accent);
+}
+
+.monitor-dock-account-item-hint {
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Uma janela de limite — o medidor com o percentual dentro, o nome da janela e
@@ -260,6 +339,16 @@
 }
 .monitor-dock-popover[data-edge='left'] { left: calc(100% + 10px); }
 .monitor-dock-popover[data-edge='right'] { left: auto; right: calc(100% + 10px); }
+
+/* O menu de contas herda do popover a posição contra a borda e muda só o
+   tamanho e o miolo — que aqui é uma lista de itens, não um painel. Vem DEPOIS
+   do popover de propósito: as duas regras têm a mesma especificidade, e é a
+   segunda que decide a largura. */
+.monitor-dock-accounts {
+  width: 220px;
+  padding: 4px;
+  gap: 1px;
+}
 
 /* O painel dentro do popover é o MESMO componente do nó, com as mesmas classes
    `.monitor-*`. Só a altura muda: no nó ele preenche o corpo, aqui ele para

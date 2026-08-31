@@ -36,6 +36,19 @@ export type PillId = 'dock' | 'rail' | 'monitor'
  */
 export const PILL_ORDER: PillId[] = ['dock', 'rail', 'monitor']
 
+/**
+ * A classe CSS de cada pílula. Não é `id` direto porque a do monitor NÃO pode
+ * se chamar `monitor`: `.monitor` já é o painel do monitor (panels.css), e uma
+ * pílula que casasse com ele herdaria o `overflow-y: auto` que faz o painel
+ * rolar dentro do nó — o que numa pílula recorta o popover e o menu que abrem
+ * para fora dela. Eles ficavam no DOM, na posição certa, e invisíveis.
+ */
+const PILL_CLASS: Record<PillId, string> = {
+  dock: 'dock',
+  rail: 'rail',
+  monitor: 'monitor-dock'
+}
+
 const PILL_FALLBACK: Record<PillId, Placement> = {
   dock: DOCK_PLACEMENT_DEFAULT,
   rail: RAIL_PLACEMENT_DEFAULT,
@@ -73,7 +86,7 @@ export interface Pill {
  * borda com ninguém.
  */
 function edgeLength(id: PillId, placement: Placement): number | null {
-  const el = document.querySelector<HTMLElement>(`.pill.${id}`)
+  const el = document.querySelector<HTMLElement>(`.pill.${PILL_CLASS[id]}`)
   if (!el) return null
   const r = el.getBoundingClientRect()
   return isVerticalEdge(placement.edge) ? r.height : r.width

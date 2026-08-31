@@ -289,6 +289,14 @@ export interface AppSnapshot {
    */
   monitorDockVisible: boolean
   /**
+   * A conta cujas janelas a tira mostra. `''` = automática (a mais apertada).
+   *
+   * DERIVADO de `prefs`, como as posições e a visibilidade. É escolha do
+   * usuário, não estado de sessão: quem alterna entre duas contas espera que a
+   * tira continue na que ele deixou.
+   */
+  monitorDockAccountId: string
+  /**
    * Plataforma, vinda do bootInfo. O renderer não tem `process`, e quem cola um
    * caminho no terminal precisa saber com que aspas o shell de lá se entende.
    */
@@ -373,6 +381,7 @@ const initial: AppSnapshot = {
   railPlacement: RAIL_PLACEMENT_DEFAULT,
   monitorPlacement: MONITOR_PLACEMENT_DEFAULT,
   monitorDockVisible: true,
+  monitorDockAccountId: '',
   platform: 'linux',
   loading: true,
   bootError: null
@@ -497,6 +506,8 @@ class Store {
         // `!== false` e não `Boolean(...)`: a chave ausente (versão anterior,
         // ou save do app nativo) tem de deixar a tira VISÍVEL.
         monitorDockVisible: prefs.monitorDockVisible !== false,
+        monitorDockAccountId:
+          typeof prefs.monitorDockAccountId === 'string' ? prefs.monitorDockAccountId : '',
         loading: false
       })
     } catch (err) {
@@ -2035,6 +2046,20 @@ class Store {
     this.set({ monitorDockVisible })
     this.mirrorPrefs({ monitorDockVisible })
     await window.atelier.prefs.set({ monitorDockVisible })
+  }
+
+  /**
+   * Escolhe a conta que a tira do monitor mostra. `''` volta para a automática.
+   *
+   * Não valida o id contra a lista: a tira já cai na automática quando o id não
+   * bate com conta nenhuma (ver monitor-dock.tsx), e guardar o id de uma conta
+   * ausente é o que faz a escolha sobreviver a um refresh de contas que ainda
+   * não voltou.
+   */
+  async setMonitorDockAccount(monitorDockAccountId: string): Promise<void> {
+    this.set({ monitorDockAccountId })
+    this.mirrorPrefs({ monitorDockAccountId })
+    await window.atelier.prefs.set({ monitorDockAccountId })
   }
 
   setTheme(theme: ThemeMode): void {

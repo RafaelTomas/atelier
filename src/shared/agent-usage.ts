@@ -362,44 +362,33 @@ export function agoLabel(at: string | null | undefined, nowMs: number = Date.now
   return `há ${Math.floor(h / 24)}d`
 }
 
-// ─── O agregado da tira de borda ─────────────────────────────────────────────
+// ─── O recorte da tira de borda ──────────────────────────────────────────────
 
 /**
- * As duas leituras de IA que cabem numa borda: o custo somado e a janela mais
- * apertada de todas.
+ * As janelas que cabem numa borda: a que fecha primeiro, e a de sessão.
  *
- * A tira do monitor (`renderer/monitor-dock.tsx`) não mostra a lista de contas
- * — com três contas, três anéis numa borda deixam de ser legíveis, e essa é a
- * leitura que o popover faz bem. O que cabe ali é a resposta curta: quanto já
- * custou, e qual das minhas janelas vai fechar primeiro.
- *
- * As duas metades vêm de recortes DIFERENTES de propósito, e a diferença é o
- * assunto deste arquivo:
- *
- *  - o custo é dos AGENTES do canvas, porque dólar é a mesma unidade em todo
- *    agente e a soma é honesta;
- *  - a janela é das CONTAS, porque é a conta que tem o limite. Dois agentes na
- *    mesma conta gastam a MESMA janela, e somá-los faria a tira anunciar um
- *    aperto que não existe.
+ * A tira do monitor (`renderer/monitor-dock.tsx`) mostra as janelas de UMA
+ * conta — a que o usuário escolheu, ou a mais apertada quando ele não escolheu
+ * nenhuma. Ela não mostra a lista: com três contas, três anéis numa borda
+ * deixam de ser legíveis, e essa é a leitura que o popover faz bem. O que cabe
+ * ali é a resposta curta sobre a conta em foco, e o NOME dela ao lado — sem o
+ * nome, dois percentuais numa borda não dizem de quem são.
  *
  * O MÁXIMO, nunca a média: a pergunta é "qual das minhas janelas está mais
- * apertada", e uma média entre uma conta a 80% e outra a 0% responderia 40%,
+ * apertada", e uma média entre uma janela a 80% e outra a 0% responderia 40%,
  * escondendo exatamente o que interessa. Empate fica com a PRIMEIRA vista — os
  * CLIs publicam `5h` antes de `7d`, e desempatar de outro jeito faria a tira
  * trocar de janela sem que nada tivesse mudado.
  *
  * Conta sem leitura não entra em nada: ela não é um zero, é uma ausência. Uma
- * conta parada ao lado de outra a 62% não pode puxar a tira para "31%", nem
- * fazer o custo virar `US$ 0,00` quando o certo é `—`.
+ * conta parada não pode puxar a tira para um percentual que ninguém mediu.
  */
-export interface DockSummary {
-  /** Soma dos agentes que publicam custo. `null` = ninguém publicou. */
-  costUsd: number | null
-  /** A janela mais apertada entre as contas. `null` = nenhuma conta tem leitura. */
+export interface DockWindows {
+  /** A janela mais apertada. `null` = sem leitura. */
   tightest: UsageWindow | null
   /**
-   * A janela de SESSÃO mais apertada — a de menor duração entre as contas (a
-   * `5h` do Claude, a de horas do Codex).
+   * A janela de SESSÃO — a de menor duração (a `5h` do Claude, a de horas do
+   * Codex).
    *
    * Ela é a leitura que muda uma decisão AGORA: a de 7 dias aperta devagar e
    * reabre num prazo que não cabe numa tarde, enquanto a de sessão é a que
@@ -407,8 +396,7 @@ export interface DockSummary {
    * `tightest` porque as duas divergem justamente quando importa — a semanal
    * pode estar mais alta e ainda assim não ser a que trava o próximo comando.
    *
-   * `null` quando nenhuma conta tem leitura, ou quando nenhuma janela tem
-   * duração legível.
+   * `null` quando não há leitura, ou quando nenhuma janela tem duração legível.
    */
   session: UsageWindow | null
 }
@@ -439,34 +427,58 @@ export function windowSpanMinutes(w: {
   return unit === 'min' ? n : unit === 'h' ? n * 60 : n * 1440
 }
 
-export function dockSummary(readings: AgentReading[], accounts: AccountUsage[]): DockSummary {
+/**
+ * O recorte de um conjunto de janelas. Recebe as de UMA conta (o caso da tira)
+ * ou as de todas (o caso da escolha automática) — a regra é a mesma, e é por
+ * isso que ela mora numa função só.
+ */
+export function pickWindows(limits: UsageWindow[]): DockWindows {
   let tightest: UsageWindow | null = null
   let session: UsageWindow | null = null
   let sessionSpan: number | null = null
 
-  for (const account of accounts) {
-    for (const limit of account.limits) {
-      if (!Number.isFinite(limit.pct)) continue
-      // `>` e não `>=`: no empate fica quem chegou primeiro.
-      if (tightest === null || limit.pct > tightest.pct) tightest = limit
+  for (const limit of limits) {
+    if (!Number.isFinite(limit.pct)) continue
+    // `>` e não `>=`: no empate fica quem chegou primeiro.
+    if (tightest === null || limit.pct > tightest.pct) tightest = limit
 
-      // A de sessão é a de MENOR duração; entre duas contas com a mesma janela,
-      // a mais apertada. Sem duração legível a janela não disputa este posto —
-      // ela ainda conta para `tightest`, que não depende de saber o prazo.
-      const span = windowSpanMinutes(limit)
-      if (span === null) continue
-      if (
-        sessionSpan === null ||
-        span < sessionSpan ||
-        (span === sessionSpan && session !== null && limit.pct > session.pct)
-      ) {
-        session = limit
-        sessionSpan = span
-      }
+    // A de sessão é a de MENOR duração; entre duas janelas de mesma duração, a
+    // mais apertada. Sem duração legível a janela não disputa este posto — ela
+    // ainda conta para `tightest`, que não depende de saber o prazo.
+    const span = windowSpanMinutes(limit)
+    if (span === null) continue
+    if (
+      sessionSpan === null ||
+      span < sessionSpan ||
+      (span === sessionSpan && session !== null && limit.pct > session.pct)
+    ) {
+      session = limit
+      sessionSpan = span
     }
   }
 
-  return { costUsd: sumCost(readings), tightest, session }
+  return { tightest, session }
+}
+
+/**
+ * Qual conta a tira mostra quando o usuário não escolheu nenhuma: a que tem a
+ * janela mais apertada.
+ *
+ * `null` quando NENHUMA conta tem leitura — e aí a tira não tem o que dizer,
+ * nem o nome de quem. Escolher a primeira da lista nesse caso anunciaria uma
+ * conta em foco que não está medindo nada.
+ */
+export function tightestAccount(accounts: AccountUsage[]): AccountUsage | null {
+  let best: AccountUsage | null = null
+  let bestPct = -1
+  for (const account of accounts) {
+    for (const limit of account.limits) {
+      if (!Number.isFinite(limit.pct) || limit.pct <= bestPct) continue
+      best = account
+      bestPct = limit.pct
+    }
+  }
+  return best
 }
 
 // ─── O payload da statusLine ──────────────────────────────────────────────────

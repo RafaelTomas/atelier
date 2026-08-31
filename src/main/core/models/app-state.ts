@@ -124,7 +124,8 @@ export function makePreferences(): Preferences {
     dockPlacement: formatPlacement(DOCK_PLACEMENT_DEFAULT),
     railPlacement: formatPlacement(RAIL_PLACEMENT_DEFAULT),
     monitorPlacement: formatPlacement(MONITOR_PLACEMENT_DEFAULT),
-    monitorDockVisible: true
+    monitorDockVisible: true,
+    monitorDockAccountId: ''
   }
 }
 
@@ -169,6 +170,9 @@ export function decodePreferences(value: unknown): Preferences {
     // O padrão aqui é `true` de propósito: chave ausente, apagada pelo app
     // nativo ou com lixo dentro deixa a tira VISÍVEL. O contrário esconderia a
     // peça sem deixar como trazê-la de volta.
-    monitorDockVisible: bool(o.monitorDockVisible, base.monitorDockVisible)
+    monitorDockVisible: bool(o.monitorDockVisible, base.monitorDockVisible),
+    // Ausente em preferences.json escrito antes do seletor de conta da tira, e
+    // apagada por um save do app nativo. Cai em `''` — a conta automática.
+    monitorDockAccountId: str(o.monitorDockAccountId, base.monitorDockAccountId)
   }
 }

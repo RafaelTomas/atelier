@@ -460,8 +460,12 @@ export async function installSkillsIfNeeded(): Promise<void> {
     const dir = join(claudeSkillsDir(), SKILL_NAME)
     const file = join(dir, 'SKILL.md')
 
+    // Vazio não é de ninguém: um SKILL.md de 0 byte é sempre resto de escrita
+    // interrompida (uma instância morta no meio do writeFile), e a checagem de
+    // dono o tratava como skill alheia — preservando o lixo a cada boot, para
+    // sempre. Sem conteúdo não há trabalho alheio a proteger: reescrevemos.
     const existing = await readFile(file, 'utf8').catch(() => null)
-    if (existing !== null && !existing.includes(OWNER_MARKER)) {
+    if (existing !== null && existing.trim() !== '' && !existing.includes(OWNER_MARKER)) {
       installed = true
       log.info('skill', `skill de outro app já presente em ${file} — preservada`)
       return

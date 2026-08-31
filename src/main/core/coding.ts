@@ -1,7 +1,7 @@
 /**
  * Primitivas de (de)serialização compatíveis com o Codable do Swift.
  *
- * Três detalhes decidem a compatibilidade com o app nativo e com o Maestri.
+ * Três detalhes decidem a compatibilidade com o app nativo.
  * Errar qualquer um deles gera arquivos que o app Swift recusa a ler:
  *
  *   1. UUID  → string MAIÚSCULA          ("09A997B8-…", não "09a997b8-…")

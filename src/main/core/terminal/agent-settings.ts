@@ -37,6 +37,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { UUID } from '@shared/types'
 import { isClaudeCommandLine } from '@shared/terminal-presets'
+import { cliCommand } from '../interagent/cli-install'
 import { dataDir } from '../persistence/paths'
 import { statusLineBlock } from './status-line'
 
@@ -68,9 +69,14 @@ export function agentSettingsPath(terminalId: UUID): string {
 function artisanHooks(): object {
   return {
     hooks: {
-      SessionStart: [{ hooks: [{ type: 'command', command: 'atelier artesao brief' }] }],
+      SessionStart: [
+        { hooks: [{ type: 'command', command: cliCommand('artesao brief') }] }
+      ],
       PreToolUse: [
-        { matcher: 'Task', hooks: [{ type: 'command', command: 'atelier artesao guard' }] }
+        {
+          matcher: 'Task',
+          hooks: [{ type: 'command', command: cliCommand('artesao guard') }]
+        }
       ]
     }
   }

@@ -255,8 +255,8 @@ do pai, levando o que descobriu.
 O checkbox **Artesão**, na aba Detalhes do diálogo de terminal, desliga isso. Um
 agente marcado como Artesão delega **abrindo nós no canvas** — `atelier recruit`,
 `atelier ask`, `atelier dismiss`. Marcar a caixa veste o nó: ele nasce com o nome
-**Artesão**, o ícone de martelo e o verde, e ganha o badge `ARTESÃO` no cabeçalho,
-ao lado do `MAESTRO`. É um ponto de partida — nome que você digitou não é
+**Artesão**, o ícone de martelo e o verde, e ganha o badge `ARTESÃO` no
+cabeçalho. É um ponto de partida — nome que você digitou não é
 sobrescrito, e a aba Aparência continua mandando depois.
 
 Vale para **qualquer agente de IA** — Claude, Codex, Antigravity, OpenCode. O que
@@ -563,8 +563,8 @@ Dois detalhes de implementação:
   de canvas e são projetados a cada frame. Escalar o canvas por CSS borraria o
   traço — o mesmo problema que o xterm tem.
 - **O marca-texto é gravado com `lineWidth` negativo.** O `Drawing` do formato
-  Maestri não tem campo de tipo, e o sinal sobrevive ao round-trip sem quebrar o
-  app nativo, que lê o valor absoluto como espessura.
+  do app nativo não tem campo de tipo, e o sinal sobrevive ao round-trip sem
+  quebrar o app nativo, que lê o valor absoluto como espessura.
 
 ---
 

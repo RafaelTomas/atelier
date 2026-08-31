@@ -1,0 +1,16 @@
+{
+  "query": "SELECT term, hits FROM searches ORDER BY hits DESC LIMIT 8",
+  "dialect": "sqlite",
+  "columns": ["term", "hits"],
+  "rows": [
+    ["banana", 342],
+    ["maçã", 289],
+    ["abacaxi", 205],
+    ["caqui", 178],
+    ["damasco", 164],
+    ["framboesa", 132],
+    ["manga", 118],
+    ["goiaba", 97]
+  ],
+  "truncated": false
+}

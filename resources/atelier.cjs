@@ -107,7 +107,7 @@ const command = args[0]
 function head(length) {
   return (
     'POST /cli HTTP/1.0\r\n' +
-    'Host: maestri\r\n' +
+    'Host: atelier\r\n' +
     `X-Terminal-ID: ${terminalId}\r\n` +
     'Content-Type: application/json\r\n' +
     `Content-Length: ${length}\r\n` +

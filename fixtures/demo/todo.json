@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "title": "Sprint da busca",
+  "columns": [
+    { "id": "todo", "title": "A fazer" },
+    { "id": "doing", "title": "Fazendo" },
+    { "id": "done", "title": "Feito" }
+  ],
+  "items": [
+    {
+      "id": "2FECD574-9664-439B-BCED-97BCE4BDAAB0",
+      "title": "Escrever a nota Spec — busca",
+      "status": "done",
+      "order": 1000,
+      "assignee": "Artesão",
+      "notes": "Requisitos curtos de search(): filtro por trecho, sem caixa, termo vazio devolve tudo.",
+      "tags": ["spec"],
+      "createdAt": "2026-08-30T13:00:00Z",
+      "updatedAt": "2026-08-30T13:45:00Z",
+      "doneAt": "2026-08-30T13:45:00Z",
+      "origin": {
+        "type": "manual",
+        "externalId": null,
+        "externalUrl": null,
+        "sourceName": null,
+        "importedAt": "2026-08-30T13:00:00Z",
+        "metadata": null
+      },
+      "activePlanId": null
+    },
+    {
+      "id": "3FEF2FC5-D3FB-42DB-B5FB-5E1B6B6E49E0",
+      "title": "Implementar `search()` em src/search.ts",
+      "status": "doing",
+      "order": 1000,
+      "assignee": "Claude",
+      "notes": "Filtrar itens por `termo` (subcadeia), sem diferenciar maiúsculas; termo vazio devolve a lista inteira.",
+      "tags": ["código"],
+      "createdAt": "2026-08-30T14:00:00Z",
+      "updatedAt": "2026-08-30T14:05:00Z",
+      "doneAt": null,
+      "origin": {
+        "type": "manual",
+        "externalId": null,
+        "externalUrl": null,
+        "sourceName": null,
+        "importedAt": "2026-08-30T14:00:00Z",
+        "metadata": null
+      },
+      "activePlanId": null
+    },
+    {
+      "id": "0EA2BB5A-99C6-4197-BC20-B468091655FF",
+      "title": "Revisar o diff de src/search.ts",
+      "status": "todo",
+      "order": 1000,
+      "assignee": "Codex",
+      "notes": "Conferir cobertura dos três casos da Spec e a preservação da ordem.",
+      "tags": ["revisão"],
+      "createdAt": "2026-08-30T14:02:00Z",
+      "updatedAt": "2026-08-30T14:02:00Z",
+      "doneAt": null,
+      "origin": {
+        "type": "manual",
+        "externalId": null,
+        "externalUrl": null,
+        "sourceName": null,
+        "importedAt": "2026-08-30T14:02:00Z",
+        "metadata": null
+      },
+      "activePlanId": null
+    },
+    {
+      "id": "A2CE2EE8-7DBC-422C-8711-2D88368667C9",
+      "title": "Servir a doc do demo-repo em localhost:4173",
+      "status": "todo",
+      "order": 2000,
+      "assignee": "",
+      "notes": "`npm run docs` — servidor estático, sem dependências.",
+      "tags": ["doc"],
+      "createdAt": "2026-08-30T14:03:00Z",
+      "updatedAt": "2026-08-30T14:03:00Z",
+      "doneAt": null,
+      "origin": {
+        "type": "manual",
+        "externalId": null,
+        "externalUrl": null,
+        "sourceName": null,
+        "importedAt": "2026-08-30T14:03:00Z",
+        "metadata": null
+      },
+      "activePlanId": null
+    },
+    {
+      "id": "9E6348D8-6A9B-4952-AC48-A5513381E1F2",
+      "title": "Publicar a tabela de buscas populares",
+      "status": "todo",
+      "order": 3000,
+      "assignee": "Artesão",
+      "notes": "Rodar a query sobre o SQLite de brinquedo e publicar o resultado como nó de tabela.",
+      "tags": ["dados"],
+      "createdAt": "2026-08-30T14:04:00Z",
+      "updatedAt": "2026-08-30T14:04:00Z",
+      "doneAt": null,
+      "origin": {
+        "type": "manual",
+        "externalId": null,
+        "externalUrl": null,
+        "sourceName": null,
+        "importedAt": "2026-08-30T14:04:00Z",
+        "metadata": null
+      },
+      "activePlanId": null
+    }
+  ]
+}

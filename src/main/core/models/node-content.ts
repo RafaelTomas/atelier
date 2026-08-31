@@ -1,7 +1,7 @@
 /**
  * Codec do enum NodeContent do Swift.
  *
- * Formato Maestri (INEGOCIÁVEL — o app nativo e o Maestri não leem outra coisa):
+ * Formato do app nativo (INEGOCIÁVEL — ele não lê outra coisa):
  *
  *     { "terminal": { "_0": { … } } }
  *
@@ -112,6 +112,8 @@ function decodeTerminal(raw: Record<string, unknown>): TerminalContent {
     shellPath: str(raw.shellPath, defaultShell()),
     workingDirectory: str(raw.workingDirectory),
     status: str(raw.status, 'idle'),
+    // Compatibilidade com o app nativo, que grava a chave: sem leitor na
+    // interface. Só é decodificado para sobreviver ao round-trip.
     isManager: bool(raw.isManager),
     monitorWithOmbro: bool(raw.monitorWithOmbro),
     autoScrollLocked: bool(raw.autoScrollLocked),

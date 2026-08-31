@@ -9,6 +9,13 @@
  * dados originais. A partir daí os dois divergem — é o custo do rename completo,
  * e está documentado no README.
  *
+ * Os dois literais abaixo NÃO são um nome nosso e não mudam com o rename: eles
+ * são o endereço em disco do app antigo. `.open-maestri` é a pasta que ele
+ * criou — renomear o literal faria a importação nunca mais achar nada, e quem
+ * vem de lá abriria o canvas vazio. `.imported-from-open-maestri` é o marcador
+ * que este módulo grava, e já existe em máquinas reais — trocar o nome faria o
+ * Atelier achar que nunca importou.
+ *
  * Roda uma vez só e apenas quando:
  *   • o diretório do Atelier ainda não existe (nada a perder), E
  *   • estamos usando o caminho padrão (ATELIER_HOME não foi apontado para outro

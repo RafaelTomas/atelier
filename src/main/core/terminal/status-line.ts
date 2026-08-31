@@ -7,9 +7,10 @@
  * Nada disso existe na tela em forma legível — `agent-status.ts` raspa `103
  * tok` de uma linha de texto e não sabe sequer se a janela é de 200k ou de 1M.
  *
- * O comando que o Atelier instala é `atelier statusline`. Ele devolve o payload
- * por AQUI, pelo mesmo socket e com o mesmo `X-Terminal-ID` do resto do CLI —
- * zero protocolo novo.
+ * O comando que o Atelier instala é `atelier statusline`, pelo CAMINHO INTEIRO
+ * do CLI (`cliCommand`, em interagent/cli-install.ts) — o `PATH` do PTY não é
+ * confiável, e o porquê está lá. Ele devolve o payload por AQUI, pelo mesmo
+ * socket e com o mesmo `X-Terminal-ID` do resto do CLI — zero protocolo novo.
  *
  * ─── Onde o `--settings` mora ───
  *
@@ -29,6 +30,7 @@
 import type { AgentUsage, StoredAccountUsage, UUID } from '@shared/types'
 import { DEFAULT_CLAUDE_ACCOUNT_ID } from '@shared/types'
 import { parseStatusLine } from '@shared/agent-usage'
+import { cliCommand } from '../interagent/cli-install'
 import { log } from '../logger'
 import { persistence } from '../persistence/persistence-manager'
 
@@ -185,5 +187,5 @@ export function recordStatusLine(terminalId: UUID, raw: string): AgentUsage | nu
  * terminal/agent-settings.ts.
  */
 export function statusLineBlock(): object {
-  return { statusLine: { type: 'command', command: 'atelier statusline' } }
+  return { statusLine: { type: 'command', command: cliCommand('statusline') } }
 }

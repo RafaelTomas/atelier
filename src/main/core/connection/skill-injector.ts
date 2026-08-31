@@ -5,7 +5,7 @@
  *   1. Instalar a skill em ~/.claude/skills/ (uma vez por boot, idempotente)
  *   2. Sinalizar ao terminal, na conexão, que o `atelier` está disponível
  *
- * A skill vive sob o nome `atelier`, separada da skill `maestri` do app nativo.
+ * A skill vive sob o nome `atelier`, separada da skill que o app nativo injeta.
  * As duas podem coexistir: um agente lê a que corresponde ao app onde está.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'

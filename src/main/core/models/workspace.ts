@@ -1,5 +1,5 @@
 /**
- * Codec de workspace.json (schemaVersion 3, formato Maestri).
+ * Codec de workspace.json (schemaVersion 7, formato do app nativo).
  *
  * Em disco as conexões vivem em SEIS arrays separados, cada um com nomes de
  * campo próprios. Em memória normalizamos tudo num único Connection[] com um

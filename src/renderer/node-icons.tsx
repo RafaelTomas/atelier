@@ -55,7 +55,10 @@ export const ICON_NAMES = [
   'plus-circle',
   // Entrou com o monitor de recursos: um traço de eletrocardiograma diz
   // "isto está medindo alguma coisa agora" sem precisar de rótulo.
-  'pulse'
+  'pulse',
+  // Entrou com o nó de relógio: mostrador com dois ponteiros, o desenho que se
+  // lê como "tempo" sem rótulo, nos quatro modos do nó.
+  'clock'
 ] as const
 
 export type IconName = (typeof ICON_NAMES)[number]
@@ -75,6 +78,12 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   pulse: <path d="M3 12h3.5l2-5.5 3.5 11 2.5-7 1.8 3.5H21" />,
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7v5l3.5 2" />
+    </>
+  ),
   sparkle: <path d="M12 3.2 13.8 8.4 19 10.2 13.8 12 12 17.2 10.2 12 5 10.2 10.2 8.4z" />,
   brain: (
     <>

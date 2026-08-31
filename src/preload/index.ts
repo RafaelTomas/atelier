@@ -571,7 +571,12 @@ const api = {
       ipcRenderer.send('system:unsubscribe', intervalMs),
     /** Recarga da janela: os desmontes não chegam, e o timer ficaria órfão. */
     reset: (): void => ipcRenderer.send('system:reset'),
-    onStats: (cb: (stats: SystemStats) => void): Unsubscribe => on('system:stats', cb)
+    onStats: (cb: (stats: SystemStats) => void): Unsubscribe => on('system:stats', cb),
+    /**
+     * A máquina voltou de uma suspensão. Sem payload de propósito: o instante
+     * que importa é o `Date.now()` de quem recebe, não o de quem avisou.
+     */
+    onResume: (cb: () => void): Unsubscribe => on('system:resume', cb)
   },
 
   events: {

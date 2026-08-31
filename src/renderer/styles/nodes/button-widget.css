@@ -10,8 +10,13 @@
 
 /* Chromeless devolve o card ao transparente, o que está certo para o texto — mas
    um botão sem moldura não parece clicável. Aqui ele volta a ter card, com a
-   quina mais arredondada do que a de um painel: a forma é o que diz "aperte". */
-.node.node-widget.is-chromeless {
+   quina mais arredondada do que a de um painel: a forma é o que diz "aperte".
+
+   O seletor nomeia o BOTÃO, e não `.node-widget` genérico: o relógio também é
+   um widget chromeless, e quer o oposto disto — nenhuma casca. Enquanto o botão
+   era o único, o seletor largo não fazia diferença; hoje faria, e mutuamente
+   exclusivo é melhor do que depender da ordem dos `@import` para desempatar. */
+.node.node-widget-button.is-chromeless {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;

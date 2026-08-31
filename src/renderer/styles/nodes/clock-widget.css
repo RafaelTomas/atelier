@@ -1,0 +1,285 @@
+/* Nó de relógio — kind `clock`.
+
+   ─── O nó é um APARELHO ────────────────────────────────────────────────────
+
+   A referência é um temporizador de painel: moldura escura, visor de LED
+   vermelho, e os segmentos APAGADOS visíveis por trás dos acesos. Por isso este
+   é o único nó do canvas que não segue a cor do tema — ele não é uma superfície
+   da interface, é um objeto pousado nela, como o terminal também não repinta a
+   saída do processo conforme o tema claro ou escuro.
+
+   A cor do LED é ESCOLHIDA pelo usuário, no menu da barra de ações, e chega
+   como `--clock-led` escrita no `style` do nó. Só ela é guardada: a barra
+   apagada e o brilho saem dela por `color-mix`, aqui embaixo. Guardar as três
+   seria três chances de ficarem incoerentes, e obrigaria a UI a pedir três
+   escolhas onde existe uma.
+
+   ─── Sem cabeçalho, com moldura ────────────────────────────────────────────
+
+   O nó é CHROMELESS (ver isChromeless em node-shell): sem `⇄` e sem `×`, que
+   são exatamente o que a barra de ações da seleção já oferece. Mas chromeless
+   zera a casca, e um visor precisa de bisel — então a moldura é desenhada AQUI,
+   pelo próprio widget, e é a do aparelho, não a do card padrão do canvas.
+
+   O mostrador é desenhado barra a barra em SVG (ver seven-segment.ts), e não
+   com um corpo de letra: nenhuma fonte desenha o segmento apagado, que é
+   justamente o que faz um painel parecer um painel. */
+
+.clock-widget {
+  /* A paleta do aparelho, num lugar só. */
+  --clock-bezel: #17181b;
+  --clock-bezel-edge: #303239;
+  --clock-face: #0b0c0e;
+  /* O LED aceso. Escrito inline pelo componente com a cor escolhida; o valor
+     aqui é o padrão, e existe por dois motivos concretos: um relógio gravado
+     por uma versão que ainda não tinha cor precisa continuar aceso, e um
+     `var()` sem definição em CSS nenhum é o que o test-tokens recusa. */
+  --clock-led: #ff3b2f;
+  /* A barra APAGADA e o brilho, DERIVADOS do aceso. É a presença das barras
+     apagadas que dá o fantasma do 8 atrás de cada dígito, e ela precisa ser a
+     mesma cor quase extinta — não um cinza, que leria como sujeira no vidro.
+     Misturar com a face do visor é o que mantém isso verdadeiro em qualquer
+     cor que o usuário escolha. */
+  --clock-led-off: color-mix(in srgb, var(--clock-led) 20%, var(--clock-face));
+  --clock-glow: color-mix(in srgb, var(--clock-led) 45%, transparent);
+
+  container-type: size;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-1);
+  border: 1px solid var(--clock-bezel-edge);
+  border-radius: 10px;
+  /* O bisel: claro em cima, escuro embaixo — a luz do ambiente vem de cima, e é
+     esse gradiente de dois pontos que lê como plástico moldado em vez de
+     retângulo pintado. */
+  background: linear-gradient(180deg, var(--clock-bezel-edge) 0%, var(--clock-bezel) 14%, var(--clock-bezel) 100%);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 35%), inset 0 1px 0 rgb(255 255 255 / 6%);
+  color: #c9ccd2;
+  font-size: var(--fs-sm);
+}
+
+/* A casca do nó some: quem desenha a moldura é o widget, e duas molduras
+   concêntricas seriam duas bordas em volta da mesma coisa.
+
+   O par com a regra do botão é MUTUAMENTE EXCLUSIVO, não uma disputa: aquela
+   nomeia `.node-widget-button` e esta `.node-widget-clock`, e um nó é um ou
+   outro — ver o comentário em button-widget.css. */
+.node.node-widget-clock.is-chromeless {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.node-widget-clock .widget-node {
+  background: transparent;
+  border: 0;
+}
+
+/* ─── Barra superior ────────────────────────────────────────────────────────
+   Modo à esquerda, ação à direita, os dois FANTASMAS: sem fundo, sem borda,
+   sem separador. Num aparelho, a moldura já é a única linha que existe; mais
+   uma disputaria com o visor, que é o conteúdo inteiro do nó. Em repouso ela
+   quase some — como os rótulos serigrafados de um painel, que só se leem
+   quando você chega perto. */
+.clock-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  gap: var(--s-1);
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+  opacity: .4;
+  transition: opacity .12s ease-out;
+}
+.clock-widget:hover .clock-toolbar,
+.clock-widget:focus-within .clock-toolbar { opacity: 1; }
+
+.clock-modes { display: flex; min-width: 0; gap: 1px; }
+
+/* O ícone diz QUAL modo é; a cor diz qual está ativo. O ativo acende no mesmo
+   vermelho do visor: num aparelho, o que está ligado é o que brilha. */
+.clock-mode {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: #7b7f88;
+  cursor: pointer;
+  font: inherit;
+  opacity: .8;
+}
+.clock-mode:hover { color: #c9ccd2; opacity: 1; }
+.clock-mode.is-active {
+  color: var(--clock-led);
+  opacity: 1;
+  filter: drop-shadow(0 0 3px var(--clock-glow));
+}
+
+.clock-controls { display: flex; min-width: 0; gap: 1px; }
+
+/* Também fantasmas. O primário se distingue pela COR, não por um preenchimento:
+   um botão sólido sobre a moldura seria um terceiro plano na frente do visor. */
+.clock-btn {
+  min-width: 0;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: #7b7f88;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+}
+.clock-btn:hover { color: #c9ccd2; }
+.clock-btn.is-primary { color: var(--clock-led); }
+.clock-btn:disabled { opacity: .4; cursor: default; }
+.clock-btn:disabled:hover { color: #7b7f88; }
+
+.clock-finished {
+  align-self: center;
+  overflow: hidden;
+  color: var(--clock-led);
+  font-size: var(--fs-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── O visor ───────────────────────────────────────────────────────────────
+   Mais escuro que a moldura e afundado por dentro: um visor não é pintado sobre
+   o aparelho, ele fica ATRÁS de um vidro. É o `inset` que dá essa profundidade.
+
+   A barra de progresso foi cortada — o restante já é a medida. A lista de
+   voltas também: cem linhas num cartão de 220×150 viravam documento, e o que
+   sobrou dela é a contagem na linha de contexto. */
+.clock-display {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--s-1) var(--s-2);
+  border-radius: 6px;
+  background: var(--clock-face);
+  box-shadow: inset 0 1px 4px rgb(0 0 0 / 65%);
+  cursor: default;
+}
+
+.clock-readout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 0;
+  /* Escala com o NÓ, não com a fonte da interface: `cqi`/`cqb` são o tamanho do
+     próprio widget, então os dígitos enchem o visor em qualquer medida que o
+     usuário desenhe — e o `min()` impede que um nó largo e baixo estoure a
+     altura. */
+  height: min(52cqb, 34px);
+}
+
+/* Cada dígito é um SVG de sete polígonos. A altura manda: a largura sai da
+   proporção do viewBox, e é ela que mantém o passo entre os algarismos igual
+   ao de um display real. */
+.sseg-digit,
+.sseg-colon {
+  height: 100%;
+  width: auto;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+/* A barra APAGADA. Ela é o ponto do desenho inteiro: sem ela o mostrador vira
+   um número estilizado qualquer, e com ela o "8" fantasma aparece atrás de cada
+   dígito, como num LED de verdade. */
+.seg {
+  fill: var(--clock-led-off);
+  transition: fill .08s linear;
+}
+.seg.on {
+  fill: var(--clock-led);
+  /* O bloom: um LED espalha luz no vidro em volta. Sem isso a cor está certa e
+     a impressão continua a de um vetor chapado. */
+  filter: drop-shadow(0 0 2px var(--clock-glow));
+}
+
+/* O campo de edição fica no visor, na cor do visor: trocar de aparência ao dar
+   duplo clique faria o número parecer outro. Ele não é de segmentos porque ali
+   se DIGITA, e um teclado numérico não tem como desenhar barras. */
+.clock-readout-input {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--clock-led);
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--clock-led);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: min(52cqb, 30px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
+  text-shadow: 0 0 6px var(--clock-glow);
+}
+
+/* A linha de contexto: fase e ciclos do pomodoro, contagem de voltas do
+   cronômetro, `pausado` do timer. Serigrafia do painel — apagada, pequena, e
+   ausente quando não há o que dizer. É o coordenador que escreve aqui, pelo
+   `data-clock-detail`.
+
+   A cor também sai do LED, bem diluída: uma serigrafia cinza ao lado de um
+   visor âmbar ou verde denunciaria que a cor foi trocada só pela metade. */
+.clock-detail {
+  max-width: 100%;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--clock-led) 45%, #6a6d74);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clock-detail:empty { display: none; }
+
+/* ─── Nó apertado ───────────────────────────────────────────────────────────
+   O piso é 140×100, e nele tudo que não é o visor precisa encolher ou sair. */
+@container (max-width: 170px) {
+  .clock-widget { padding: 3px; border-radius: 8px; }
+  .clock-toolbar { gap: 2px; padding: 0; }
+  .clock-mode { padding: 1px; }
+  .clock-btn { padding: 1px 2px; }
+  .clock-display { padding: 2px 4px; }
+}
+
+@container (max-height: 118px) {
+  /* A linha de contexto sai antes dos controles: cem pixels de altura são do
+     visor, e fase/voltas voltam a ser legíveis assim que o nó crescer. */
+  .clock-detail { display: none; }
+}
+
+/* ─── A amostra na barra de ações ───────────────────────────────────────────
+   O botão que abre o menu de cor MOSTRA a cor atual em vez de um ícone de
+   paleta: um ícone genérico diria que existe cor para escolher, e a bolinha diz
+   qual está escolhida — a mesma lógica do botão de conta ao lado, que exibe o
+   nome da conta e não um ícone de pessoa.
+
+   Mora neste arquivo, e não em node-action-bar.css, porque é vocabulário do
+   RELÓGIO: quem for ler por que a bolinha existe procura aqui. */
+.clock-color-dot {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: 50%;
+}

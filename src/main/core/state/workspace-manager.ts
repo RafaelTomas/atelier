@@ -14,12 +14,21 @@ import type {
   UUID,
   WorkspacePayload
 } from '@shared/types'
-import { connectionKindForTypes } from '@shared/types'
+import { connectionKindForTypes, readButtonConfig } from '@shared/types'
 import type { RemovedNodeSnapshot } from '@shared/node-undo'
 import { restoreRemoval } from '@shared/node-undo'
 import { nowISO } from '../coding'
 import { Constants } from '../constants'
 import { makeConnection, makeNodeGroup } from '../models/workspace'
+
+/**
+ * O discriminador interno de um nó de widget (`clock`, `button`, …), ou
+ * `undefined` para qualquer outro tipo de nó. É o que `connectionKindForTypes`
+ * precisa para distinguir `clock ↔ button` de outros pares `widget ↔ widget`.
+ */
+function widgetKindOf(node: CanvasNode): string | undefined {
+  return node.content.type === 'widget' ? node.content.value.kind : undefined
+}
 
 export class WorkspaceManager {
   payload: WorkspacePayload
@@ -186,10 +195,15 @@ export class WorkspaceManager {
 
   /** Deduz o `kind` a partir dos tipos dos dois nós. null = par não conectável. */
   connectionKindFor(idA: UUID, idB: UUID): ConnectionKind | null {
-    const a = this.node(idA)?.content.type
-    const b = this.node(idB)?.content.type
+    const a = this.node(idA)
+    const b = this.node(idB)
     if (!a || !b) return null
-    return connectionKindForTypes(a, b)
+    return connectionKindForTypes(
+      a.content.type,
+      b.content.type,
+      widgetKindOf(a),
+      widgetKindOf(b)
+    )
   }
 
   addConnection(idA: UUID, idB: UUID): Connection | null {
@@ -218,6 +232,33 @@ export class WorkspaceManager {
     if (kind === 'secret' && this.node(idA)?.content.type === 'secretVault') {
       a = idB
       b = idA
+    }
+    // Cabo de relógio: o RELÓGIO é sempre o lado A e o BOTÃO o lado B, seja qual
+    // for a ordem do gesto. Além da orientação, duas recusas que o preview
+    // replica para o cabo fantasma não prometer o que o main vai negar:
+    //   • um relógio manda em NO MÁXIMO um cabo clockAction — um só fim não pode
+    //     abrir dois terminais; trocar o alvo é cortar e ligar outro;
+    //   • um botão PENDENTE (proposto e não aceito) ou com `confirm: true` não
+    //     pode ser alvo automático: dispará-lo sem o aceite visual burlaria a
+    //     promessa da configuração.
+    // Um botão pode receber vários relógios — a recusa é só do lado do relógio.
+    if (kind === 'clockAction') {
+      const nodeA = this.node(idA)
+      const aIsClock =
+        nodeA?.content.type === 'widget' && nodeA.content.value.kind === 'clock'
+      const clockId = aIsClock ? idA : idB
+      const buttonId = aIsClock ? idB : idA
+      const clockBusy = this.payload.connections.some(
+        (c) => c.kind === 'clockAction' && (c.nodeIdA === clockId || c.nodeIdB === clockId)
+      )
+      if (clockBusy) return null
+      const buttonNode = this.node(buttonId)
+      if (buttonNode?.content.type === 'widget') {
+        const cfg = readButtonConfig(buttonNode.content.value.view)
+        if (cfg.pending || cfg.confirm) return null
+      }
+      a = clockId
+      b = buttonId
     }
 
     const conn = makeConnection(kind, a, b)

@@ -24,8 +24,14 @@
   --canvas-bg: #ffffff;
   --canvas-grid: #e8e8ec;
   --rope: #9a9aa2;
+  --rope-scale: 1;
   --rope-active: #2ecc71;
   --rope-error: #e74c3c;
+  /* O cabo relógio→botão em repouso. Âmbar, e não `--accent`: o azul da
+     interface é a cor de SELEÇÃO e de foco, e um cabo permanentemente azul lê
+     como "este está selecionado". Fica na família `--rope-*` porque é o que ele
+     é — um estado de cabo —, e não uma cor solta no CSS de um nó. */
+  --rope-clock: #d99a2b;
   --term-bg: #f7f7f9;
   --term-fg: #1a1a1a;
   --dock-bg: rgb(255 255 255 / .82);

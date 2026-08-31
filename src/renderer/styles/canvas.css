@@ -355,6 +355,20 @@ button.canvas-chip:hover { background: var(--dock-hover); }
    ritmo. Manter essas duas responsabilidades separadas garante que os seis
    desenhos continuem dizendo repouso, tráfego e erro com a mesma linguagem. */
 .rope-idle { --rope-state-color: var(--rope); }
+/* O cabo relógio→botão em repouso: SÓ a cor muda.
+
+   A primeira versão disto também impunha `stroke-dasharray`, e estava errada.
+   O desenho da corda é escolha do USUÁRIO — sisal, corrente, pontilhado —, e um
+   tracejado vindo do `kind` atropelava os cinco traços empilhados do sisal e da
+   corrente: o cabo perdia o gomo, a sombra e o brilho e virava uma linha
+   picotada. Um cabo não pode redesenhar a corda; ele pode, no máximo, colori-la.
+
+   E a cor não é `--accent`: o azul da interface é o de seleção e de foco, e um
+   cabo permanentemente azul lê como "este está selecionado".
+
+   Tráfego e erro continuam falando com as cores de todo cabo — quando o disparo
+   acontece, o `--rope-active` toma a corda, e é exatamente o que se quer ver. */
+.rope-kind-clockAction.rope-idle { --rope-state-color: var(--rope-clock); }
 .rope-communicating { --rope-state-color: var(--rope-active); }
 .rope-error { --rope-state-color: var(--rope-error); animation: none; }
 

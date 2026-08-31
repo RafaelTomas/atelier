@@ -37,6 +37,7 @@ import { PlacementTargets } from './floating/placement-targets'
 import { PillMenu } from './floating/pill-menu'
 import { usePill } from './floating/use-pill'
 import { store, useStore } from './state/store'
+import { Icon } from './node-icons'
 import { PDF_NODE_SIZE } from './pdf-viewer'
 
 /**
@@ -55,7 +56,10 @@ const MIN_SIZE: Record<string, [number, number]> = {
   button: [56, 56],
   // Espelha Constants.widgetMin*: o monitor nasce menor que o painel padrão,
   // mas o PISO continua o do widget — abaixo disso o bloco IA não cabe.
-  widget: [240, 180]
+  widget: [240, 180],
+  // Espelha Constants.clockMin* — o relógio nasce compacto e tem piso próprio,
+  // bem abaixo do widget: mostrador, abas e três botões cabem em 140×100.
+  clock: [140, 100]
 }
 
 interface MenuItem {
@@ -469,6 +473,17 @@ export function Dock(): JSX.Element {
       >
         <IconPulse />
       </DockMenuButton>
+
+      {/* Ao lado do Botão e do Monitor: nasce COMPACTO e no modo Relógio; os
+          outros três modos (cronômetro, timer, pomodoro) são abas dentro do
+          nó, não itens separados da dock. */}
+      <DockButton
+        label="Relógio"
+        hint="relógio, cronômetro, timer e pomodoro no mesmo nó"
+        onClick={() => add('widget', [220, 150], { kind: 'clock' }, undefined, 'relógio')}
+      >
+        <Icon name="clock" size={18} />
+      </DockButton>
 
       <DockButton
         label="Botão"

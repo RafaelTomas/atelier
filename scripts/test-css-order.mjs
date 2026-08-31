@@ -38,6 +38,7 @@ const ESPERADA = [
   ['nodes/image-node',       'depois da casca; sem dependência de ordem com os outros nós'],
   ['nodes/widget-node',      'depois da casca; DEPOIS de panels, porque hospeda os mesmos painéis numa densidade maior'],
   ['nodes/button-widget',    'depois da casca; DEPOIS de nodes/widget-node, porque é uma especialização do mesmo nó'],
+  ['nodes/clock-widget',     'depois da casca; DEPOIS de nodes/widget-node, pela mesma razão do botão — é uma especialização do mesmo nó'],
   ['nodes/task-plan',        'DEPOIS de nodes/widget-node, que hospeda o quadro: a camada de Tarefas é desenhada por cima do kanban e precisa vencer no que ajustar'],
   ['nodes/secret-vault-node','depois da casca; sem dependência de ordem com os outros nós'],
   ['nodes/markdown-view',    'depois da casca; sem dependência de ordem com os outros nós'],
@@ -51,6 +52,18 @@ const ESPERADA = [
 // A chave é normalizada (os dois seletores em ordem alfabética), então a ordem
 // em que estão escritos aqui não importa.
 const CONHECIDOS = new Map(([
+  // A aba de modo do relógio (`.clock-mode.is-active`) mora DENTRO do nó de
+  // relógio. Nenhum dos quatro parceiros abaixo alcança esse elemento: são um
+  // item da lista de workspaces, um botão fantasma de painel, uma amostra de
+  // cor e uma aba do painel de git.
+  ['.clock-mode.is-active|.workspace-item.is-active',
+   'elementos distintos: uma aba de modo do relógio nunca é um item da lista de workspaces'],
+  ['.clock-mode.is-active|.ghost-btn.is-active',
+   'elementos distintos: a aba de modo não é um botão fantasma de painel'],
+  ['.clock-mode.is-active|.swatch.is-active',
+   'elementos distintos: a aba de modo não é uma amostra de cor'],
+  ['.clock-mode.is-active|.git-tab.is-active',
+   'elementos distintos: a aba de modo do relógio não é uma aba do painel de git'],
   ['.code-editor-actions .ghost-btn|.git-file-actions .ghost-btn',
    'elementos distintos: um botão está em um container ou no outro, nunca nos dois'],
   ['.file-tree-row.is-selected|.quick-card.is-selected',

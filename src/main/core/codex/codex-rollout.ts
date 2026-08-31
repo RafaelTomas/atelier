@@ -42,6 +42,49 @@ const TAIL_BYTES = 64 * 1024
  */
 const DEBOUNCE_MS = 400
 
+/**
+ * O relógio de parede e o agendador, num objeto só para o teste poder trocá-los.
+ *
+ * A virada precisa acontecer numa hora do CALENDÁRIO, não daqui a N
+ * milissegundos fixos; e um teste que dependesse do `setTimeout` real teria que
+ * esperar de verdade até a meia-noite. Isolar as duas primitivas aqui deixa o
+ * teste controlar o tempo sem `sinon` nem mexer no relógio do processo.
+ *
+ * Isto é LOCAL a este arquivo de propósito. O nó de relógio do canvas tem o seu
+ * próprio coordenador, no renderer, e o plano rejeita uni-los: seriam um serviço
+ * entre processos, IPC de registro e política de shutdown para dois consumidores
+ * com necessidades diferentes. Dois timeouts pequenos e independentes custam
+ * menos. A única peça compartilhável é a disciplina de testar funções que
+ * recebem `now` — e disciplina não pede infraestrutura.
+ */
+export interface RolloutClock {
+  now(): number
+  setTimer(fn: () => void, ms: number): NodeJS.Timeout
+  clearTimer(t: NodeJS.Timeout): void
+}
+
+const wallClock: RolloutClock = {
+  now: () => Date.now(),
+  setTimer: (fn, ms) => setTimeout(fn, ms),
+  clearTimer: (t) => clearTimeout(t)
+}
+
+/**
+ * Quanto falta, em milissegundos, até a próxima meia-noite LOCAL.
+ *
+ * Não é "somar 24h ao instante atual": num dia de mudança de horário de verão o
+ * relógio de parede anda 23h ou 25h entre uma meia-noite e a seguinte, e somar
+ * 24h faria o nó de relógio disparar uma hora cedo (ou tarde) e, pior, acumular
+ * essa hora a cada virada. `setHours(24, 0, 0, 0)` pede ao próprio calendário
+ * local o instante "00:00 do dia seguinte" — o motor de datas resolve o salto —
+ * e a diferença de timestamps devolve a duração REAL, seja ela qual for.
+ */
+export function msUntilNextLocalMidnight(now: Date = new Date()): number {
+  const next = new Date(now)
+  next.setHours(24, 0, 0, 0)
+  return next.getTime() - now.getTime()
+}
+
 export interface RolloutReading {
   /** Pronto para `fromCodexRateLimits` — o mesmo formato que o App Server dá. */
   limits: unknown
@@ -211,30 +254,46 @@ export async function readLatestRollout(
  * Observa a pasta `sessions` inteira em modo recursivo, e é de propósito: o
  * diretório do dia MUDA à meia-noite, e observar só o de hoje faria a tira
  * congelar na virada até alguém reabrir o painel. Onde o modo recursivo não
- * existe, cai para o diretório do dia — pior na virada, mas nunca pior que
- * nada, e sem inventar um relógio para compensar.
+ * existe, cai para o diretório do dia mais um TEMPORIZADOR DE VIRADA:
+ * apontado para a próxima meia-noite local que, ao disparar, larga o observador
+ * do dia velho, arma um no diretório novo e força uma leitura — a única forma
+ * de a tira não congelar na virada quando o SO não entrega observação
+ * recursiva. Cada disparo recalcula a espera até a meia-noite SEGUINTE do zero
+ * (ver `msUntilNextLocalMidnight`), então um dia de horário de verão não
+ * desalinha o agendamento.
  */
 export class CodexRolloutWatcher {
   private watcher: FSWatcher | null = null
+  private dayWatcher: FSWatcher | null = null
+  private midnightTimer: NodeJS.Timeout | null = null
+  private clock: RolloutClock = wallClock
   private timer: NodeJS.Timeout | null = null
   private last = ''
+  private fallback: string | null = null
+
+  /**
+   * Só para teste: força o ramo de fallback mesmo onde o SO aceitaria a
+   * observação recursiva. Também serve de escotilha para uma plataforma que
+   * aceite `{ recursive: true }` sem de fato entregar os eventos das subpastas.
+   */
+  useRecursiveWatch = true
 
   onReading: ((reading: RolloutReading) => void) | null = null
 
-  async start(env: NodeJS.ProcessEnv = process.env): Promise<void> {
-    if (this.watcher) return
+  /** Só para teste: o diretório do dia que o nó de relógio observa agora. */
+  get fallbackDir(): string | null {
+    return this.fallback
+  }
+
+  async start(env: NodeJS.ProcessEnv = process.env, clock: RolloutClock = wallClock): Promise<void> {
+    if (this.watcher || this.dayWatcher) return
+    this.clock = clock
     const root = codexSessionsDir(env)
     try {
+      if (!this.useRecursiveWatch) throw new Error('fallback forçado')
       this.watcher = watch(root, { recursive: true }, () => this.schedule(env))
     } catch {
-      const day = await newestDayDir(env)
-      if (!day) return
-      try {
-        this.watcher = watch(day, () => this.schedule(env))
-      } catch (err) {
-        log.warn('codex', 'nao foi possivel observar os rollouts', err)
-        return
-      }
+      if (!(await this.armDayFallback(env))) return
     }
     // A leitura inaugural é AGUARDADA, não agendada. Duas razões: o observador
     // só fala quando algo muda, e quem abre o app com o Codex parado ficaria
@@ -250,9 +309,67 @@ export class CodexRolloutWatcher {
       clearTimeout(this.timer)
       this.timer = null
     }
+    if (this.midnightTimer) {
+      this.clock.clearTimer(this.midnightTimer)
+      this.midnightTimer = null
+    }
     this.watcher?.close()
     this.watcher = null
+    this.dayWatcher?.close()
+    this.dayWatcher = null
+    this.fallback = null
     this.last = ''
+  }
+
+  /**
+   * Arma o observador do diretório do dia e o nó de relógio. Devolve `false`
+   * quando não há sequer um diretório de dia para observar — aí não há o que
+   * fazer, nem faz sentido acordar à meia-noite para reencontrar o nada.
+   */
+  private async armDayFallback(env: NodeJS.ProcessEnv): Promise<boolean> {
+    const day = await newestDayDir(env)
+    if (!day) return false
+    try {
+      this.dayWatcher = watch(day, () => this.schedule(env))
+    } catch (err) {
+      log.warn('codex', 'nao foi possivel observar os rollouts', err)
+      return false
+    }
+    this.fallback = day
+    this.armMidnight(env)
+    return true
+  }
+
+  /** (Re)agenda o disparo para a próxima meia-noite local, sempre recalculada. */
+  private armMidnight(env: NodeJS.ProcessEnv): void {
+    if (this.midnightTimer) this.clock.clearTimer(this.midnightTimer)
+    const delay = msUntilNextLocalMidnight(new Date(this.clock.now()))
+    this.midnightTimer = this.clock.setTimer(() => void this.rollover(env), delay)
+    this.midnightTimer.unref?.()
+  }
+
+  /**
+   * A virada: o diretório do dia acabou de mudar de nome. Troca o observador
+   * para o diretório novo, rearma o relógio para a meia-noite seguinte (do
+   * zero, para não herdar o desvio de um dia de 23h/25h) e força uma leitura,
+   * porque nada mais vai avisar que o arquivo de hoje passou a morar noutro
+   * lugar.
+   */
+  private async rollover(env: NodeJS.ProcessEnv): Promise<void> {
+    this.midnightTimer = null
+    this.dayWatcher?.close()
+    this.dayWatcher = null
+    const day = await newestDayDir(env)
+    if (day) {
+      try {
+        this.dayWatcher = watch(day, () => this.schedule(env))
+        this.fallback = day
+      } catch (err) {
+        log.warn('codex', 'nao foi possivel reobservar os rollouts na virada', err)
+      }
+    }
+    this.armMidnight(env)
+    await this.emit(env)
   }
 
   private schedule(env: NodeJS.ProcessEnv, delay = DEBOUNCE_MS): void {

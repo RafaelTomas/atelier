@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef } from 'react'
 import type { CanvasNode, Connection, Point, UUID } from '@shared/types'
-import { connectionKindForTypes } from '@shared/types'
+import { connectionKindForTypes, readButtonConfig } from '@shared/types'
 import { RopeSimulation, ropePath } from './rope'
 import { geometryPath, ropeLayers } from './rope-shapes'
 import { rectCenter, rectEdgePoint, viewport } from './viewport'
@@ -35,11 +35,32 @@ interface Props {
  */
 export function canLink(a: CanvasNode, b: CanvasNode, connections: Connection[]): boolean {
   if (a.id === b.id) return false
-  if (!connectionKindForTypes(a.content.type, b.content.type)) return false
-  return !connections.some(
+  const kindA = a.content.type === 'widget' ? a.content.value.kind : undefined
+  const kindB = b.content.type === 'widget' ? b.content.value.kind : undefined
+  const kind = connectionKindForTypes(a.content.type, b.content.type, kindA, kindB)
+  if (!kind) return false
+  const duplicate = connections.some(
     (c) =>
       (c.nodeIdA === a.id && c.nodeIdB === b.id) || (c.nodeIdA === b.id && c.nodeIdB === a.id)
   )
+  if (duplicate) return false
+  // Mesma regra do WorkspaceManager para o cabo de relógio, para o fantasma não
+  // prometer um cabo que o `addConnection` vai recusar: um relógio que já tem um
+  // clockAction não aceita outro, e um botão pendente ou com confirmação não
+  // pode ser alvo automático.
+  if (kind === 'clockAction') {
+    const clock = a.content.type === 'widget' && a.content.value.kind === 'clock' ? a : b
+    const button = clock === a ? b : a
+    const clockBusy = connections.some(
+      (c) => c.kind === 'clockAction' && (c.nodeIdA === clock.id || c.nodeIdB === clock.id)
+    )
+    if (clockBusy) return false
+    if (button.content.type === 'widget') {
+      const cfg = readButtonConfig(button.content.value.view)
+      if (cfg.pending || cfg.confirm) return false
+    }
+  }
+  return true
 }
 
 export function ConnectionPreview({

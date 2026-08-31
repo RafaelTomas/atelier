@@ -121,6 +121,7 @@ export function makePreferences(): Preferences {
     theme: 'system',
     ropeStyle: 'dotted',
     ropeThickness: ROPE_THICKNESS_DEFAULT,
+    ropeColor: null,
     sidebarCollapsed: false,
     sidebarWidth: 220,
     autoScanOnLaunch: true,
@@ -144,6 +145,22 @@ function decodeTerminalTheme(value: unknown): TerminalTheme {
   }
 }
 
+/**
+ * Só hexadecimal opaco entra no token de corda. Aceitamos o atalho humano
+ * `#rgb`, mas o expandimos antes de chegar ao renderer: deixar uma string livre
+ * virar propriedade CSS abriria a porta para sintaxe, não para uma cor. `null`
+ * é o padrão do tema, inclusive quando o app nativo apaga a chave desconhecida.
+ */
+function decodeRopeColor(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const color = value.trim().toLowerCase()
+  if (/^#[0-9a-f]{6}$/.test(color)) return color
+  if (/^#[0-9a-f]{3}$/.test(color)) {
+    return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`
+  }
+  return null
+}
+
 export function decodePreferences(value: unknown): Preferences {
   const o = asRecord(value)
   const base = makePreferences()
@@ -157,6 +174,9 @@ export function decodePreferences(value: unknown): Preferences {
     // volta ao traçado histórico; nunca propagamos um id sem implementação.
     ropeStyle: isRopeStyleId(o.ropeStyle) ? o.ropeStyle : base.ropeStyle,
     ropeThickness: clampRopeThickness(o.ropeThickness),
+    // Ausente, futura ou inválida volta ao tema: o arquivo é compartilhado com
+    // o Swift, que ainda apaga esta chave quando o regrava.
+    ropeColor: decodeRopeColor(o.ropeColor),
     sidebarCollapsed: bool(o.sidebarCollapsed, base.sidebarCollapsed),
     // Ausente em preferences.json escrito antes do painel redimensionável
     sidebarWidth: num(o.sidebarWidth, base.sidebarWidth),

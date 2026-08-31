@@ -1,0 +1,23 @@
+{
+  "name": "demo-repo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Repo de brinquedo da demo do Atelier: o time implementa busca no CLI.",
+  "comentario": [
+    "Por que 'type: module' + src/search.mjs, e nao so o src/search.ts:",
+    "o pacote nao tem toolchain (nem tsc, nem loader) de proposito — a demo",
+    "roda offline e 'npm test' nao pode instalar nada. O modulo que os testes",
+    "e o index de fato carregam e o .mjs, executavel por Node puro. O",
+    "src/search.ts ao lado e o gemeo tipado: e o arquivo que o no Editor",
+    "mostra no palco e que o roteiro reescreve ao vivo. Manter os dois",
+    "espelhados e intencional — o .ts comunica a intencao, o .mjs roda.",
+    "Nenhuma dependencia: 'dependencies' e 'devDependencies' ausentes.",
+    "'test' e 'node --test' (sem arg): o Node 22 resolve 'node --test test/'",
+    "como caminho de modulo e quebra; sem arg ele auto-descobre a pasta test/."
+  ],
+  "scripts": {
+    "test": "node --test",
+    "docs": "node scripts/serve-docs.mjs"
+  }
+}

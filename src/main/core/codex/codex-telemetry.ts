@@ -5,6 +5,7 @@ import { log } from '../logger'
 import { persistence } from '../persistence/persistence-manager'
 import { CodexJsonRpcClient, codexInitializeParams, spawnCodexAppServer } from './codex-protocol'
 import { hasCodexAccount } from './codex-presence'
+import { CodexRolloutWatcher } from './codex-rollout'
 
 const SAVE_DEBOUNCE_MS = 5000
 
@@ -41,6 +42,7 @@ export class CodexTelemetryService {
   private client: CodexJsonRpcClient | null = null
   private account: CodexAccountUsage = empty()
   private saveTimer: NodeJS.Timeout | null = null
+  private rollout = new CodexRolloutWatcher()
   /** null = ainda não perguntamos ao disco. */
   private hasAccount: boolean | null = null
   private lastFailureAt = 0
@@ -69,9 +71,19 @@ export class CodexTelemetryService {
     }
   }
 
+  /**
+   * Assinar custa um observador de arquivo, e é isso que torna a assinatura
+   * barata a ponto de a tira da borda poder mantê-la a sessão inteira.
+   *
+   * O App Server só é levantado se o disco não tiver nada a dizer — conta
+   * recém-criada, ou quem ainda não rodou um turno hoje. Quem usa o Codex
+   * normalmente nunca paga por um subprocesso aqui.
+   */
   async subscribe(): Promise<CodexAccountUsage> {
     this.refs += 1
-    await this.ensureStarted()
+    if (!(await this.detectAccount())) return this.account
+    await this.startRollout()
+    if (this.account.source !== 'live') await this.ensureStarted()
     return this.account
   }
 
@@ -85,6 +97,7 @@ export class CodexTelemetryService {
     // relê o disco e derruba o backoff, em vez de repetir a resposta velha.
     this.hasAccount = null
     this.lastFailureAt = 0
+    await this.startRollout()
     await this.ensureStarted()
     if (!this.client) return this.account
     await this.readAccount()
@@ -148,8 +161,29 @@ export class CodexTelemetryService {
   }
 
   private stop(): void {
+    this.rollout.stop()
     this.client?.close()
     this.client = null
+  }
+
+  /**
+   * O disco como fonte CONTÍNUA. Não há relógio nenhum: quem avisa é a
+   * escrita do próprio `codex`, no instante em que ele termina um turno.
+   */
+  private async startRollout(): Promise<void> {
+    this.rollout.onReading = (reading) => {
+      const merged = mergeCodexAccount(this.account, reading.account)
+      this.account = {
+        ...merged,
+        limits: fromCodexRateLimits(reading.limits),
+        at: reading.at,
+        source: 'live',
+        available: true
+      }
+      this.persistSoon()
+      notifyRenderer('codex:account', this.account)
+    }
+    await this.rollout.start()
   }
 
   private async readAccount(): Promise<void> {

@@ -8,14 +8,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CanvasNode, Connection, Point, UUID } from '@shared/types'
 import { IconScissors } from '../icons'
-import { store } from '../state/store'
+import { store, useStore } from '../state/store'
 import { RopeSimulation, ropePath } from './rope'
+import { ROPE_STYLES, geometryPath, ropeLayers, shapePath } from './rope-shapes'
 import { rectCenter, viewport } from './viewport'
 
 const STATUS_CLASS: Record<string, string> = {
-  idle: 'rope rope-idle',
-  communicating: 'rope rope-communicating',
-  error: 'rope rope-error'
+  idle: 'idle',
+  communicating: 'communicating',
+  error: 'error'
 }
 
 interface Props {
@@ -33,9 +34,32 @@ export function ConnectionsLayer({
   liveFrames,
   hiddenNodes
 }: Props): JSX.Element {
+  const { ropeStyle, ropeThickness } = useStore()
+  const physics = ROPE_STYLES.find((style) => style.id === ropeStyle)?.physics ?? true
+  const layers = ropeLayers(ropeStyle)
+  /**
+   * As camadas em ref, e não só na closure.
+   *
+   * `sim.onTick` é registrado UMA vez, na montagem, e congelaria a lista de
+   * camadas do desenho que estivesse ativo ali. Trocar de desenho redesenhava
+   * certo pelo efeito de sincronia, mas o primeiro tique da física — ou seja, o
+   * instante em que alguém arrasta um nó — reescrevia tudo com a geometria do
+   * desenho ANTERIOR: a corrente virava trança na primeira mexida.
+   */
+  const layersRef = useRef(layers)
+  layersRef.current = layers
+  /**
+   * O fator também em ref, e pela mesma razão das camadas: o `sim.onTick` é
+   * registrado uma vez e leria para sempre a espessura da montagem.
+   */
+  const scaleRef = useRef(ropeThickness)
+  scaleRef.current = ropeThickness
   const svgRef = useRef<SVGSVGElement>(null)
   const simRef = useRef<RopeSimulation | null>(null)
-  const pathsRef = useRef(new Map<UUID, SVGPathElement>())
+  // Uma conexão pode ter mais de um traço visível (ver ropeLayers): a corda de
+  // sisal é cinco acabamentos empilhados. Guardar a LISTA, e não um elemento,
+  // é o que permite escrever o mesmo `d` em todos de uma vez.
+  const pathsRef = useRef(new Map<UUID, SVGPathElement[]>())
   // Path invisível e mais grosso por cima de cada corda, só para dar uma área
   // de clique generosa — a corda visível tem 2px, quase impossível de acertar.
   const hitPathsRef = useRef(new Map<UUID, SVGPathElement>())
@@ -55,6 +79,41 @@ export function ConnectionsLayer({
   const scheduleHide = (): void => {
     cancelHide()
     hideTimer.current = window.setTimeout(() => setScissors(null), 150)
+  }
+
+  /**
+   * Escreve a conexão inteira: o traço do centro nos acabamentos que o seguem,
+   * a hélice nos que são gomo, e SEMPRE o centro no path de clique — a
+   * tesourinha tem de responder ao longo da corda, não nos fios dela.
+   *
+   * `points` só existe nos desenhos com física; sem ele a hélice é pulada, e é
+   * por isso que ela é privilégio dos que passam pelo Verlet.
+   */
+  const writePath = (id: UUID, d: string, points?: Point[]): void => {
+    const paths = pathsRef.current.get(id)
+    if (paths) {
+      // Um cache por escrita: a trança pede o mesmo fio duas vezes (inteiro e
+      // só a frente), e o sisal pede a hélice para o gomo e para o brilho.
+      const derived = new Map<string, string>()
+      const current = layersRef.current
+      for (let i = 0; i < paths.length; i++) {
+        const el = paths[i]
+        const geometry = current[i]?.geometry ?? 'center'
+        if (!el) continue
+        if (geometry === 'center') {
+          el.setAttribute('d', d)
+          continue
+        }
+        if (!points) continue
+        let derivedPath = derived.get(geometry)
+        if (derivedPath === undefined) {
+          derivedPath = geometryPath(geometry, points, scaleRef.current)
+          derived.set(geometry, derivedPath)
+        }
+        el.setAttribute('d', derivedPath)
+      }
+    }
+    hitPathsRef.current.get(id)?.setAttribute('d', d)
   }
 
   /**
@@ -80,11 +139,7 @@ export function ConnectionsLayer({
     simRef.current = sim
     sim.onTick = (points) => {
       for (const [id, pts] of points) {
-        const d = ropePath(pts)
-        const el = pathsRef.current.get(id)
-        if (el) el.setAttribute('d', d)
-        const hit = hitPathsRef.current.get(id)
-        if (hit) hit.setAttribute('d', d)
+        writePath(id, ropePath(pts), pts)
       }
     }
     return () => {
@@ -109,7 +164,9 @@ export function ConnectionsLayer({
       const a = centerOf(conn.nodeIdA)
       const b = centerOf(conn.nodeIdB)
       if (!a || !b) continue
-      if (sim.has(conn.id)) {
+      if (!physics) {
+        writePath(conn.id, shapePath(ropeStyle, a, b))
+      } else if (sim.has(conn.id)) {
         sim.updateAnchors(conn.id, a, b)
       } else {
         const existing = conn.ropePoints.length
@@ -117,14 +174,18 @@ export function ConnectionsLayer({
           : undefined
         sim.add(conn.id, a, b, existing)
       }
+      if (physics) {
+        const points = sim.pointsFor(conn.id)
+        if (points) writePath(conn.id, ropePath(points), points)
+      }
     }
     // A varredura é sobre o que a SIMULAÇÃO carrega, não sobre a lista de
     // conexões: uma corda cuja conexão foi apagada não aparece mais na lista, e
     // iterar a lista nunca a alcançaria — ela ficava na física para sempre. A
     // lista completa, e não a visível, para a corda dobrada sobreviver.
-    const live = new Set(connections.map((c) => c.id))
+    const live = new Set(physics ? connections.map((c) => c.id) : [])
     for (const id of sim.ids()) if (!live.has(id)) sim.remove(id)
-  }, [connections, visible, nodes, liveFrames])
+  }, [connections, visible, nodes, liveFrames, physics, ropeStyle, ropeThickness])
 
   // Reancora durante o arrasto, a 60fps, sem passar pelo React
   useEffect(() => {
@@ -139,14 +200,17 @@ export function ConnectionsLayer({
           const nodeA = nodes.find((n) => n.id === conn.nodeIdA)
           const nodeB = nodes.find((n) => n.id === conn.nodeIdB)
           if (!nodeA || !nodeB) continue
-          sim.updateAnchors(conn.id, a ?? rectCenter(nodeA.frame), b ?? rectCenter(nodeB.frame))
+          const anchorA = a ?? rectCenter(nodeA.frame)
+          const anchorB = b ?? rectCenter(nodeB.frame)
+          if (physics) sim.updateAnchors(conn.id, anchorA, anchorB)
+          else writePath(conn.id, shapePath(ropeStyle, anchorA, anchorB))
         }
       }
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [visible, nodes, liveFrames])
+  }, [visible, nodes, liveFrames, physics, ropeStyle, ropeThickness])
 
   // Acompanha o transform do viewport
   useEffect(() => {
@@ -158,7 +222,15 @@ export function ConnectionsLayer({
 
   return (
     <>
-      <svg ref={svgRef} className="connections-layer" overflow="visible">
+      {/* O fator desce por variável CSS: daqui ele alcança a espessura de todo
+          traço de todo desenho sem que nenhum deles precise saber que existe
+          uma preferência. A geometria recebe o mesmo número pelo `scaleRef`. */}
+      <svg
+        ref={svgRef}
+        className="connections-layer"
+        overflow="visible"
+        style={{ '--rope-scale': ropeThickness } as React.CSSProperties}
+      >
         {visible.map((conn) => (
           <path
             key={`hit-${conn.id}`}
@@ -177,17 +249,38 @@ export function ConnectionsLayer({
             onMouseLeave={scheduleHide}
           />
         ))}
-        {visible.map((conn) => (
-          <path
-            key={conn.id}
-            ref={(el) => {
-              if (el) pathsRef.current.set(conn.id, el)
-              else pathsRef.current.delete(conn.id)
-            }}
-            className={STATUS_CLASS[conn.status] ?? STATUS_CLASS.idle}
-            fill="none"
-          />
-        ))}
+        {visible.map((conn) => {
+          const status = STATUS_CLASS[conn.status] ?? STATUS_CLASS.idle
+          return (
+            <g key={conn.id}>
+              {layers.map((layer, i) => (
+                <path
+                  key={layer.name || 'single'}
+                  ref={(el) => {
+                    // Trocar de desenho monta e desmonta traços em ordens que
+                    // não dá para prever daqui, então o índice pode ficar vago
+                    // por um instante. O `writePath` já pula o vago — limpar a
+                    // lista inteira aqui é que apagaria um traço vivo.
+                    const list = pathsRef.current.get(conn.id) ?? []
+                    if (el) {
+                      list[i] = el
+                      pathsRef.current.set(conn.id, list)
+                      return
+                    }
+                    delete list[i]
+                    // Corda cortada: sem isto a entrada ficava no mapa com uma
+                    // lista vazia para sempre, e o mapa só crescia ao longo da
+                    // sessão. Some quando o último traço se vai.
+                    if (list.some((path) => path)) pathsRef.current.set(conn.id, list)
+                    else pathsRef.current.delete(conn.id)
+                  }}
+                  className={`rope rope-shape-${ropeStyle}${layer.name ? ` rope-layer-${layer.name}` : ''} rope-${status}`}
+                  fill="none"
+                />
+              ))}
+            </g>
+          )
+        })}
       </svg>
 
       {scissors && (

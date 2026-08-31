@@ -12,7 +12,9 @@ import { useEffect, useRef } from 'react'
 import type { CanvasNode, Connection, Point, UUID } from '@shared/types'
 import { connectionKindForTypes } from '@shared/types'
 import { RopeSimulation, ropePath } from './rope'
+import { geometryPath, ropeLayers } from './rope-shapes'
 import { rectCenter, rectEdgePoint, viewport } from './viewport'
+import { useStore } from '../state/store'
 
 /** Id do fantasma na simulação — nunca colide com um UUID de verdade. */
 const PREVIEW_ID = 'preview' as UUID
@@ -47,8 +49,12 @@ export function ConnectionPreview({
   hostRef,
   hitTest
 }: Props): JSX.Element {
+  const { ropeStyle, ropeThickness } = useStore()
   const svgRef = useRef<SVGSVGElement>(null)
-  const pathRef = useRef<SVGPathElement>(null)
+  // Lista, e não um elemento: o fantasma precisa dos mesmos acabamentos
+  // empilhados do desenho escolhido, senão ele mente sobre o que vai virar.
+  const pathsRef = useRef<SVGPathElement[]>([])
+  const layers = ropeLayers(ropeStyle)
 
   // Props lidas de dentro do mousemove ficam em ref: assim o listener não é
   // recriado a cada render, e a física não reinicia no meio do gesto.
@@ -66,7 +72,24 @@ export function ConnectionPreview({
     const sim = new RopeSimulation()
     sim.onTick = (points) => {
       const pts = points.get(PREVIEW_ID)
-      if (pts && pathRef.current) pathRef.current.setAttribute('d', ropePath(pts))
+      if (!pts) return
+      const d = ropePath(pts)
+      const derived = new Map<string, string>()
+      for (let i = 0; i < pathsRef.current.length; i++) {
+        const el = pathsRef.current[i]
+        const geometry = layers[i]?.geometry ?? 'center'
+        if (!el) continue
+        if (geometry === 'center') {
+          el.setAttribute('d', d)
+          continue
+        }
+        let derivedPath = derived.get(geometry)
+        if (derivedPath === undefined) {
+          derivedPath = geometryPath(geometry, pts, ropeThickness)
+          derived.set(geometry, derivedPath)
+        }
+        el.setAttribute('d', derivedPath)
+      }
     }
 
     const source = latest.current.nodes.find((n) => n.id === from)
@@ -108,8 +131,14 @@ export function ConnectionPreview({
         : cursor
       sim.updateAnchors(PREVIEW_ID, rectEdgePoint(src.frame, anchorB), anchorB)
 
-      pathRef.current?.setAttribute('class', 'rope rope-preview')
-      pathRef.current?.setAttribute('data-target', state)
+      for (let i = 0; i < pathsRef.current.length; i++) {
+        const layer = layers[i]
+        pathsRef.current[i]?.setAttribute(
+          'class',
+          `rope rope-shape-${ropeStyle}${layer?.name ? ` rope-layer-${layer.name}` : ''} rope-preview`
+        )
+        pathsRef.current[i]?.setAttribute('data-target', state)
+      }
       mark(
         state === 'valid' && target
           ? document.querySelector(`[data-node-id="${target.id}"]`)
@@ -123,11 +152,26 @@ export function ConnectionPreview({
       mark(null)
       sim.clear()
     }
-  }, [from, hostRef])
+  }, [from, hostRef, ropeStyle, ropeThickness])
 
   return (
-    <svg ref={svgRef} className="connections-layer connection-preview" overflow="visible">
-      <path ref={pathRef} className="rope rope-preview is-open" fill="none" />
+    <svg
+      ref={svgRef}
+      className="connections-layer connection-preview"
+      overflow="visible"
+      style={{ '--rope-scale': ropeThickness } as React.CSSProperties}
+    >
+      {layers.map((layer, i) => (
+        <path
+          key={layer.name || 'single'}
+          ref={(el) => {
+            if (el) pathsRef.current[i] = el
+            else delete pathsRef.current[i]
+          }}
+          className={`rope rope-shape-${ropeStyle}${layer.name ? ` rope-layer-${layer.name}` : ''} rope-preview`}
+          fill="none"
+        />
+      ))}
     </svg>
   )
 }

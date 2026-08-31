@@ -10,6 +10,8 @@
  * sem workspace aberto — que é justamente quando algo deu errado.
  */
 import { useEffect, useState } from 'react'
+import { ROPE_THICKNESS_MAX, ROPE_THICKNESS_MIN } from '@shared/types'
+import { ROPE_STYLES, geometryPath, ropeLayers } from './canvas/rope-shapes'
 import { dialToZoom, nodesBounds, viewport, zoomToDial } from './canvas/viewport'
 import { useTopChromeBand } from './floating/chrome-band'
 import { store, useStore } from './state/store'
@@ -24,8 +26,10 @@ const THEMES: { id: ThemeMode; icon: string; label: string }[] = [
 ]
 
 export function CanvasChrome(): JSX.Element {
-  const { workspace, connectingFrom, placing, notice, theme } = useStore()
+  const { workspace, connectingFrom, placing, notice, theme, ropeStyle, ropeThickness } =
+    useStore()
   const [themeMenu, setThemeMenu] = useState(false)
+  const [ropeMenu, setRopeMenu] = useState(false)
 
   // O chip e os controles de vista dividem a linha do topo com as pílulas
   // horizontais; é daqui que sai a medida de onde essa linha acaba de cada
@@ -33,10 +37,13 @@ export function CanvasChrome(): JSX.Element {
   useTopChromeBand()
 
   useEffect(() => {
-    if (!themeMenu) return
-    const close = (): void => setThemeMenu(false)
+    if (!themeMenu && !ropeMenu) return
+    const close = (): void => {
+      setThemeMenu(false)
+      setRopeMenu(false)
+    }
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setThemeMenu(false)
+      if (e.key === 'Escape') close()
     }
     window.addEventListener('mousedown', close)
     window.addEventListener('keydown', onKey)
@@ -44,7 +51,7 @@ export function CanvasChrome(): JSX.Element {
       window.removeEventListener('mousedown', close)
       window.removeEventListener('keydown', onKey)
     }
-  }, [themeMenu])
+  }, [themeMenu, ropeMenu])
 
   return (
     <>
@@ -59,6 +66,10 @@ export function CanvasChrome(): JSX.Element {
         theme={theme}
         themeMenu={themeMenu}
         setThemeMenu={setThemeMenu}
+        ropeStyle={ropeStyle}
+        ropeThickness={ropeThickness}
+        ropeMenu={ropeMenu}
+        setRopeMenu={setRopeMenu}
         nodes={workspace?.nodes ?? []}
       />
 
@@ -107,11 +118,19 @@ function ViewControls({
   theme,
   themeMenu,
   setThemeMenu,
+  ropeStyle,
+  ropeThickness,
+  ropeMenu,
+  setRopeMenu,
   nodes
 }: {
   theme: ThemeMode
   themeMenu: boolean
   setThemeMenu: (fn: (v: boolean) => boolean) => void
+  ropeStyle: (typeof ROPE_STYLES)[number]['id']
+  ropeThickness: number
+  ropeMenu: boolean
+  setRopeMenu: (fn: (v: boolean) => boolean) => void
   /** Só para o "enquadrar tudo" saber o que precisa caber na tela. */
   nodes: CanvasNode[]
 }): JSX.Element {
@@ -173,11 +192,62 @@ function ViewControls({
         </button>
       </div>
 
+      <div className="floating vc-group rope-picker" onMouseDown={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          aria-label="Escolher desenho das conexões"
+          title={`Conexões: ${ROPE_STYLES.find((style) => style.id === ropeStyle)?.label ?? 'Corda'}`}
+          onClick={() => {
+            setThemeMenu(() => false)
+            setRopeMenu((open) => !open)
+          }}
+        >
+          <RopeStylePreview id={ropeStyle} compact />
+        </button>
+        {ropeMenu && (
+          <div className="context-menu rope-menu">
+            {ROPE_STYLES.map((style) => (
+              <button
+                key={style.id}
+                type="button"
+                onClick={() => {
+                  store.setRopeStyle(style.id)
+                  setRopeMenu(() => false)
+                }}
+              >
+                <span className="rope-style-check">{ropeStyle === style.id ? '✓' : ''}</span>
+                <RopeStylePreview id={style.id} />
+                <span>{style.label}</span>
+              </button>
+            ))}
+            <label className="rope-thickness">
+              Espessura
+              <input
+                type="range"
+                min={ROPE_THICKNESS_MIN}
+                max={ROPE_THICKNESS_MAX}
+                step={0.05}
+                value={ropeThickness}
+                aria-label="Espessura das conexões"
+                /* Ao vivo enquanto arrasta; grava uma vez, quando solta. */
+                onChange={(e) => store.previewRopeThickness(Number(e.target.value))}
+                onPointerUp={() => store.commitRopeThickness()}
+                onKeyUp={() => store.commitRopeThickness()}
+              />
+              <output>{ropeThickness.toFixed(2).replace(/0$/, '')}×</output>
+            </label>
+          </div>
+        )}
+      </div>
+
       <div className="floating vc-group theme-picker" onMouseDown={(e) => e.stopPropagation()}>
         <button
           type="button"
           title={`Tema: ${THEMES.find((t) => t.id === theme)?.label ?? 'Sistema'}`}
-          onClick={() => setThemeMenu((v) => !v)}
+          onClick={() => {
+            setRopeMenu(() => false)
+            setThemeMenu((v) => !v)
+          }}
         >
           {THEMES.find((t) => t.id === theme)?.icon ?? '◑'}
         </button>
@@ -201,6 +271,62 @@ function ViewControls({
       </div>
     </div>
   )
+}
+
+/** Amostra curta, pintada pelas mesmas classes usadas no canvas. */
+function RopeStylePreview({
+  id,
+  compact = false
+}: {
+  id: (typeof ROPE_STYLES)[number]['id']
+  compact?: boolean
+}): JSX.Element {
+  return (
+    <svg
+      className={`rope-style-preview${compact ? ' rope-picker-button-preview' : ''}`}
+      viewBox="0 0 28 14"
+      aria-hidden="true"
+    >
+      {ropeLayers(id).map((layer) => (
+        <path
+          key={layer.name || 'single'}
+          className={`rope rope-shape-${id}${layer.name ? ` rope-layer-${layer.name}` : ''} rope-idle`}
+          d={
+            layer.geometry === 'center'
+              ? ropeStylePreviewPath(id)
+              : geometryPath(layer.geometry, SWATCH_POINTS, SWATCH_SCALE)
+          }
+        />
+      ))}
+    </svg>
+  )
+}
+
+/**
+ * A amostra do seletor é pequena demais para a hélice de canvas: a corda vai a
+ * 4.5 de corpo no CSS, e o gomo acompanha pela mesma fração.
+ */
+const SWATCH_SCALE = 0.45
+/** A mesma curva de `ropeStylePreviewPath`, amostrada — a hélice quer pontos. */
+const SWATCH_POINTS = Array.from({ length: 24 }, (_, i) => {
+  const t = i / 23
+  const u = 1 - t
+  return {
+    x: u * u * u * 2 + 3 * u * u * t * 8 + 3 * u * t * t * 20 + t * t * t * 26,
+    y: u * u * u * 5 + 3 * u * u * t * 12 + 3 * u * t * t * 12 + t * t * t * 5
+  }
+})
+
+function ropeStylePreviewPath(id: (typeof ROPE_STYLES)[number]['id']): string {
+  if (id === 'line') return 'M 2 7 H 26'
+  if (id === 'circuit') return 'M 2 10 H 10 V 4 H 18 V 7 H 26'
+  // Os desenhos em camadas TÊM de usar esta curva: é a mesma que o
+  // `SWATCH_POINTS` amostra para a geometria derivada. Devolver outra aqui
+  // colocaria a sombra da trança num traçado diferente do dos fios dela.
+  if (id === 'dotted' || id === 'rope' || id === 'chain' || id === 'braid') {
+    return 'M 2 5 C 8 12, 20 12, 26 5'
+  }
+  return 'M 2 7 C 8 2, 20 12, 26 7'
 }
 
 /** "da nota" / "do terminal" — o rótulo do item vem sem artigo. */

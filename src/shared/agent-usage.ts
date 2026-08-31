@@ -618,7 +618,14 @@ function codexLimit(id: string, name: string | null, value: unknown): UsageLimit
   const used =
     num(bucket.usedPercent) ?? num(bucket.usedPercentage) ?? num(bucket.used_percent) ?? num(bucket.used_percentage)
   if (used === null) return null
-  const minutes = num(bucket.windowDurationMins) ?? num(bucket.window_duration_mins)
+  // `window_minutes` é o nome que o ROLLOUT usa; os outros dois vêm do App
+  // Server. Os três significam a mesma janela, e aceitar os três é o que
+  // permite um parser só para as duas fontes.
+  const minutes =
+    num(bucket.windowDurationMins) ??
+    num(bucket.window_duration_mins) ??
+    num(bucket.windowMinutes) ??
+    num(bucket.window_minutes)
   return {
     provider: 'codex',
     bucketId: id || null,

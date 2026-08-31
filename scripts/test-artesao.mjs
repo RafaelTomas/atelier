@@ -93,6 +93,20 @@ async function testAsync(name, fn) {
   }
 }
 
+/**
+ * O comando gravado no settings é o CLI por caminho inteiro — o `PATH` do PTY
+ * pode ser reescrito pelo profile do usuário, e aí `atelier` resolveria para
+ * outro binário (ver cli-install.ts). Asserta a FORMA, porque o caminho depende
+ * do ATELIER_HOME do teste.
+ */
+function assertCliCommand(command, verb, msg) {
+  assert.match(
+    command,
+    new RegExp(`^"[^"]*/bin/atelier" ${verb}$`),
+    msg || `não é o CLI por caminho absoluto: ${command}`
+  )
+}
+
 console.log('\nartesao\n')
 
 // ─── O settings gerado ────────────────────────────────────────────────────────
@@ -100,7 +114,7 @@ console.log('\nartesao\n')
 test('sem Artesão o settings é exatamente o de antes', () => {
   const cfg = JSON.parse(agentSettings({ artisan: false }))
   assert.deepEqual(Object.keys(cfg), ['statusLine'])
-  assert.equal(cfg.statusLine.command, 'atelier statusline')
+  assertCliCommand(cfg.statusLine.command, 'statusline')
 })
 
 test('sem argumento nenhum o padrão é não-Artesão', () => {
@@ -109,15 +123,15 @@ test('sem argumento nenhum o padrão é não-Artesão', () => {
 
 test('com Artesão os hooks entram e a statusLine FICA', () => {
   const cfg = JSON.parse(agentSettings({ artisan: true }))
-  assert.equal(cfg.statusLine.command, 'atelier statusline', 'o monitor foi atropelado')
+  assertCliCommand(cfg.statusLine.command, 'statusline', 'o monitor foi atropelado')
 
   const start = cfg.hooks.SessionStart[0].hooks[0]
   assert.equal(start.type, 'command')
-  assert.equal(start.command, 'atelier artesao brief')
+  assertCliCommand(start.command, 'artesao brief')
 
   const pre = cfg.hooks.PreToolUse[0]
   assert.equal(pre.matcher, 'Task', 'o bloqueio não está mirando o subagente interno')
-  assert.equal(pre.hooks[0].command, 'atelier artesao guard')
+  assertCliCommand(pre.hooks[0].command, 'artesao guard')
 })
 
 // ─── A anexação do --settings ─────────────────────────────────────────────────

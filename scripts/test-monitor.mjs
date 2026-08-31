@@ -1094,7 +1094,10 @@ test('o settings gerado instala a statusLine, e nada mais', () => {
   const cfg = JSON.parse(agentSettings({ artisan: false }))
   assert.deepEqual(Object.keys(cfg), ['statusLine'], 'o Atelier mexeu em outra chave do usuário')
   assert.equal(cfg.statusLine.type, 'command')
-  assert.equal(cfg.statusLine.command, 'atelier statusline')
+  // Caminho inteiro, e não `atelier statusline`: o PATH do PTY pode ter sido
+  // reescrito pelo profile do usuário, e o nome solto resolveria para outro
+  // binário — a falha era silenciosa, e o monitor ficava vazio.
+  assert.match(cfg.statusLine.command, /^"[^"]*\/bin\/atelier" statusline$/)
 })
 
 // ─── Ref-count do amostrador ──────────────────────────────────────────────────

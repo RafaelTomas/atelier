@@ -25,6 +25,30 @@ export function atelierBinDir(): { dir: string; cliPath: string } {
 }
 
 /**
+ * O CLI por CAMINHO ABSOLUTO, para quem não pode contar com o PATH.
+ *
+ * O `PATH` do PTY recebe `<dados>/bin` na frente (terminal-manager), mas o
+ * shell interativo carrega o profile do usuário DEPOIS, e um `.bashrc` que faz
+ * `export PATH=/usr/bin:/bin:...` — reatribuição, e não prefixo — apaga o
+ * diretório do Atelier sem avisar. Aí `atelier statusline` resolve para outro
+ * `atelier` qualquer no sistema (no Linux, o launcher do próprio app instalado
+ * pelo pacote), que sobe uma segunda instância, morre com "outra instância já
+ * está rodando" e sai com código 0: a `statusLine` falha em SILÊNCIO e o
+ * monitor fica sem nenhuma leitura da conta. O mesmo vale para os hooks do
+ * Artesão.
+ *
+ * Por isso o comando gravado no settings é o caminho inteiro. É o wrapper `sh`
+ * — e não o `ATELIER_CLI` — porque quem executa `statusLine` e hooks é um shell
+ * POSIX em toda plataforma (no Windows, o Git Bash), e o `sh` não sabe rodar um
+ * `.cmd`. Barras normalizadas para `/` pelo mesmo motivo: `C:\Users\...` dentro
+ * de aspas duplas passaria pelo tratamento de escape do `sh`.
+ */
+export function cliCommand(args: string): string {
+  const { dir } = atelierBinDir()
+  return `"${join(dir, 'atelier').replace(/\\/g, '/')}" ${args}`
+}
+
+/**
  * Caminho do atelier.cjs empacotado (dev e produção diferem).
  *
  * O import do electron é dinâmico de propósito: mantém este módulo — e toda a

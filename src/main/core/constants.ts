@@ -1,6 +1,6 @@
 /** Porte de Sources/Shared/Constants.swift */
 export const Constants = {
-  schemaVersion: 7,
+  schemaVersion: 8,
   /** Versão do índice de projetos (projects.json) — independente do workspace. */
   projectIndexSchemaVersion: 1,
   appDataDirectoryName: '.atelier',
@@ -49,6 +49,16 @@ export const Constants = {
   vaultDefaultHeight: 280,
   /** Revelar valor na UI: teto de revelações por minuto, por cofre. */
   vaultRevealPerMinute: 10,
+  /**
+   * Nó de relógio (widget de kind `clock`): relógio, cronômetro, timer e
+   * pomodoro no mesmo objeto. Nasce COMPACTO, como o botão e o monitor, e não no
+   * tamanho de coluna de painel (`widgetDefault*`) — o corpo é um mostrador e
+   * alguns controles, não uma lista.
+   */
+  clockMinWidth: 140,
+  clockMinHeight: 100,
+  clockDefaultWidth: 220,
+  clockDefaultHeight: 150,
   /** Botão (widget de kind `button`): um alvo de clique, não um painel. */
   buttonMinWidth: 56,
   buttonMinHeight: 56,

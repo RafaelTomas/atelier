@@ -13,6 +13,23 @@ import { RopeSimulation, ropePath } from './rope'
 import { ROPE_STYLES, geometryPath, ropeLayers, shapePath } from './rope-shapes'
 import { rectCenter, viewport } from './viewport'
 
+/**
+ * O que o cabo diz quando o cursor para em cima dele.
+ *
+ * Só o `clockAction` tem texto: ele é o único cabo cujo efeito não se lê nas
+ * duas pontas. Um cabo de nota ou de portal descreve uma LIGAÇÃO — o agente
+ * alcança aquele artefato —, e ver os dois nós já explica. Este descreve um
+ * EVENTO com direção e com efeito colateral, e "ao terminar → este botão" é o
+ * que separa um cabo decorativo de um comando que vai rodar sozinho.
+ */
+function ropeTitle(conn: Connection, nodes: CanvasNode[]): string | null {
+  if (conn.kind !== 'clockAction') return null
+  const button = nodes.find((n) => n.id === conn.nodeIdB)
+  const label =
+    button?.content.type === 'widget' ? button.content.value.view.label || 'o botão' : 'o botão'
+  return `ao terminar → ${label}`
+}
+
 const STATUS_CLASS: Record<string, string> = {
   idle: 'idle',
   communicating: 'communicating',
@@ -247,7 +264,12 @@ export function ConnectionsLayer({
               setScissors({ id: conn.id, x: e.clientX, y: e.clientY })
             }}
             onMouseLeave={scheduleHide}
-          />
+          >
+            {/* No path de ACERTO, não no visível: é ele que tem
+                `pointer-events`, e um `<title>` num traço inerte nunca
+                apareceria. */}
+            {ropeTitle(conn, nodes) && <title>{ropeTitle(conn, nodes)}</title>}
+          </path>
         ))}
         {visible.map((conn) => {
           const status = STATUS_CLASS[conn.status] ?? STATUS_CLASS.idle
@@ -274,7 +296,7 @@ export function ConnectionsLayer({
                     if (list.some((path) => path)) pathsRef.current.set(conn.id, list)
                     else pathsRef.current.delete(conn.id)
                   }}
-                  className={`rope rope-shape-${ropeStyle}${layer.name ? ` rope-layer-${layer.name}` : ''} rope-${status}`}
+                  className={`rope rope-shape-${ropeStyle}${layer.name ? ` rope-layer-${layer.name}` : ''} rope-${status} rope-kind-${conn.kind}`}
                   fill="none"
                 />
               ))}

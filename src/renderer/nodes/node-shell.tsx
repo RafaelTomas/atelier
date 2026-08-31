@@ -83,16 +83,23 @@ function title(node: CanvasNode, projectName: string | null): string {
 const RESIZE_EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const
 
 /**
- * Sem barra de título: o texto (igual ao app nativo) e o BOTÃO.
+ * Sem barra de título: o texto (igual ao app nativo), o BOTÃO e o RELÓGIO.
  *
  * O botão entrou aqui porque um cabeçalho de 28 px em cima de um nó de 88 é um
  * terço de moldura para nada — e porque o nó inteiro é o alvo de clique, o que
  * um header roubaria pela metade. Editar e excluir ele ganha na barra de ações
  * da seleção, como o terminal.
+ *
+ * O relógio entrou pela mesma aritmética e por uma redundância: o `⇄` e o `×`
+ * do cabeçalho são exatamente o que a barra de ações da seleção já oferece
+ * (ver node-action-bar), e o mostrador é a única coisa que o nó tem para
+ * mostrar. Um cabeçalho aqui gastava um quinto da altura repetindo dois botões
+ * que já existem um pixel acima.
  */
 function isChromeless(node: CanvasNode): boolean {
   if (node.content.type === 'text') return true
-  return node.content.type === 'widget' && node.content.value.kind === 'button'
+  if (node.content.type !== 'widget') return false
+  return node.content.value.kind === 'button' || node.content.value.kind === 'clock'
 }
 
 export function NodeShell({
@@ -170,6 +177,10 @@ export function NodeShell({
         className={[
           'node',
           `node-${node.content.type}`,
+          // O kind do widget vira classe porque `.node-widget` não basta: botão
+          // e relógio são os dois chromeless e querem cascas opostas — um card
+          // que pareça apertável, e nenhuma casca.
+          ...(node.content.type === 'widget' ? [`node-widget-${node.content.value.kind}`] : []),
           selected ? 'is-selected' : '',
           isChromeless(node) ? 'is-chromeless' : ''
         ]

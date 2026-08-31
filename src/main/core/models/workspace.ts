@@ -1,9 +1,9 @@
 /**
- * Codec de workspace.json (schemaVersion 7, formato do app nativo).
+ * Codec de workspace.json (schemaVersion 8, formato do app nativo).
  *
- * Em disco as conexões vivem em SEIS arrays separados, cada um com nomes de
- * campo próprios. Em memória normalizamos tudo num único Connection[] com um
- * discriminante `kind` — a separação é refeita na escrita.
+ * Em disco as conexões vivem em arrays separados, um por `kind`, cada um com
+ * nomes de campo próprios. Em memória normalizamos tudo num único Connection[]
+ * com um discriminante `kind` — a separação é refeita na escrita.
  */
 import type {
   CanvasNode,
@@ -113,7 +113,18 @@ const CONNECTION_SCHEMAS: ConnectionSchema[] = [
   // Campos NEUTROS de propósito: o mesmo kind cobre terminal↔cofre e
   // portal↔cofre, e mais tarde dataTable↔cofre — como o crossFloor já faz.
   // Uma lista por par de tipos obrigaria uma migração a cada par novo.
-  { arrayKey: 'secretConnections', kind: 'secret', fieldA: 'nodeIdA', fieldB: 'nodeIdB' }
+  { arrayKey: 'secretConnections', kind: 'secret', fieldA: 'nodeIdA', fieldB: 'nodeIdB' },
+  // Cabo relógio→botão. Campos EXPLÍCITOS (`clockNodeId`/`buttonNodeId`), e não
+  // neutros como o secret: a conexão tem direção fixa — o WorkspaceManager
+  // normaliza o relógio em `nodeIdA` e o botão em `nodeIdB` —, e gravar isso com
+  // nomes que dizem qual ponta é qual dispensa reconstruir a orientação na
+  // leitura. É a lista PERSISTIDA nova que sobe o schemaVersion para 8.
+  {
+    arrayKey: 'clockActionConnections',
+    kind: 'clockAction',
+    fieldA: 'clockNodeId',
+    fieldB: 'buttonNodeId'
+  }
 ]
 
 function decodeConnections(raw: Record<string, unknown>): Connection[] {

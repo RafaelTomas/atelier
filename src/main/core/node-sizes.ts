@@ -47,6 +47,15 @@ function isTodo(opts: Record<string, unknown>): boolean {
 }
 
 /**
+ * O relógio nasce COMPACTO, pela mesma razão do botão e do monitor: o padrão do
+ * widget é medida de coluna de painel, e o mostrador com poucos controles
+ * nasceria com metade do nó vazia. Tem piso próprio, mais baixo que o do widget.
+ */
+function isClock(opts: Record<string, unknown>): boolean {
+  return opts.kind === 'clock'
+}
+
+/**
  * Piso por tipo. A área é desenhada pelo usuário, e um retângulo de 20px
  * criaria um terminal onde nem o cabeçalho cabe.
  */
@@ -70,9 +79,11 @@ export function minSize(
     case 'image':
       return { width: Constants.imageMinWidth, height: Constants.imageMinHeight }
     case 'widget':
-      return isButton(opts)
-        ? { width: Constants.buttonMinWidth, height: Constants.buttonMinHeight }
-        : { width: Constants.widgetMinWidth, height: Constants.widgetMinHeight }
+      if (isButton(opts))
+        return { width: Constants.buttonMinWidth, height: Constants.buttonMinHeight }
+      if (isClock(opts))
+        return { width: Constants.clockMinWidth, height: Constants.clockMinHeight }
+      return { width: Constants.widgetMinWidth, height: Constants.widgetMinHeight }
     case 'secretVault':
       return { width: Constants.vaultMinWidth, height: Constants.vaultMinHeight }
     case 'text':
@@ -108,6 +119,8 @@ export function defaultSize(
         return { width: Constants.monitorDefaultWidth, height: Constants.monitorDefaultHeight }
       if (isTodo(opts))
         return { width: Constants.todoDefaultWidth, height: Constants.todoDefaultHeight }
+      if (isClock(opts))
+        return { width: Constants.clockDefaultWidth, height: Constants.clockDefaultHeight }
       return { width: Constants.widgetDefaultWidth, height: Constants.widgetDefaultHeight }
     case 'secretVault':
       return { width: Constants.vaultDefaultWidth, height: Constants.vaultDefaultHeight }

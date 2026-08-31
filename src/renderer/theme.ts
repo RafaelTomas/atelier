@@ -21,6 +21,20 @@ export function applyTheme(mode: ThemeMode): void {
   root.style.colorScheme = mode === 'system' ? 'light dark' : mode
 }
 
+/**
+ * Sobrepõe só o cinza de REPOUSO. `null` remove a escrita inline para o token
+ * de tokens.css voltar a acompanhar claro/escuro; copiar seu valor aqui faria
+ * “Padrão” congelar a aparência do tema que estava ativo no clique.
+ *
+ * Tráfego, erro e relógio não passam por este caminho: eles têm tokens de
+ * significado próprios e o CSS dos estados os escolhe depois de `--rope`.
+ */
+export function applyRopeColor(color: string | null): void {
+  const root = document.documentElement
+  if (color === null) root.style.removeProperty('--rope')
+  else root.style.setProperty('--rope', color)
+}
+
 /** O tema efetivo — 'system' resolvido pelo que o SO está pedindo agora. */
 export function effectiveTheme(mode: ThemeMode): 'light' | 'dark' {
   if (mode !== 'system') return mode

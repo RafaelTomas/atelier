@@ -4,11 +4,13 @@ import { readButtonConfig } from '@shared/types'
 import { CanvasView } from './canvas/canvas-view'
 import { viewport } from './canvas/viewport'
 import { ButtonDialog } from './dialogs/button-dialog'
+import { ClockDialog } from './dialogs/clock-dialog'
 import { NewTerminalDialog } from './dialogs/new-terminal-dialog'
 import { ScanDialog } from './dialogs/scan-dialog'
 import { ProjectCandidates } from './project-candidates'
 import { CanvasChrome } from './canvas-chrome'
 import { Rail } from './rail'
+import { clockCoordinator } from './state/clock-coordinator'
 import { listenForPortalWake } from './state/portal-wake'
 import { store, useStore } from './state/store'
 
@@ -22,6 +24,7 @@ export function App(): JSX.Element {
     newTerminalCwd,
     editTerminalId,
     buttonDialog,
+    clockDialog,
     scanDialogOpen,
     integrity,
     closingEditor
@@ -71,6 +74,30 @@ export function App(): JSX.Element {
     // desmontou. A assinatura fica aqui, e não no nó: um nó desmontado não tem
     // como escutar o pedido para se montar.
     const offWake = listenForPortalWake()
+
+    /**
+     * O coordenador dos relógios, montado para o WORKSPACE inteiro — nunca por
+     * nó. A virtualização do canvas desmonta o que sai do viewport, e um
+     * relógio pode ter um botão ligado por cabo: um timer que dependesse da
+     * presença do componente no DOM deixaria de disparar por um pan.
+     *
+     * A store entra aqui como HOST, e não por import lá dentro: o disparo passa
+     * pelo mesmo `runButton` do clique, com origem explícita, e o coordenador
+     * não precisa saber de mais nada da store além destes quatro verbos.
+     */
+    clockCoordinator.attach({
+      patchView: (nodeId, view) => store.patchContent(nodeId, { view }),
+      runButton: (nodeId, opts) => store.runButton(nodeId, opts),
+      setConnectionStatus: (id, status) => store.setConnectionStatus(id, status),
+      notice: (text) => store.showNotice(text)
+    })
+    const offResume = window.atelier.system.onResume(() => clockCoordinator.resume())
+    // Guardas adicionais do sinal do `powerMonitor`: uma janela que ficou
+    // escondida ou sem foco pode ter tido seus timers estrangulados pelo
+    // Chromium sem nenhuma suspensão de máquina envolvida.
+    const onWake = (): void => clockCoordinator.resume()
+    window.addEventListener('focus', onWake)
+    document.addEventListener('visibilitychange', onWake)
     return () => {
       offWorkspace()
       offStatus()
@@ -80,8 +107,27 @@ export function App(): JSX.Element {
       offCandidates()
       offFile()
       offWake()
+      offResume()
+      window.removeEventListener('focus', onWake)
+      document.removeEventListener('visibilitychange', onWake)
+      clockCoordinator.dispose()
     }
   }, [])
+
+  /**
+   * A lista de relógios e de cabos que o coordenador observa. Reindexar é
+   * barato; o que NÃO acontece aqui é o tique — ele nunca passa pelo React.
+   *
+   * Trocar de workspace cancela a agenda anterior: os ids do canvas antigo não
+   * têm mais o que agendar nem o que disparar.
+   */
+  useEffect(() => {
+    clockCoordinator.setWorkspace(
+      workspace?.id ?? null,
+      workspace?.nodes ?? [],
+      workspace?.connections ?? []
+    )
+  }, [workspace?.id, workspace?.nodes, workspace?.connections])
 
   /**
    * Nasce na área que o usuário desenhou antes de abrir o diálogo. Sem área
@@ -204,6 +250,15 @@ export function App(): JSX.Element {
           defaultWorkingDirectory={workspace?.workingDirectory ?? ''}
           onCancel={() => store.closeButtonDialog()}
           onSubmit={submitButton}
+        />
+      )}
+
+      {clockDialog && (
+        <ClockDialog
+          key={clockDialog.nodeId}
+          initial={store.clockConfig(clockDialog.nodeId)}
+          onCancel={() => store.closeClockDialog()}
+          onSubmit={(config) => void store.saveClock(clockDialog.nodeId, config)}
         />
       )}
 

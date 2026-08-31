@@ -1,5 +1,5 @@
 /**
- * Barra de ações do nó selecionado — terminal ou botão.
+ * Barra de ações do nó selecionado — terminal, botão ou relógio.
  *
  * Mesma mecânica da FormatBar: vive FORA do contêiner transformado do canvas,
  * em coordenadas de tela, e é reposicionada no callback do viewport — assim não
@@ -12,6 +12,8 @@ import { viewport } from '../canvas/viewport'
 import { accountLabel, isClaudeCommand } from '../claude-accounts'
 import { ContextMenu } from '../context-menu'
 import { IconChevronDown, IconConnect, IconPencil, IconReload, IconTrash } from '../icons'
+import { readClockConfig } from '@shared/clock'
+import { CLOCK_COLORS } from './clock-widget'
 import { store, useStore } from '../state/store'
 
 const BAR_GAP = 12 // px de tela entre o topo do nó e a barra
@@ -26,7 +28,16 @@ export function NodeActionBar({ node }: Props): JSX.Element {
   // formato não tem array para o par botão↔terminal) e não tem processo para
   // reiniciar. Mostrá-los desabilitados só ensinaria o usuário a ignorá-los.
   const isTerminal = node.content.type === 'terminal'
-  const label = isTerminal ? 'terminal' : 'botão'
+  // O relógio entra aqui pela mesma razão do botão: duração, formato de hora e
+  // as durações do pomodoro não cabem no nó, e o lápis é o caminho que o botão
+  // já ensinou.
+  //
+  // E ele ganha o ⇄ também, o que o botão não tem: o cabo `clockAction` TEM
+  // direção, e sai do relógio. Oferecer o gesto na ponta que produz o evento é
+  // o que faz "ao terminar → este botão" ser lido na ordem em que acontece.
+  const isClock =
+    node.content.type === 'widget' && node.content.value.kind === 'clock'
+  const label = isTerminal ? 'terminal' : isClock ? 'relógio' : 'botão'
 
   useEffect(() => {
     const place = (): void => {
@@ -49,11 +60,11 @@ export function NodeActionBar({ node }: Props): JSX.Element {
       // botão também iniciaria seleção ou arrasto no nó de baixo.
       onMouseDown={(e) => e.stopPropagation()}
     >
-      {isTerminal && (
+      {(isTerminal || isClock) && (
         <button
           type="button"
           className="icon-btn action-btn"
-          title="Ligar a outro nó"
+          title={isClock ? 'Ligar a um botão — ele roda quando o tempo acabar' : 'Ligar a outro nó'}
           onClick={() => store.startConnecting(node.id)}
         >
           <IconConnect size={16} />
@@ -68,6 +79,7 @@ export function NodeActionBar({ node }: Props): JSX.Element {
         <IconPencil size={16} />
       </button>
       {isTerminal && <SessionButton node={node} />}
+      {isClock && <ClockColorButton node={node} />}
       <ClaudeAccountButton node={node} />
       <span className="action-sep" />
       <button
@@ -79,6 +91,72 @@ export function NodeActionBar({ node }: Props): JSX.Element {
         <IconTrash size={16} />
       </button>
     </div>
+  )
+}
+
+/**
+ * A cor do LED do relógio.
+ *
+ * Mora na barra de ações, e não no diálogo do lápis, porque é uma escolha de
+ * APARÊNCIA e de um clique: o diálogo edita durações — números que precisam ser
+ * digitados, conferidos e cancelados —, e enterrar uma troca de cor atrás dele
+ * pediria três gestos para uma decisão que se toma olhando.
+ *
+ * O botão não usa ícone de paleta: ele MOSTRA a cor atual, como o botão ao lado
+ * mostra o nome da conta do Claude. Um ícone genérico diria que existe cor para
+ * escolher; a bolinha diz qual está escolhida.
+ */
+function ClockColorButton({ node }: Props): JSX.Element | null {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  if (node.content.type !== 'widget' || node.content.value.kind !== 'clock') return null
+  const color = readClockConfig(node.content.value.view).color
+  const label = CLOCK_COLORS.find((c) => c.value === color)?.label ?? 'Personalizada'
+
+  const open = (): void => {
+    const rect = btnRef.current?.getBoundingClientRect()
+    if (!rect) return
+    setMenu({ x: rect.right, y: rect.bottom + 4 })
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className="icon-btn action-btn"
+        title={`Cor do mostrador: ${label}`}
+        onClick={() => (menu ? setMenu(null) : open())}
+      >
+        <span className="clock-color-dot" style={{ background: color }} />
+      </button>
+
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} align="right">
+          <span className="context-menu-label">Cor do mostrador</span>
+          {/* A mesma linha de amostras do menu de grupo e da caneta: inventar um
+              terceiro jeito de escolher cor faria aprender três gramáticas para
+              a mesma ideia. */}
+          <div className="group-swatches">
+            {CLOCK_COLORS.map((swatch) => (
+              <button
+                key={swatch.value}
+                type="button"
+                className={swatch.value === color ? 'swatch is-active' : 'swatch'}
+                style={{ background: swatch.value }}
+                title={swatch.label}
+                aria-label={swatch.label}
+                onClick={() => {
+                  setMenu(null)
+                  void store.setClockColor(node.id, swatch.value)
+                }}
+              />
+            ))}
+          </div>
+        </ContextMenu>
+      )}
+    </>
   )
 }
 

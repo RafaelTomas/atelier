@@ -413,26 +413,29 @@ function docV6(extra = {}) {
   }
 }
 
-test('a versão do schema é 7', () => {
-  assert.equal(Constants.schemaVersion, 7)
+test('a versão do schema é 8', () => {
+  // A asserção é do NÚMERO, e não de uma constante contra ela mesma: a subida de
+  // versão é uma decisão deliberada (a v8 acrescentou `clockActionConnections`), e
+  // este teste é o que obriga quem a mexer a olhar as migrações antes.
+  assert.equal(Constants.schemaVersion, 8)
 })
 
-test('v6 → v7 sobe o número e NÃO transforma o payload', () => {
+test('v6 → a versão corrente sobe o número e NÃO transforma o payload', () => {
   const before = docV6()
   const after = migrateWorkspaceDocument(structuredClone(before))
-  assert.equal(after.schemaVersion, 7)
-  assert.deepEqual(after.payload, before.payload, 'a v7 mexeu no conteúdo')
+  assert.equal(after.schemaVersion, Constants.schemaVersion)
+  assert.deepEqual(after.payload, before.payload, 'a migração mexeu no conteúdo')
 })
 
-test('documento já em v7 atravessa intocado', () => {
-  const v7 = { ...docV6(), schemaVersion: 7 }
-  assert.deepEqual(migrateWorkspaceDocument(structuredClone(v7)), v7)
+test('documento já na versão corrente atravessa intocado', () => {
+  const atual = { ...docV6(), schemaVersion: Constants.schemaVersion }
+  assert.deepEqual(migrateWorkspaceDocument(structuredClone(atual)), atual)
 })
 
-test('v1 → v7 cria a lista secretConnections vazia, como as outras', () => {
+test('v1 → a versão corrente cria a lista secretConnections vazia, como as outras', () => {
   const v1 = { schemaVersion: 1, type: 'workspace', payload: { nodes: [] } }
   const after = migrateWorkspaceDocument(v1)
-  assert.equal(after.schemaVersion, 7)
+  assert.equal(after.schemaVersion, Constants.schemaVersion)
   assert.deepEqual(after.payload.secretConnections, [])
 })
 
@@ -485,7 +488,7 @@ test('nó de cofre sobrevive a save → load, com as chaves e sem valor', () => 
   ])
 
   const back = encodeWorkspaceDocument(payload)
-  assert.equal(back.schemaVersion, 7)
+  assert.equal(back.schemaVersion, Constants.schemaVersion)
   const encodedNode = back.payload.nodes.find((n) => n.id === VAULT_NODE_ID)
   assert.deepEqual(encodedNode.content.secretVault._0.keys, node.content.value.keys)
 })

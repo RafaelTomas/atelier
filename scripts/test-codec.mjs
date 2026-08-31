@@ -506,6 +506,61 @@ test('editor↔editor e editor↔portal continuam recusados', () => {
   assert.equal(connectionKindForTypes('codeEditor', 'secretVault'), null)
 })
 
+// ─── Cabo de relógio: clock↔button vira clockAction (v8) ─────────────────────
+// A regra é FINA: no nível de NodeContentType clock e button são ambos 'widget',
+// então connectionKindForTypes só distingue o par quando recebe os
+// discriminadores internos. A CARDINALIDADE (um destino por relógio) e a recusa
+// de botão pending/confirm NÃO moram aqui — são aplicadas no WorkspaceManager
+// (addConnection) e replicadas no preview do cabo. Estes casos provam só a
+// dedução do kind e o round-trip da lista persistida.
+
+test('clock↔button vira clockAction nas duas ordens', () => {
+  assert.equal(connectionKindForTypes('widget', 'widget', 'clock', 'button'), 'clockAction')
+  assert.equal(connectionKindForTypes('widget', 'widget', 'button', 'clock'), 'clockAction')
+})
+
+test('outros pares de widget NÃO viram clockAction', () => {
+  assert.equal(connectionKindForTypes('widget', 'widget', 'clock', 'monitor'), null)
+  assert.equal(connectionKindForTypes('widget', 'widget', 'button', 'button'), null)
+  assert.equal(connectionKindForTypes('widget', 'widget', 'clock', 'clock'), null)
+})
+
+test('sem discriminadores, widget↔widget é recusado e terminal↔widget continua data', () => {
+  assert.equal(connectionKindForTypes('widget', 'widget'), null)
+  assert.equal(connectionKindForTypes('terminal', 'widget'), 'data')
+  // A regra terminal↔widget não passa a aceitar clock↔button: mesmo com o
+  // discriminador de relógio de um lado, um terminal do outro continua 'data'.
+  assert.equal(connectionKindForTypes('terminal', 'widget', undefined, 'clock'), 'data')
+})
+
+test('clockActionConnections faz decode/encode com orientação canônica e schemaVersion 8', () => {
+  const doc = decodeWorkspaceDocument({
+    ...raw,
+    payload: {
+      ...raw.payload,
+      clockActionConnections: [
+        {
+          id: 'CCCCCCCC-0000-0000-0000-0000000000CA',
+          clockNodeId: 'AAAAAAAA-0000-0000-0000-0000000000CA',
+          buttonNodeId: 'BBBBBBBB-0000-0000-0000-0000000000CA',
+          createdAt: '2026-08-31T00:00:00Z',
+          ropePoints: []
+        }
+      ]
+    }
+  })
+  const conn = doc.payload.connections.find((c) => c.kind === 'clockAction')
+  assert.ok(conn, 'cabo clockAction não foi decodificado')
+  assert.equal(conn.nodeIdA, 'AAAAAAAA-0000-0000-0000-0000000000CA', 'relógio não ficou no lado A')
+  assert.equal(conn.nodeIdB, 'BBBBBBBB-0000-0000-0000-0000000000CA', 'botão não ficou no lado B')
+
+  const back = encodeWorkspaceDocument(doc.payload)
+  assert.equal(back.payload.clockActionConnections.length, 1)
+  assert.equal(back.payload.clockActionConnections[0].clockNodeId, 'AAAAAAAA-0000-0000-0000-0000000000CA')
+  assert.equal(back.payload.clockActionConnections[0].buttonNodeId, 'BBBBBBBB-0000-0000-0000-0000000000CA')
+  assert.equal(back.schemaVersion, 8)
+})
+
 test('conexão terminal↔codeEditor faz round-trip por dataConnections', () => {
   const doc = decodeWorkspaceDocument({
     ...raw,
@@ -529,7 +584,7 @@ test('conexão terminal↔codeEditor faz round-trip por dataConnections', () => 
   assert.equal(back.payload.dataConnections[0].dataNodeId, 'EEEEEEEE-0000-0000-0000-0000000000EE')
 })
 
-test('o cabo editor↔terminal não sobe o schemaVersion', () => {
+test('o cabo editor↔terminal não introduz um kind novo (schemaVersion corrente)', () => {
   const doc = decodeWorkspaceDocument({
     ...raw,
     payload: {
@@ -545,7 +600,7 @@ test('o cabo editor↔terminal não sobe o schemaVersion', () => {
       ]
     }
   })
-  assert.equal(encodeWorkspaceDocument(doc.payload).schemaVersion, 7)
+  assert.equal(encodeWorkspaceDocument(doc.payload).schemaVersion, 8)
 })
 
 test('conexão terminal↔image vira kind "data" e volta para dataConnections', () => {
@@ -587,6 +642,15 @@ test('preferences.json SEM as chaves novas carrega no padrão', () => {
   // E o resto do arquivo continua sendo lido normalmente.
   assert.equal(prefs.theme, 'dark')
   assert.equal(prefs.fontSize, 14)
+  assert.equal(prefs.ropeColor, null)
+})
+
+test('cor das conexões aceita só hexadecimal e conserva o padrão do tema', () => {
+  assert.equal(decodePreferences({ ropeColor: '#AbC' }).ropeColor, '#aabbcc')
+  assert.equal(decodePreferences({ ropeColor: '#123456' }).ropeColor, '#123456')
+  for (const lixo of ['', 'purple', '#1234', '#12345678', 42, null, { color: '#123456' }]) {
+    assert.equal(decodePreferences({ ropeColor: lixo }).ropeColor, null, `${JSON.stringify(lixo)} passou`)
+  }
 })
 
 test('sem as chaves da tira do monitor, ela nasce VISÍVEL no topo', () => {
@@ -837,7 +901,7 @@ test('grupo não sobe o schemaVersion — o app nativo continua abrindo', () => 
   // O número é o da versão CORRENTE: o ponto do teste é que a moldura de grupo
   // não o move, e ele muda quando o enum de conteúdo ganha um caso.
   const doc = decodeWorkspaceDocument(groupsDoc([aGroup()]))
-  assert.equal(encodeWorkspaceDocument(doc.payload).schemaVersion, 7)
+  assert.equal(encodeWorkspaceDocument(doc.payload).schemaVersion, 8)
 })
 
 test('id órfão em nodeIds é filtrado, e o grupo sobrevive', () => {
@@ -923,7 +987,7 @@ test('valor não-string no view de um botão é filtrado', () => {
 })
 
 test('schemaVersion e type ficam corretos na raiz', () => {
-  assert.equal(reencoded.schemaVersion, 7)
+  assert.equal(reencoded.schemaVersion, 8)
   assert.equal(reencoded.type, 'workspace')
 })
 

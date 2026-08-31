@@ -459,7 +459,10 @@ await test('primeira gravação de um workspace v2 deixa um backup ao lado', asy
 
   assert.ok(existsSync(backup), 'não gravou o backup da v2')
   assert.equal(readFileSync(backup, 'utf8'), original, 'o backup não é o arquivo original')
-  assert.equal(JSON.parse(readFileSync(file, 'utf8')).schemaVersion, 7)
+  // 8 desde que `clockActionConnections` entrou: um array PERSISTIDO novo, que
+  // um cliente antigo apagaria no save — e perder um cabo muda o comportamento
+  // automático do workspace.
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).schemaVersion, 8)
 
   // Segunda gravação não reescreve o backup: o valor dele é ser o ANTES.
   reaberto.markDirty()

@@ -25,8 +25,17 @@ const THEMES: { id: ThemeMode; icon: string; label: string }[] = [
   { id: 'dark', icon: '☾', label: 'Escuro' }
 ]
 
+/** Cores decorativas para o repouso; verde, vermelho e âmbar seguem reservados aos estados. */
+const ROPE_COLORS: { value: string; label: string }[] = [
+  { value: '#007aff', label: 'Azul' },
+  { value: '#5856d6', label: 'Índigo' },
+  { value: '#af52de', label: 'Violeta' },
+  { value: '#e0245e', label: 'Rosa' },
+  { value: '#1abc9c', label: 'Turquesa' }
+]
+
 export function CanvasChrome(): JSX.Element {
-  const { workspace, connectingFrom, placing, notice, theme, ropeStyle, ropeThickness } =
+  const { workspace, connectingFrom, placing, notice, theme, ropeStyle, ropeThickness, ropeColor } =
     useStore()
   const [themeMenu, setThemeMenu] = useState(false)
   const [ropeMenu, setRopeMenu] = useState(false)
@@ -68,6 +77,7 @@ export function CanvasChrome(): JSX.Element {
         setThemeMenu={setThemeMenu}
         ropeStyle={ropeStyle}
         ropeThickness={ropeThickness}
+        ropeColor={ropeColor}
         ropeMenu={ropeMenu}
         setRopeMenu={setRopeMenu}
         nodes={workspace?.nodes ?? []}
@@ -120,6 +130,7 @@ function ViewControls({
   setThemeMenu,
   ropeStyle,
   ropeThickness,
+  ropeColor,
   ropeMenu,
   setRopeMenu,
   nodes
@@ -129,6 +140,7 @@ function ViewControls({
   setThemeMenu: (fn: (v: boolean) => boolean) => void
   ropeStyle: (typeof ROPE_STYLES)[number]['id']
   ropeThickness: number
+  ropeColor: string | null
   ropeMenu: boolean
   setRopeMenu: (fn: (v: boolean) => boolean) => void
   /** Só para o "enquadrar tudo" saber o que precisa caber na tela. */
@@ -220,6 +232,30 @@ function ViewControls({
                 <span>{style.label}</span>
               </button>
             ))}
+            <span className="context-menu-label">Cor</span>
+            {/* A mesma linha de amostras dos grupos e do relógio: cor é uma
+                escolha visual de um clique, não outro controle para aprender. */}
+            <div className="group-swatches rope-color-swatches">
+              <button
+                type="button"
+                className={ropeColor === null ? 'swatch is-active' : 'swatch'}
+                style={{ background: 'var(--rope)' }}
+                title="Padrão do tema"
+                aria-label="Padrão do tema"
+                onClick={() => store.setRopeColor(null)}
+              />
+              {ROPE_COLORS.map((swatch) => (
+                <button
+                  key={swatch.value}
+                  type="button"
+                  className={ropeColor === swatch.value ? 'swatch is-active' : 'swatch'}
+                  style={{ background: swatch.value }}
+                  title={swatch.label}
+                  aria-label={swatch.label}
+                  onClick={() => store.setRopeColor(swatch.value)}
+                />
+              ))}
+            </div>
             <label className="rope-thickness">
               Espessura
               <input

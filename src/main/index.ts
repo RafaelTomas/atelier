@@ -10,7 +10,7 @@
  *   4. Janela        — só depois que o estado está em memória
  */
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeImage, safeStorage } from 'electron'
+import { app, BrowserWindow, nativeImage, powerMonitor, safeStorage } from 'electron'
 import { log } from './core/logger'
 import { Constants } from './core/constants'
 import { persistence } from './core/persistence/persistence-manager'
@@ -29,6 +29,7 @@ import { armPortalCDP } from './core/portal/portal-cdp'
 import { armCertificateErrorHandling } from './core/portal/portal-cert'
 import { useSafeStorage } from './core/vault/crypto'
 import { registerIPC } from './ipc/bridge'
+import { notifyRenderer } from './ipc/notify'
 import { createMainWindow } from './window'
 
 /**
@@ -137,6 +138,15 @@ async function boot(): Promise<void> {
   // Certificado inválido num site aberto dentro de um Portal pede confirmação
   // ao usuário em vez de travar na tela nativa do Chromium sem saída.
   armCertificateErrorHandling()
+  // A máquina dormiu com o Atelier aberto: o processo e a intenção de automação
+  // continuaram vivos, então o renderer precisa recalcular pelo relógio
+  // absoluto — um timer que atravessou zero dispara UM evento, um pomodoro
+  // coalesce as fronteiras perdidas em um só. Depender de o próximo `setTimeout`
+  // eventualmente acordar funciona na maioria das máquinas, mas deixaria a
+  // reconciliação refém do comportamento do Chromium em cada plataforma.
+  //
+  // Um SINAL, não um serviço de tempo: o main não guarda relógio nenhum.
+  powerMonitor.on('resume', () => notifyRenderer('system:resume', {}))
   createMainWindow()
 
   log.info('boot', `pronto em ${Date.now() - started}ms`)

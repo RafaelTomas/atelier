@@ -33,6 +33,14 @@ export type RendererEvent =
   // Amostra de recursos da máquina. Alta frequência (a cada 2s) e por isso NÃO
   // passa pela store do renderer — ver use-system-stats.ts.
   | 'system:stats'
+  /**
+   * A máquina voltou de uma suspensão. NÃO é um serviço de tempo no main — é um
+   * sinal, sem estado e sem registro: quem reconcilia relógios é o coordenador
+   * do renderer, que é onde os nós e os cabos moram. Unir isso ao relógio num
+   * serviço entre processos custaria IPC de registro, política de shutdown e uma
+   * abstração genérica para dois consumidores com necessidades diferentes.
+   */
+  | 'system:resume'
 
 /**
  * Import dinâmico do electron: fora do app (teste headless, CI) isto vira um

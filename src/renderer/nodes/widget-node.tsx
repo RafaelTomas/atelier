@@ -13,7 +13,9 @@
  */
 import type { CanvasNode, WidgetContent } from '@shared/types'
 import { isKnownWidgetKind } from '@shared/types'
+import { clockModeLabel, readClockConfig } from '@shared/clock'
 import { ButtonWidget } from './button-widget'
+import { ClockWidget } from './clock-widget'
 import { IconLock, IconUnlock } from '../icons'
 import { GitPanel } from '../panels/git-panel'
 import type { MonitorBlocks } from '../panels/monitor-panel'
@@ -114,6 +116,9 @@ export function WidgetNode({
             }
           />
         )}
+        {/* O relógio não observa repositório nenhum — como o monitor, entra sem
+            barra de escopo de projeto e traz a própria cabeça de abas. */}
+        {content.kind === 'clock' && <ClockWidget node={node} content={content} />}
         {content.kind === 'monitor' && (
           <MonitorPanel
             blocks={readBlocks(content.view.blocks)}
@@ -149,6 +154,9 @@ export function widgetLabel(content: WidgetContent, projectName?: string): strin
   // distinguem no cabeçalho nem no `atelier list`, e é por esse nome que o
   // agente os endereça.
   if (content.kind === 'todo') return content.view.title || 'Tarefas'
+  // O título do relógio é o rótulo do MODO ativo (Relógio, Cronômetro, Timer,
+  // Pomodoro) — é por ele que o cabeçalho e o `atelier list` o endereçam.
+  if (content.kind === 'clock') return clockModeLabel(readClockConfig(content.view).mode)
   const base = LABELS[content.kind] ?? content.kind
   return content.projectId && projectName ? `${base} · ${projectName}` : base
 }

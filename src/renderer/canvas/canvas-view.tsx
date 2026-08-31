@@ -1379,7 +1379,8 @@ export function CanvasView(): JSX.Element {
           (n) =>
             n.id === selection[0] &&
             (n.content.type === 'terminal' ||
-              (n.content.type === 'widget' && n.content.value.kind === 'button'))
+              (n.content.type === 'widget' &&
+                (n.content.value.kind === 'button' || n.content.value.kind === 'clock')))
         ) ?? null
       : null
 

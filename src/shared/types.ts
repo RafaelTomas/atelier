@@ -300,9 +300,16 @@ export interface WidgetContent {
  * canvas em que o próprio nó estava. Ele vive no chip do topo, que é global à
  * janela e não pertence a canvas nenhum.
  */
-export type WidgetKind = 'projects' | 'git' | 'button' | 'monitor' | 'todo'
+export type WidgetKind = 'projects' | 'git' | 'button' | 'monitor' | 'todo' | 'clock'
 
-export const WIDGET_KINDS: WidgetKind[] = ['projects', 'git', 'button', 'monitor', 'todo']
+export const WIDGET_KINDS: WidgetKind[] = [
+  'projects',
+  'git',
+  'button',
+  'monitor',
+  'todo',
+  'clock'
+]
 
 export function isKnownWidgetKind(kind: string): kind is WidgetKind {
   return (WIDGET_KINDS as string[]).includes(kind)
@@ -1047,6 +1054,7 @@ export type ConnectionKind =
   | 'crossFloor'
   | 'data'
   | 'secret'
+  | 'clockAction'
 
 export type ConnectionStatus = 'idle' | 'communicating' | 'error'
 
@@ -1054,10 +1062,20 @@ export type ConnectionStatus = 'idle' | 'communicating' | 'error'
  * `kind` de uma conexão a partir dos tipos dos dois nós — null = par não
  * conectável. Mora aqui, e não no WorkspaceManager, porque o renderer precisa
  * da MESMA regra para prever o cabo antes de pedi-lo ao processo principal.
+ *
+ * `kindA`/`kindB` são os discriminadores INTERNOS opcionais dos endpoints
+ * (`WidgetContent.kind`). Existem porque no nível de `NodeContentType` um
+ * relógio e um botão são ambos apenas `widget`: só com o discriminador dá para
+ * separar `clock ↔ button` (o cabo `clockAction`) de qualquer outro par de
+ * widgets. Quem chama sabendo o conteúdo real — o WorkspaceManager e o preview
+ * do cabo — passa os dois; quem só tem o tipo (o codec, os testes de formato)
+ * omite, e a função se comporta EXATAMENTE como antes.
  */
 export function connectionKindForTypes(
   a: NodeContentType,
-  b: NodeContentType
+  b: NodeContentType,
+  kindA?: string,
+  kindB?: string
 ): ConnectionKind | null {
   const pair = new Set([a, b])
   if (a === 'terminal' && b === 'terminal') return 'terminal'
@@ -1077,6 +1095,18 @@ export function connectionKindForTypes(
   // mais antigo ignoraria a chave nova e apagaria os cabos no primeiro
   // autosave. O ganho seria só uma cor de cabo diferente.
   if (pair.has('terminal') && pair.has('codeEditor')) return 'data'
+  // Relógio ligado a um botão: cabo `clockAction`, dirigido do relógio para o
+  // botão. Regra FINA — `clock` e `button` são os dois `widget` —, logo só vale
+  // quando os discriminadores internos chegam: sem eles, um par de widgets
+  // continua caindo nas regras de baixo (terminal↔widget = `data`) ou recusado.
+  // Reusar `data` foi descartado no plano: este cabo tem direção, cardinalidade
+  // e disparo, e não a semântica de "terminal ligado a um artefato" do `data`.
+  // A checagem é explícita para NÃO alargar a regra `terminal↔widget` logo
+  // abaixo: clock↔button não tem terminal e nunca pode virar `data`.
+  if (a === 'widget' && b === 'widget' && kindA !== undefined && kindB !== undefined) {
+    const kinds = new Set([kindA, kindB])
+    if (kinds.has('clock') && kinds.has('button')) return 'clockAction'
+  }
   // Quadro de TODO ligado a um agente: MESMO cabo `data`, pela razão escrita
   // logo acima para o editor. Em disco cai em `dataConnections`, cujos campos
   // são só referências de id, então nenhum documento muda de forma e o
@@ -1225,6 +1255,13 @@ export interface Preferences {
   ropeStyle: string
   /** Multiplicador da espessura das conexões. Mesma ressalva do `ropeStyle`. */
   ropeThickness: number
+  /**
+   * Cor de repouso das conexões. `null` não é cor faltando: é a escolha
+   * deliberada de deixar o token do tema decidir entre o cinza claro e escuro.
+   * Como `ropeStyle`, o Swift pode apagar esta chave no save; voltar a `null`
+   * preserva essa adaptação em vez de congelar um cinza parecido no disco.
+   */
+  ropeColor: string | null
   /**
    * Campo MORTO desde que a sidebar virou o rail em cascata: nada no renderer
    * lê nem escreve. Fica no tipo porque `preferences.json` é compartilhado com

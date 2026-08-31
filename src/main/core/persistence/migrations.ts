@@ -28,6 +28,15 @@
  * arquivo — moram cifrados em `vaults/<id>.vault` —, então não há nada de
  * cifrado a migrar aqui, hoje nem quando a passphrase chegar.
  *
+ * A v8 é uma migração VAZIA: todo documento v7 já é um v8 válido, e o decoder lê
+ * os dois sem transformar nada. A versão sobe porque a v8 traz um array
+ * PERSISTIDO novo — `clockActionConnections`, o cabo relógio→botão. Um cliente
+ * mais antigo (daqui ou o app nativo Swift) não conhece a chave, a ignora ao
+ * abrir e a APAGA no primeiro save. Aqui isso não é decoração descartável: um
+ * cabo perdido muda o comportamento AUTOMÁTICO do workspace — o fim de um timer
+ * deixa de acionar o botão —, então o custo tem de ser barulhento, como nas
+ * v3–v7. Ver `clockActionConnections` em models/workspace.ts.
+ *
  * As molduras de grupo NÃO subiram a versão, e é o ponto inteiro do desenho
  * delas: `groups` é uma chave a mais no topo do payload, não um caso a mais no
  * enum de conteúdo. Um leitor mais velho — daqui ou o app nativo — ignora a
@@ -62,9 +71,9 @@ export function migrateWorkspaceDocument(raw: unknown): unknown {
 
   let current = doc
   if (version < 2) current = migrateV1toV2(current)
-  // Não há passo 2 → 3, 3 → 4, 4 → 5, 5 → 6 nem 6 → 7: cada uma só acrescenta
-  // um caso ao enum de conteúdo, e todo documento da versão anterior já é
-  // válido na seguinte. Só o número muda.
+  // Não há passo 2 → 3 … 7 → 8: cada uma só acrescenta um caso ao enum de
+  // conteúdo (ou, na v8, uma lista de conexões nova), e todo documento da versão
+  // anterior já é válido na seguinte. Só o número muda.
   return { ...current, schemaVersion: Constants.schemaVersion }
 }
 
@@ -79,6 +88,7 @@ function migrateV1toV2(doc: Record<string, unknown>): Record<string, unknown> {
     'noteToNoteConnections',
     'crossFloorConnections',
     'secretConnections',
+    'clockActionConnections',
     'floors',
     'drawings',
     // Molduras de grupo. Mesmo motivo dos outros: o resto do código conta com

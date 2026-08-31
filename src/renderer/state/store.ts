@@ -45,13 +45,15 @@ import {
   readButtonConfig,
   writeButtonConfig
 } from '@shared/types'
+import type { ClockConfig } from '@shared/clock'
+import { readClockConfig, setClockColor, writeClockConfig } from '@shared/clock'
 import { normalizeURL } from '@shared/portal-url'
 import { viewport } from '../canvas/viewport'
 import { boundsForNodes, groupOf } from '../canvas/group-geometry'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
 import { quoteForShell } from '../paths'
 import { PDF_NODE_SIZE, isPdf } from '../pdf-viewer'
-import { applyTheme, isThemeMode, type ThemeMode } from '../theme'
+import { applyRopeColor, applyTheme, isThemeMode, type ThemeMode } from '../theme'
 import type { PillId } from '../floating/use-pill'
 
 /**
@@ -171,6 +173,8 @@ export interface AppSnapshot {
   ropeStyle: RopeStyleId
   /** Multiplicador da espessura das conexões — espelha preferences.ropeThickness. */
   ropeThickness: number
+  /** Cor de repouso das conexões; `null` entrega de volta ao token do tema. */
+  ropeColor: string | null
   /** Ferramenta ativa (caneta, marca-texto, borracha ou seleção). */
   tool: Tool
   pen: PenSettings
@@ -205,6 +209,12 @@ export interface AppSnapshot {
    * criado enquanto o usuário não confirma.
    */
   buttonDialog: { nodeId: UUID | null; frame: Rect | null } | null
+  /**
+   * Diálogo de configuração do relógio. Sem `frame`, ao contrário do botão: o
+   * relógio nasce pela dock já utilizável no modo Relógio, e o diálogo só edita
+   * o que não cabe no nó — formato de hora e durações.
+   */
+  clockDialog: { nodeId: UUID } | null
   /**
    * Como cada botão foi na última vez que o usuário clicou nele.
    *
@@ -345,6 +355,7 @@ const initial: AppSnapshot = {
   theme: 'system',
   ropeStyle: 'dotted',
   ropeThickness: 1,
+  ropeColor: null,
   tool: 'select',
   pen: { color: '#e0245e', lineWidth: 3 },
   roles: [],
@@ -370,6 +381,7 @@ const initial: AppSnapshot = {
   newTerminalFrame: null,
   editTerminalId: null,
   buttonDialog: null,
+  clockDialog: null,
   buttonRuns: {},
   terminalEpoch: {},
   terminalStatus: {},
@@ -496,6 +508,7 @@ class Store {
       const theme = isThemeMode(prefs.theme) ? prefs.theme : 'system'
       const ropeStyle: RopeStyleId = isRopeStyleId(prefs.ropeStyle) ? prefs.ropeStyle : 'dotted'
       applyTheme(theme)
+      applyRopeColor(prefs.ropeColor)
       this.resetHistory()
       this.set({
         entries,
@@ -510,6 +523,7 @@ class Store {
         theme,
         ropeStyle,
         ropeThickness: clampRopeThickness(prefs.ropeThickness),
+        ropeColor: prefs.ropeColor,
         // A posição das pílulas é derivada de `prefs`, e sai da string uma vez
         // aqui em vez de a cada render das duas peças.
         dockPlacement: parsePlacement(prefs.dockPlacement, DOCK_PLACEMENT_DEFAULT),
@@ -1248,6 +1262,50 @@ class Store {
     )
   }
 
+  // ─── Relógios ───────────────────────────────────────────────────────────────
+
+  /** O diálogo mora no App, pela mesma razão do de botão. */
+  openClockDialog(nodeId: UUID): void {
+    this.set({ clockDialog: { nodeId } })
+  }
+
+  closeClockDialog(): void {
+    this.set({ clockDialog: null })
+  }
+
+  clockConfig(nodeId: UUID): ClockConfig | null {
+    const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+    if (!node || node.content.type !== 'widget' || node.content.value.kind !== 'clock') return null
+    return readClockConfig(node.content.value.view)
+  }
+
+  /**
+   * Grava a configuração do relógio PRESERVANDO o `view` que já estava lá.
+   *
+   * Ao contrário do botão, aqui o `view` não é substituído inteiro: as chaves
+   * que este binário não conhece — de uma versão mais nova do Atelier — têm de
+   * atravessar o save intactas, e é `writeClockConfig` que as recopia.
+   */
+  async saveClock(nodeId: UUID, config: ClockConfig): Promise<void> {
+    const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+    const previous = node?.content.type === 'widget' ? node.content.value.view : {}
+    await this.patchContent(nodeId, { view: writeClockConfig(config, previous) })
+    this.set({ clockDialog: null })
+  }
+
+  /**
+   * A cor do LED, trocada pelo menu da barra de ações.
+   *
+   * Passa por `setClockColor`, que valida: o valor vira uma custom property
+   * escrita no `style` do nó, e o caminho até aqui inclui um `view` lido do
+   * disco. Um gesto da UI e um arquivo de workspace entram pela mesma porta.
+   */
+  async setClockColor(nodeId: UUID, color: string): Promise<void> {
+    const config = this.clockConfig(nodeId)
+    if (!config) return
+    await this.saveClock(nodeId, setClockColor(config, color))
+  }
+
   /** O diálogo mora no App (ver openNewTerminal para o porquê). */
   openButtonDialog(nodeId: UUID | null, frame: Rect | null = null): void {
     this.set({ buttonDialog: { nodeId, frame } })
@@ -1313,17 +1371,43 @@ class Store {
    * Um botão PENDENTE é recusado em silêncio: o componente já não deixa clicar,
    * e isto é a defesa em profundidade — o aceite é o que separa "o agente
    * propôs uma linha de comando" de "o agente executa no shell do usuário".
+   *
+   * `origin` é o que distingue o clique do disparo automático de um relógio
+   * ligado por cabo, e a diferença é de SEGURANÇA, não de contabilidade. Um
+   * botão com `confirm: true` é recusado como alvo automático: dispará-lo sem a
+   * confirmação burlaria a promessa da configuração, e abrir uma confirmação no
+   * relógio quando o usuário pode estar longe não seria automação — seria um
+   * diálogo esperando sozinho. O relógio não duplica as três ações num
+   * `ClockAction` próprio justamente por isto: uma fonte de verdade só, e nada
+   * guarda um comando sem passar pelo aceite visual que torna o botão seguro.
+   *
+   * Devolve se a ação foi ENTREGUE — não se ela deu certo. Quem mostra saída,
+   * erro e código de saída é o PTY.
    */
-  async runButton(nodeId: UUID): Promise<void> {
+  async runButton(nodeId: UUID, opts: { origin?: 'click' | 'clock' } = {}): Promise<boolean> {
     const config = this.buttonConfig(nodeId)
-    if (!config || config.pending) return
+    if (!config) return false
+    if (config.pending) {
+      // No clique isto é defesa em profundidade e cala: o componente já não
+      // deixa clicar. Vindo de um relógio, calar seria um cabo que não faz nada
+      // sem dizer por quê — e o motivo é justamente o que o usuário precisa ler
+      // para saber que basta Aceitar o botão.
+      if (opts.origin === 'clock') {
+        this.showNotice('o botão deste relógio ainda não foi aceito — ele não dispara sozinho')
+      }
+      return false
+    }
+    if (opts.origin === 'clock' && config.confirm) {
+      this.showNotice('o botão deste relógio pede confirmação — ele não dispara sozinho')
+      return false
+    }
 
     if (config.action === 'url') {
       const url = normalizeURL(config.url)
       if (!url) {
         this.showNotice('este botão não tem endereço configurado')
         this.markRun(nodeId, 'failed')
-        return
+        return false
       }
       const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
       const at = node
@@ -1334,14 +1418,14 @@ class Store {
         height: 440
       })
       this.markRun(nodeId, 'running')
-      return
+      return true
     }
 
     const text = config.action === 'prompt' ? config.prompt : config.command
     if (!text.trim()) {
       this.showNotice('este botão não tem o que enviar')
       this.markRun(nodeId, 'failed')
-      return
+      return false
     }
 
     // Alvo vivo? Escreve nele. O PTY já existe, o histórico está lá, e é onde o
@@ -1354,7 +1438,7 @@ class Store {
     if (target && (await window.atelier.terminal.write(target.id, `${text}\r`))) {
       this.set({ selection: [target.id] })
       this.markRun(nodeId, 'running')
-      return
+      return true
     }
 
     // Prompt exige alvo: criar um agente do zero para receber uma frase não é o
@@ -1366,7 +1450,7 @@ class Store {
           : 'este botão não tem um agente alvo — edite-o e escolha um'
       )
       this.markRun(nodeId, 'failed')
-      return
+      return false
     }
 
     // Sem alvo (ou com o alvo morto): terminal novo à direita do botão, já com
@@ -1398,6 +1482,7 @@ class Store {
       { width: 560, height: 360 }
     )
     this.markRun(nodeId, created ? 'running' : 'failed')
+    return created !== null
   }
 
   /**
@@ -1412,6 +1497,8 @@ class Store {
     if (node.content.type === 'terminal') this.openEditTerminal(nodeId)
     else if (node.content.type === 'widget' && node.content.value.kind === 'button') {
       this.openButtonDialog(nodeId)
+    } else if (node.content.type === 'widget' && node.content.value.kind === 'clock') {
+      this.openClockDialog(nodeId)
     }
   }
 
@@ -2085,6 +2172,14 @@ class Store {
     this.set({ ropeStyle: id })
     this.mirrorPrefs({ ropeStyle: id })
     void window.atelier.prefs.set({ ropeStyle: id })
+  }
+
+  /** Uma amostra é um clique inteiro: aplica e grava, sem estado de preview. */
+  setRopeColor(ropeColor: string | null): void {
+    applyRopeColor(ropeColor)
+    this.set({ ropeColor })
+    this.mirrorPrefs({ ropeColor })
+    void window.atelier.prefs.set({ ropeColor })
   }
 
   /**

@@ -23,7 +23,12 @@
    painel — o limiar é compartilhado em código (DANGER_PCT), e a cor tinha de
    ser compartilhada junto. */
 
-.pill.monitor {
+/* `monitor-dock` e não `monitor`: `.monitor` é a classe do PAINEL do monitor
+   (panels.css), e ela casaria com esta pílula — trazendo junto o
+   `overflow-y: auto` que existe para o painel rolar dentro do nó. Numa pílula
+   esse overflow RECORTA o que abre para fora dela: o popover ficava no DOM, na
+   posição certa, e invisível. */
+.pill.monitor-dock {
   /* Sem `cursor: grab`: a tira inteira é área de arrasto, e a mão aberta é o
      que diz isso antes de o usuário tentar. O `grabbing` durante o gesto vem
      de `.pill.is-dragging`. */

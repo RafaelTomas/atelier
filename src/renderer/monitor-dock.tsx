@@ -130,7 +130,13 @@ export function MonitorDock(): JSX.Element {
           pintados sobre o canvas sem motivo. */}
       {pill.dragging && <PlacementTargets hot={pill.hot} />}
       <div
-        className={pill.dragging ? 'floating pill monitor is-dragging' : 'floating pill monitor'}
+        // `monitor-dock`, e não `monitor`: a classe `.monitor` é do PAINEL, e
+        // ela traz `overflow-y: auto` — numa pílula isso recorta tudo o que
+        // abre para fora dela (o popover fica no DOM, com a posição certa, e
+        // invisível). Ver PILL_CLASS em use-pill.ts.
+        className={
+          pill.dragging ? 'floating pill monitor-dock is-dragging' : 'floating pill monitor-dock'
+        }
         data-edge={pill.placement.edge}
         // A posição AO LONGO da borda é contínua: vai por CSS var, não por um
         // atributo de três valores (ver styles/floating.css).

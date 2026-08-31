@@ -26,6 +26,9 @@ export function applyTheme(mode: ThemeMode): void {
  * de tokens.css voltar a acompanhar claro/escuro; copiar seu valor aqui faria
  * “Padrão” congelar a aparência do tema que estava ativo no clique.
  *
+ * Escreve em `--rope`, nunca em `--rope-theme`: o segundo é o cinza do tema, e
+ * é dele que a amostra “Padrão do tema” do seletor se pinta — ver tokens.css.
+ *
  * Tráfego, erro e relógio não passam por este caminho: eles têm tokens de
  * significado próprios e o CSS dos estados os escolhe depois de `--rope`.
  */

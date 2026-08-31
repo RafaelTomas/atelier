@@ -239,7 +239,10 @@ function ViewControls({
               <button
                 type="button"
                 className={ropeColor === null ? 'swatch is-active' : 'swatch'}
-                style={{ background: 'var(--rope)' }}
+                /* `--rope-theme`, e não `--rope`: escolher uma cor sobrescreve
+                   `--rope` inline no :root, e esta amostra passaria a exibir a
+                   cor escolhida em vez do cinza do tema que ela oferece. */
+                style={{ background: 'var(--rope-theme)' }}
                 title="Padrão do tema"
                 aria-label="Padrão do tema"
                 onClick={() => store.setRopeColor(null)}

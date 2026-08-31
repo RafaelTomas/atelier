@@ -39,10 +39,34 @@
  * ─── O que a tira mostra, e o que ela não mostra ───
  *
  * Uma LINHA de leituras, não o painel de três blocos: CPU, memória e disco em
- * anéis, o custo somado dos agentes, a janela de SESSÃO com quanto falta para
- * ela reabrir e — só quando é outra e está mais cheia — a janela mais apertada.
+ * anéis, o NOME da conta em foco, a janela de SESSÃO dela com quanto falta para
+ * reabrir e — só quando é outra e está mais cheia — a janela mais apertada.
  * Não a lista de contas: com três contas, três linhas de anéis numa borda
  * deixam de ser legíveis, e essa é a leitura que o popover faz bem.
+ *
+ * ─── O nome da conta, no lugar do custo ───
+ *
+ * A tira mostrava o custo somado dos agentes ali. Ele saiu, e não por falta de
+ * espaço: um `$3,02` ao lado de dois percentuais convida a ler os três como se
+ * fossem da mesma coisa, e não são — o custo é dos agentes DESTE canvas, as
+ * janelas são das CONTAS. Pior, o número mudava a decisão de ninguém: quem olha
+ * a tira quer saber se dá para abrir mais um agente agora, e o total gasto não
+ * responde isso. Ele continua no popover, no bloco IA, onde está ao lado do que
+ * o explica.
+ *
+ * No lugar dele entrou a pergunta que os percentuais deixavam sem resposta: de
+ * QUEM são. Com duas contas abertas, `5h 61%` numa borda é um número órfão — o
+ * usuário não sabe se está olhando a conta em que ele está trabalhando ou a
+ * outra. O nome é o mínimo para o percentual significar alguma coisa, e ele é
+ * também o botão: clicar troca a conta que a tira mostra, sem passar pelo
+ * painel.
+ *
+ * A escolha é PERSISTIDA (`monitorDockAccountId`, em preferences.json) porque é
+ * escolha, não estado de sessão: quem trabalha com duas contas alterna entre
+ * elas o dia inteiro, e uma tira que voltasse ao padrão a cada abertura do app
+ * esqueceria justamente o que se pediu para ela lembrar. O padrão `''` é a
+ * conta AUTOMÁTICA — a mais apertada do momento —, que é o comportamento com
+ * que a tira nasceu; a diferença é que agora ela diz de quem é o número.
  *
  * A janela de sessão ganhou lugar fixo porque é a única das duas que muda uma
  * decisão dentro do expediente — a semanal reabre num prazo com que ninguém faz
@@ -55,15 +79,18 @@
  * de quando ela é grave são piores do que uma tela só.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { AccountRow, DockSummary, UsageWindow } from '@shared/agent-usage'
+import type { AccountRow, AccountUsage, UsageWindow } from '@shared/agent-usage'
 import {
   activeWindows,
-  dockSummary,
+  agoLabel,
   groupByAccount,
   mergeReading,
+  pickWindows,
+  tightestAccount,
   untilReset
 } from '@shared/agent-usage'
 import { DEFAULT_CLAUDE_ACCOUNT_ID, formatBytes } from '@shared/types'
+import { IconChevronDown } from './icons'
 import { PlacementTargets } from './floating/placement-targets'
 import { PillMenu } from './floating/pill-menu'
 import { usePill } from './floating/use-pill'
@@ -88,9 +115,27 @@ export function MonitorDock(): JSX.Element {
     return { memPct, diskPct }
   }, [stats])
 
-  const ai = useMonitorDockAI()
+  const accounts = useMonitorDockAccounts()
+  const { monitorDockAccountId } = useStore()
+
+  /**
+   * A conta em foco: a escolhida, ou a mais apertada quando não há escolha.
+   *
+   * O id que não bate com conta nenhuma cai na automática — é o caso da conta
+   * apagada depois de escolhida, e também o do refresh de contas que ainda não
+   * voltou. A alternativa seria a tira ficar vazia sem dizer por quê.
+   */
+  const focus = useMemo(() => {
+    const chosen = accounts.find((a) => a.id === monitorDockAccountId)
+    if (chosen) return chosen
+    const best = tightestAccount(accounts.map((a) => a.usage).filter(isUsage))
+    return accounts.find((a) => a.id === best?.accountId) ?? null
+  }, [accounts, monitorDockAccountId])
+
+  const windows = useMemo(() => pickWindows(focus?.usage?.limits ?? []), [focus])
 
   const [open, setOpen] = useState(false)
+  const [picking, setPicking] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
   /**
@@ -109,12 +154,16 @@ export function MonitorDock(): JSX.Element {
   // sumir antes de o canvas processar o arrasto embaixo dele — a mesma regra
   // dos menus da dock.
   useEffect(() => {
-    if (!open) return
+    if (!open && !picking) return
+    const close = (): void => {
+      setOpen(false)
+      setPicking(false)
+    }
     const onDown = (e: MouseEvent): void => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+      if (!rootRef.current?.contains(e.target as Node)) close()
     }
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') close()
     }
     window.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
@@ -122,7 +171,7 @@ export function MonitorDock(): JSX.Element {
       window.removeEventListener('mousedown', onDown)
       window.removeEventListener('keydown', onKey)
     }
-  }, [open])
+  }, [open, picking])
 
   return (
     <>
@@ -132,8 +181,8 @@ export function MonitorDock(): JSX.Element {
       <div
         // `monitor-dock`, e não `monitor`: a classe `.monitor` é do PAINEL, e
         // ela traz `overflow-y: auto` — numa pílula isso recorta tudo o que
-        // abre para fora dela (o popover fica no DOM, com a posição certa, e
-        // invisível). Ver PILL_CLASS em use-pill.ts.
+        // abre para fora dela (o popover, o menu de contas), que ficam no DOM,
+        // com posição certa, e invisíveis. Ver PILL_CLASS em use-pill.ts.
         className={
           pill.dragging ? 'floating pill monitor-dock is-dragging' : 'floating pill monitor-dock'
         }
@@ -146,78 +195,140 @@ export function MonitorDock(): JSX.Element {
         onPointerDown={pill.onPointerDown}
         onContextMenu={pill.onContextMenu}
       >
-        {/* A tira INTEIRA é o gatilho do popover: numa borda, um botão de abrir
-            ao lado das leituras roubaria a largura de uma métrica. O arrasto
-            continua funcionando porque o clique só vira gesto depois de 4px —
-            ver DRAG_SLOP em use-placement.ts. */}
-        <button
-          type="button"
-          className="monitor-dock-strip"
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          title="Recursos da máquina e dos agentes — clique para o painel inteiro"
-          onClick={() => setOpen((v) => !v)}
-        >
-          {/* `cpuPct` nulo é a primeira amostra depois de ligar o timer: não há
-              delta ainda, e um 0% ali seria um número que ninguém mediu. */}
-          <Cell
-            label="CPU"
-            pct={stats?.cpuPct ?? null}
-            title={
-              stats
-                ? `CPU · Atelier em ${stats.appCpuPct}% e ${formatBytes(stats.appMemBytes)}`
-                : 'CPU · aguardando a primeira amostra'
-            }
-          />
-          <Cell
-            label="MEM"
-            pct={pc.memPct}
-            title={stats ? `memória · ${pair(stats.memUsed, stats.memTotal)}` : 'memória'}
-          />
-          {/* Zeros = `statfs` falhou (volume de rede caído, caminho apagado) e a
-              célula mostra `—` em vez de um anel vazio. */}
-          <Cell
-            label="DSK"
-            pct={pc.diskPct}
-            title={
-              stats && stats.diskTotal > 0
-                ? `${stats.diskPath} · ${pair(stats.diskUsed, stats.diskTotal)}`
-                : 'disco sem leitura'
-            }
-          />
+        {/* A tira é uma linha de PEÇAS, e quase toda ela abre o popover: numa
+            borda, um botão de abrir ao lado das leituras roubaria a largura de
+            uma métrica. O chip da conta é a exceção — ele tem destino próprio,
+            e por isso é um botão irmão e não um `<span>` clicável dentro do
+            outro (botão dentro de botão não existe em HTML).
 
-          {/* Só aparece quando há o que dizer: sem agente publicando custo e sem
-              conta com leitura, o traço e dois `—` ocupariam metade da tira para
+            O arrasto continua funcionando em todos eles porque o clique só vira
+            gesto depois de 4px — ver DRAG_SLOP em use-placement.ts. */}
+        <div className="monitor-dock-strip">
+          <button
+            type="button"
+            className="monitor-dock-part"
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            title="Recursos da máquina — clique para o painel inteiro"
+            onClick={() => setOpen((v) => !v)}
+          >
+            {/* `cpuPct` nulo é a primeira amostra depois de ligar o timer: não
+                há delta ainda, e um 0% ali seria um número que ninguém mediu. */}
+            <Cell
+              label="CPU"
+              pct={stats?.cpuPct ?? null}
+              title={
+                stats
+                  ? `CPU · Atelier em ${stats.appCpuPct}% e ${formatBytes(stats.appMemBytes)}`
+                  : 'CPU · aguardando a primeira amostra'
+              }
+            />
+            <Cell
+              label="MEM"
+              pct={pc.memPct}
+              title={stats ? `memória · ${pair(stats.memUsed, stats.memTotal)}` : 'memória'}
+            />
+            {/* Zeros = `statfs` falhou (volume de rede caído, caminho apagado) e
+                a célula mostra `—` em vez de um anel vazio. */}
+            <Cell
+              label="DSK"
+              pct={pc.diskPct}
+              title={
+                stats && stats.diskTotal > 0
+                  ? `${stats.diskPath} · ${pair(stats.diskUsed, stats.diskTotal)}`
+                  : 'disco sem leitura'
+              }
+            />
+          </button>
+
+          {/* O bloco das contas só aparece quando há conta para nomear. Sem
+              nenhuma, o traço e um chip vazio ocupariam metade da tira para
               informar nada. */}
-          {(ai.costUsd !== null || ai.session !== null || ai.tightest !== null) && (
+          {accounts.length > 0 && (
             <>
               <span className="monitor-dock-sep" />
-              <span className="monitor-dock-ai">
-                {ai.costUsd !== null && (
-                  <span
-                    className="monitor-dock-cost"
-                    title="soma dos agentes deste canvas que publicam custo"
-                  >
-                    ${ai.costUsd.toFixed(2)}
-                  </span>
-                )}
-                {/* A janela de SESSÃO primeiro, com o prazo: é a que decide se
-                    dá para abrir mais um agente agora. */}
-                {ai.session && <WindowCell window={ai.session} kind="session" />}
-                {/* A mais apertada só quando ela é OUTRA e está acima da de
-                    sessão. Repetir a mesma janela em duas caixinhas gastaria
-                    largura para dizer duas vezes a mesma coisa, e mostrar uma
-                    semanal mais folgada que a de sessão não muda decisão
-                    nenhuma. */}
-                {ai.tightest &&
-                  ai.tightest.window !== ai.session?.window &&
-                  ai.tightest.pct > (ai.session?.pct ?? -1) && (
-                    <WindowCell window={ai.tightest} kind="tightest" />
-                  )}
-              </span>
+              <button
+                type="button"
+                className={
+                  monitorDockAccountId ? 'monitor-dock-account' : 'monitor-dock-account is-auto'
+                }
+                aria-haspopup="menu"
+                aria-expanded={picking}
+                title={accountTitle(focus, monitorDockAccountId !== '')}
+                onClick={() => {
+                  setPicking((v) => !v)
+                  setOpen(false)
+                }}
+              >
+                <span className="monitor-dock-account-name">
+                  {focus ? focus.label : 'sem leitura'}
+                </span>
+                <IconChevronDown size={9} />
+              </button>
+
+              {/* As janelas da conta em foco. Sem leitura elas somem inteiras —
+                  um anel vazio afirmaria 0%, que é diferente de "não sei". */}
+              {(windows.session !== null || windows.tightest !== null) && (
+                <button
+                  type="button"
+                  className="monitor-dock-part"
+                  aria-haspopup="dialog"
+                  aria-expanded={open}
+                  title={`limites de ${focus?.label ?? 'conta'} — clique para o painel inteiro`}
+                  onClick={() => setOpen((v) => !v)}
+                >
+                  {/* A janela de SESSÃO primeiro, com o prazo: é a que decide se
+                      dá para abrir mais um agente agora. */}
+                  {windows.session && <WindowCell window={windows.session} kind="session" />}
+                  {/* A mais apertada só quando ela é OUTRA e está acima da de
+                      sessão. Repetir a mesma janela em duas caixinhas gastaria
+                      largura para dizer duas vezes a mesma coisa, e mostrar uma
+                      semanal mais folgada que a de sessão não muda decisão
+                      nenhuma. */}
+                  {windows.tightest &&
+                    windows.tightest.window !== windows.session?.window &&
+                    windows.tightest.pct > (windows.session?.pct ?? -1) && (
+                      <WindowCell window={windows.tightest} kind="tightest" />
+                    )}
+                </button>
+              )}
             </>
           )}
-        </button>
+        </div>
+
+        {/* O menu de contas. Abre contra a borda pela mesma conta do popover —
+            as duas peças herdam o `--pill-offset` da pílula. */}
+        {picking && (
+          <div
+            className="monitor-dock-popover monitor-dock-accounts"
+            role="menu"
+            data-edge={pill.placement.edge}
+            onPointerDown={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.stopPropagation()}
+          >
+            <AccountItem
+              label="Automática"
+              hint="a conta mais apertada do momento"
+              checked={monitorDockAccountId === ''}
+              onPick={() => {
+                void store.setMonitorDockAccount('')
+                setPicking(false)
+              }}
+            />
+            {accounts.map((account) => (
+              <AccountItem
+                key={account.id}
+                label={account.label}
+                hint={accountHint(account)}
+                checked={monitorDockAccountId === account.id}
+                onPick={() => {
+                  void store.setMonitorDockAccount(account.id)
+                  setPicking(false)
+                }}
+              />
+            ))}
+          </div>
+        )}
 
         {/* O painel de VERDADE, o mesmo componente do nó — não uma segunda
             implementação que pudesse discordar dele. Abre contra a borda pela
@@ -292,19 +403,38 @@ function Cell({ label, pct, title }: { label: string; pct: number | null; title:
 }
 
 /**
- * O agregado de IA da tira: quanto já custou, e qual janela fecha primeiro.
+ * Uma conta como a tira a vê: um nome e, quando existe, a leitura dela.
+ *
+ * A conta SEM leitura continua na lista de propósito — ela é escolhível. Quem
+ * acabou de criar a segunda conta e quer a tira nela não deveria ter de abrir
+ * um terminal primeiro só para o nome aparecer no menu.
+ */
+interface DockAccount {
+  id: string
+  label: string
+  /** `null` = a conta existe e não há o que dizer sobre ela. */
+  usage: AccountUsage | null
+}
+
+/** Estreita o `(AccountUsage | null)[]` do `map` sem um `as` no meio do caminho. */
+function isUsage(u: AccountUsage | null): u is AccountUsage {
+  return u !== null
+}
+
+/**
+ * As contas da tira, com a leitura de cada uma.
  *
  * Nada é coletado aqui — os dois canais (o que o agente PUBLICA pela
  * `statusLine` e o que o raspador de tela consegue ler) já chegam na store, e
  * as leituras guardadas vieram do disco no boot. Este hook é só o recorte, e
  * ele é o MESMO que os blocos IA e Perfis do painel fazem: a tira e o popover
- * não podem discordar sobre o total quando os dois estão abertos lado a lado.
+ * não podem discordar sobre uma conta quando os dois estão abertos lado a lado.
  *
  * A conta que resolve `accountId` é a de `configDirFor` no main, repetida aqui
  * pelo mesmo motivo que no `AccountsBlock`: uma conta apagada cai na padrão, e
  * divergir faria a tira creditar o consumo a alguém que não existe mais.
  */
-function useMonitorDockAI(): DockSummary {
+function useMonitorDockAccounts(): DockAccount[] {
   const {
     workspace,
     claudeAccounts,
@@ -326,38 +456,42 @@ function useMonitorDockAI(): DockSummary {
       })
     }
 
-    const accounts = groupByAccount(rows, claudeAccountUsage)
+    const byId = new Map(groupByAccount(rows, claudeAccountUsage).map((a) => [a.accountId, a]))
+    const out: DockAccount[] = []
 
-    // A conta do Codex entra na mesma disputa: o bloco de Perfis já a mostra ao
-    // lado das do Claude, e uma tira que ignorasse a janela mais apertada só
-    // porque ela é do Codex discordaria do popover aberto logo acima dela.
+    // A do Codex primeiro, como no bloco de Perfis: uma tira que a listasse
+    // depois discordaria do popover aberto logo acima dela.
     //
     // Sem `subscribeCodexAccount` aqui de propósito: a tira usa o que a store
     // JÁ tem — a leitura guardada que veio do boot, ou a viva se algum painel
     // de contas estiver aberto. Assinar em permanência é um custo que esta
     // rodada não decidiu pagar, e a alternativa seria a tira ligar um canal do
     // App Server por conta própria.
-    if (
-      codexAccountUsage.available &&
-      codexAccountUsage.authMode !== 'api-key' &&
-      codexAccountUsage.source !== 'none'
-    ) {
-      accounts.push({
-        accountId: 'codex',
-        limits: activeWindows(codexAccountUsage.limits),
-        // O Codex não publica custo por sessão — `null` é "não sei", e somá-lo
-        // como zero baixaria o total que a tira mostra.
-        costUsd: null,
-        live: 0,
-        at: codexAccountUsage.at,
-        source: codexAccountUsage.source
+    if (codexAccountUsage.available && codexAccountUsage.authMode !== 'api-key') {
+      out.push({
+        id: 'codex',
+        label: 'Codex',
+        usage:
+          codexAccountUsage.source === 'none'
+            ? null
+            : {
+                accountId: 'codex',
+                limits: activeWindows(codexAccountUsage.limits),
+                // O Codex não publica custo por sessão — `null` é "não sei", e
+                // um zero aqui viraria uma afirmação que ninguém mediu.
+                costUsd: null,
+                live: 0,
+                at: codexAccountUsage.at,
+                source: codexAccountUsage.source
+              }
       })
     }
 
-    return dockSummary(
-      rows.map((r) => r.reading),
-      accounts
-    )
+    for (const account of claudeAccounts) {
+      out.push({ id: account.id, label: account.label, usage: byId.get(account.id) ?? null })
+    }
+
+    return out
   }, [
     workspace,
     claudeAccounts,
@@ -366,6 +500,64 @@ function useMonitorDockAI(): DockSummary {
     terminalStatus,
     terminalUsage
   ])
+}
+
+/**
+ * O `title` do chip. Diz DUAS coisas que o nome sozinho não diz: se a conta foi
+ * fixada ou eleita pela tira, e de quando é a leitura — um percentual guardado
+ * no boot é verdadeiro sem ser de agora, e essa diferença muda o quanto se
+ * confia nele.
+ */
+function accountTitle(account: DockAccount | null, fixed: boolean): string {
+  const how = fixed
+    ? 'conta fixada — clique para trocar'
+    : 'conta escolhida sozinha, a mais apertada — clique para fixar uma'
+  if (!account) return `nenhuma conta com leitura — ${how}`
+  const when =
+    account.usage === null || account.usage.source === 'none'
+      ? 'sem leitura'
+      : account.usage.source === 'stored'
+        ? `última leitura ${agoLabel(account.usage.at) ?? 'guardada'}`
+        : `medindo agora${account.usage.live > 0 ? ` · ${account.usage.live} agente(s)` : ''}`
+  return `${account.label} · ${when} — ${how}`
+}
+
+/** A linha de apoio de cada item do menu: o que já se sabe daquela conta. */
+function accountHint(account: DockAccount): string {
+  const usage = account.usage
+  if (!usage || usage.limits.length === 0) return 'sem leitura'
+  const windows = usage.limits.map((w) => `${w.window} ${Math.round(w.pct)}%`).join(' · ')
+  return usage.source === 'stored' ? `${windows} · ${agoLabel(usage.at) ?? 'guardado'}` : windows
+}
+
+/**
+ * Um item do menu de contas. `menuitemradio` e não `menuitem`: a escolha é
+ * exclusiva e o leitor de tela precisa saber qual está valendo — é a mesma
+ * informação que o ✓ dá para quem enxerga.
+ */
+function AccountItem({
+  label,
+  hint,
+  checked,
+  onPick
+}: {
+  label: string
+  hint: string
+  checked: boolean
+  onPick: () => void
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={checked}
+      className={checked ? 'monitor-dock-account-item is-on' : 'monitor-dock-account-item'}
+      onClick={onPick}
+    >
+      <span className="monitor-dock-account-item-label">{label}</span>
+      <span className="monitor-dock-account-item-hint">{hint}</span>
+    </button>
+  )
 }
 
 /**

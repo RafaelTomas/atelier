@@ -12,8 +12,8 @@
  *   3. `aggregateLimits` — o máximo por janela, e a recusa em somar tokens.
  *   4. `groupByAccount` — o recorte POR CONTA, onde a regra se inverte: entre
  *      agentes vale o máximo, dentro de uma conta vale a leitura mais fresca.
- *   5. `dockSummary` — o que a TIRA de borda mostra: o custo dos agentes e a
- *      janela mais apertada das contas, dois recortes diferentes na mesma linha.
+ *   5. `pickWindows`/`tightestAccount` — o que a TIRA de borda mostra: as
+ *      janelas de UMA conta, e qual conta ela elege quando ninguém escolheu.
  *
  * Uso: node scripts/test-monitor.mjs
  */
@@ -47,7 +47,8 @@ await esbuild.build({
         contextPctFromCodex,
         countReporting,
         decodeStoredCodexUsage,
-        dockSummary,
+        pickWindows,
+        tightestAccount,
         windowSpanMinutes,
         fromCodexAccountTokenUsage,
         fromCodexRateLimits,
@@ -89,7 +90,8 @@ const {
   contextPctFromCodex,
   countReporting,
   decodeStoredCodexUsage,
-  dockSummary,
+  pickWindows,
+  tightestAccount,
   windowSpanMinutes,
   fromCodexAccountTokenUsage,
   fromCodexRateLimits,
@@ -880,27 +882,21 @@ test('conta com terminal aberto e sem leitura sai vazia, e não zerada', () => {
   assert.deepEqual(contas[0].limits, [])
 })
 
-// ─── O agregado da tira de borda ──────────────────────────────────────────────
+// ─── O recorte da tira de borda ──────────────────────────────────────────────
 //
-// A tira mostra DUAS leituras de IA, e elas vêm de recortes diferentes: o custo
-// é dos agentes (dólar é a mesma unidade em todo agente), a janela é das contas
-// (é a conta que tem o limite). Trocar um recorte pelo outro dá um número
-// plausível na borda — dois agentes na mesma conta somariam a janela dela e a
-// tira anunciaria um aperto que não existe.
+// A tira mostra as janelas de UMA conta: a que o usuário fixou, ou — quando ele
+// não fixou nenhuma — a que estiver mais apertada. As duas metades são testadas
+// separadas porque falham diferente: `tightestAccount` errando elege a conta
+// errada (e a tira nomeia uma e mostra os números de outra), `pickWindows`
+// errando escolhe a janela errada DENTRO da conta certa.
+//
+// O custo saiu da tira e continua no painel — `sumCost` tem os testes dele lá
+// em cima, e é lá que o número é lido agora.
 
-/** Uma leitura de agente, no formato que `dockSummary` consome. */
-const leitura = (costUsd, limits = []) => ({
-  model: null,
-  tokens: null,
-  contextPct: null,
-  contextWindowSize: null,
-  costUsd,
-  limits,
-  at: '2026-08-29T12:00:00.000Z',
-  source: costUsd === null ? 'none' : 'statusline'
-})
+/** As janelas de uma conta, como a tira as consome. */
+const janelasDe = (conta) => pickWindows(conta ? conta.limits : [])
 
-test('a tira soma o custo e escolhe a janela MAIS APERTADA entre as contas', () => {
+test('sem escolha, a tira elege a conta MAIS APERTADA — e mostra as janelas dela', () => {
   // Duas contas, uma delas sem leitura nenhuma — o caso que a tira vive de
   // verdade, com um agente numa conta logada e outro num terminal que não
   // publica nada.
@@ -908,15 +904,16 @@ test('a tira soma o custo e escolhe a janela MAIS APERTADA entre as contas', () 
     live('a', [{ window: '5h', pct: 41, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z', 1.2),
     live('b', [{ window: '5h', pct: 88, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z', 0.35)
   ])
-  const r = dockSummary([leitura(1.2), leitura(0.35)], contas)
-  assert.equal(r.costUsd.toFixed(2), '1.55')
-  assert.equal(r.tightest.pct, 88, 'a tira mostrou a janela folgada')
+  const eleita = tightestAccount(contas)
+  assert.equal(eleita.accountId, 'b', 'a tira elegeu a conta folgada')
+  const r = janelasDe(eleita)
+  assert.equal(r.tightest.pct, 88)
   assert.equal(r.tightest.window, '5h')
 })
 
-test('a conta SEM leitura não puxa a janela para baixo — ela é ausência, não zero', () => {
-  // Uma média entre 62% e "nada" daria 31%, e a tira diria que sobra folga
-  // quando a única conta medida está quase fechando.
+test('a conta SEM leitura não é eleita — ela é ausência, não zero', () => {
+  // Uma conta parada não pode virar a conta em foco: a tira nomearia alguém que
+  // não está medindo nada e mostraria a borda vazia sem dizer por quê.
   const semLeitura = {
     accountId: 'b',
     reading: {
@@ -935,11 +932,31 @@ test('a conta SEM leitura não puxa a janela para baixo — ela é ausência, n�
     semLeitura
   ])
   assert.equal(contas.length, 2, 'a conta parada devia continuar existindo na lista')
-  const r = dockSummary([leitura(0.9), leitura(null)], contas)
-  assert.equal(r.tightest.pct, 62)
-  assert.equal(r.tightest.window, '7d')
-  // E o custo é o do único agente que publicou — não uma média com o silêncio.
-  assert.equal(r.costUsd.toFixed(2), '0.90')
+  const eleita = tightestAccount(contas)
+  assert.equal(eleita.accountId, 'a')
+  assert.equal(janelasDe(eleita).tightest.pct, 62)
+})
+
+test('nenhuma conta com leitura: a tira não elege ninguém', () => {
+  // `null` e não a primeira da lista — nomear uma conta que não mediu nada é
+  // pior do que não nomear nenhuma.
+  const contas = groupByAccount([
+    {
+      accountId: 'a',
+      reading: {
+        model: null,
+        tokens: null,
+        contextPct: null,
+        contextWindowSize: null,
+        costUsd: null,
+        limits: [],
+        at: null,
+        source: 'none'
+      }
+    }
+  ])
+  assert.equal(tightestAccount(contas), null)
+  assert.equal(tightestAccount([]), null)
 })
 
 test('a janela vence entre CONTAS, não dentro de uma — dois agentes não somam limite', () => {
@@ -949,10 +966,8 @@ test('a janela vence entre CONTAS, não dentro de uma — dois agentes não soma
     live('a', [{ window: '5h', pct: 42, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z', 1),
     live('a', [{ window: '5h', pct: 42, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z', 1)
   ])
-  const r = dockSummary([leitura(1), leitura(1)], contas)
-  assert.equal(r.tightest.pct, 42)
-  // O CUSTO, esse sim, soma: são duas sessões cobradas.
-  assert.equal(r.costUsd.toFixed(2), '2.00')
+  assert.equal(contas.length, 1)
+  assert.equal(janelasDe(tightestAccount(contas)).tightest.pct, 42)
 })
 
 test('a tira separa a janela de SESSÃO da mais apertada', () => {
@@ -969,21 +984,44 @@ test('a tira separa a janela de SESSÃO da mais apertada', () => {
       '2026-08-29T12:00:00.000Z'
     )
   ])
-  const r = dockSummary([], contas)
+  const r = janelasDe(contas[0])
   assert.equal(r.tightest.window, '7d')
   assert.equal(r.session.window, '5h')
   assert.equal(r.session.pct, 33)
 })
 
-test('a de sessão é a de MENOR duração, e entre iguais a mais apertada', () => {
+test('as duas janelas saem da MESMA conta — a tira não mistura duas contas', () => {
+  // Antes do seletor a tira tirava a `session` de uma conta e a `tightest` de
+  // outra: dois percentuais lado a lado que não eram do mesmo lugar. Agora a
+  // conta é eleita primeiro, e as duas janelas são as dela.
   const contas = groupByAccount([
-    live('a', [{ window: '5h', pct: 20, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z'),
-    live('b', [{ window: '5h', pct: 64, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z'),
-    live('c', [{ window: '7d', pct: 99, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z')
+    live('a', [{ window: '5h', pct: 64, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z'),
+    live('b', [{ window: '7d', pct: 99, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z')
   ])
-  const r = dockSummary([], contas)
-  assert.equal(r.session.pct, 64, 'entre duas contas na mesma janela vale a mais apertada')
+  const eleita = tightestAccount(contas)
+  assert.equal(eleita.accountId, 'b')
+  const r = janelasDe(eleita)
+  assert.equal(r.tightest.window, '7d')
+  assert.equal(r.session.window, '7d', 'a de sessão é a de menor duração DENTRO da conta eleita')
   assert.equal(r.session.resetsAt, FUTURO, 'o prazo acompanha a janela vencedora')
+})
+
+test('a de sessão é a de MENOR duração, e entre iguais a mais apertada', () => {
+  const conta = groupByAccount([
+    live(
+      'a',
+      [
+        { window: '7d', pct: 99, resetsAt: FUTURO },
+        { window: '5h', pct: 20, resetsAt: FUTURO },
+        { window: '5h', pct: 64, resetsAt: FUTURO }
+      ],
+      '2026-08-29T12:00:00.000Z'
+    )
+  ])[0]
+  const r = janelasDe(conta)
+  assert.equal(r.tightest.pct, 99)
+  assert.equal(r.session.window, '5h')
+  assert.equal(r.session.pct, 64, 'entre duas janelas de mesma duração vale a mais apertada')
 })
 
 test('janela de rótulo ilegível não vira a de sessão — mas ainda conta na apertada', () => {
@@ -992,7 +1030,7 @@ test('janela de rótulo ilegível não vira a de sessão — mas ainda conta na 
   const contas = groupByAccount([
     live('a', [{ window: 'opus', pct: 90, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z')
   ])
-  const r = dockSummary([], contas)
+  const r = janelasDe(contas[0])
   assert.equal(r.tightest.window, 'opus')
   assert.equal(r.session, null)
 })
@@ -1008,32 +1046,37 @@ test('windowSpanMinutes lê a duração do rótulo quando a fonte não a publica
   assert.equal(windowSpanMinutes({ window: 'limite' }), null)
 })
 
-test('ninguém publicando custo dá `null`, e não US$ 0,00', () => {
-  // A diferença que o raspador de tela nunca soube marcar: "não gastei nada" e
-  // "não sei" não podem sair iguais na borda.
-  const r = dockSummary([leitura(null), leitura(null)], [])
-  assert.equal(r.costUsd, null)
-  assert.equal(r.tightest, null)
-  assert.equal(r.session, null)
-})
-
-test('canvas vazio: a tira não tem o que dizer sobre IA', () => {
-  const r = dockSummary([], [])
-  assert.equal(r.costUsd, null)
+test('canvas vazio: a tira não tem janela para mostrar', () => {
+  const r = pickWindows([])
   assert.equal(r.tightest, null)
   assert.equal(r.session, null)
 })
 
 test('empate entre janelas fica com a PRIMEIRA vista — a escolha é determinística', () => {
-  // Duas contas no mesmo percentual. Sem regra de desempate a tira trocaria de
+  // Duas janelas no mesmo percentual. Sem regra de desempate a tira trocaria de
   // janela entre dois renders sem que nada tivesse mudado.
+  const conta = groupByAccount([
+    live(
+      'a',
+      [
+        { window: '5h', pct: 70, resetsAt: FUTURO },
+        { window: '7d', pct: 70, resetsAt: FUTURO }
+      ],
+      '2026-08-29T12:00:00.000Z'
+    )
+  ])[0]
+  const r = janelasDe(conta)
+  assert.equal(r.tightest.window, '5h')
+  assert.deepEqual(janelasDe(conta).tightest, r.tightest)
+})
+
+test('empate entre CONTAS também fica com a primeira vista', () => {
   const contas = groupByAccount([
     live('a', [{ window: '5h', pct: 70, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z'),
-    live('b', [{ window: '7d', pct: 70, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z')
+    live('b', [{ window: '5h', pct: 70, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z')
   ])
-  const r = dockSummary([], contas)
-  assert.equal(r.tightest.window, '5h')
-  assert.deepEqual(dockSummary([], contas).tightest, r.tightest)
+  assert.equal(tightestAccount(contas).accountId, 'a')
+  assert.equal(tightestAccount(contas).accountId, 'a')
 })
 
 test('a janela vencida não entra na tira — ela foi descartada antes', () => {
@@ -1043,9 +1086,8 @@ test('a janela vencida não entra na tira — ela foi descartada antes', () => {
   const contas = groupByAccount([
     live('a', [{ window: '5h', pct: 92, resetsAt: PASSADO }], '2026-08-29T12:00:00.000Z', 0.5)
   ])
-  const r = dockSummary([leitura(0.5)], contas)
-  assert.equal(r.tightest, null)
-  assert.equal(r.costUsd.toFixed(2), '0.50')
+  assert.equal(tightestAccount(contas), null)
+  assert.equal(janelasDe(contas[0]).tightest, null)
 })
 
 test('activeWindows mantém a janela sem prazo e derruba a vencida', () => {

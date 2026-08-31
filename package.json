@@ -3,7 +3,20 @@
   "version": "0.1.0",
   "description": "Atelier — canvas de orquestração multi-agente para macOS, Windows e Linux",
   "main": "./out/main/index.js",
-  "author": "Atelier contributors",
+  "author": {
+    "name": "Eduardo Tasso",
+    "email": "etasso@gmail.com"
+  },
+  "contributors": [
+    {
+      "name": "Rafael Tomás Souza dos Santos",
+      "email": "rafael.tomas@mv.com.br"
+    },
+    {
+      "name": "Brendson Victor",
+      "email": "brendson.dev@gmail.com"
+    }
+  ],
   "license": "GPL-3.0",
   "private": true,
   "scripts": {

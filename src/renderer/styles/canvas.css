@@ -195,8 +195,26 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 .nodes-layer {
   position: absolute; top: 0; left: 0;
   transform-origin: 0 0;
-  will-change: transform;
 }
+
+/* ─── Promoção a camada: durante o gesto, e só durante ele ─────────────────── */
+
+/* `will-change: transform` era permanente nas camadas transformadas e em cada
+   nó. Isso deixa o texto BORRADO fora de 100%: o Chromium rasteriza o conteúdo
+   promovido uma vez e depois compõe essa textura escalada pelo `scale()` do
+   pan/zoom, em vez de redesenhar o texto na escala nova. Num nó de terminal,
+   com tipo de 12px, é o sintoma que mais se vê.
+
+   A dica de otimização só vale enquanto o transform está MUDANDO. Em repouso ela
+   sai, o Chromium rasteriza na escala real e o texto volta a ficar nítido.
+   `is-viewporting` dura o pan/zoom (canvas/canvas-view.tsx); `is-gesturing`, o
+   arrasto de nó ou de moldura. */
+.canvas-host.is-viewporting .nodes-layer,
+.canvas-host.is-viewporting .groups-layer,
+.canvas-host.is-viewporting .connections-layer { will-change: transform; }
+
+.canvas-host.is-gesturing .node-frame,
+.canvas-host.is-gesturing .group { will-change: transform; }
 
 /* ─── Molduras de grupo ───────────────────────────────────────────────────── */
 
@@ -207,7 +225,6 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 .groups-layer {
   position: absolute; top: 0; left: 0;
   transform-origin: 0 0;
-  will-change: transform;
   pointer-events: none;
   /* O inverso do zoom, escrito a cada frame pela própria camada. O valor de
      repouso é 1 para a faixa nascer com o tamanho certo antes do primeiro
@@ -225,7 +242,6 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   border: 1.5px solid color-mix(in srgb, var(--group-color) 55%, transparent);
   border-radius: var(--r-lg);
   background: color-mix(in srgb, var(--group-color) 7%, transparent);
-  will-change: transform;
 }
 
 /* A faixa: ancorada no topo do retângulo, largura da moldura, ALTURA CONSTANTE
@@ -349,7 +365,6 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   transform-origin: 0 0;
   width: 1px; height: 1px;
   pointer-events: none;
-  will-change: transform;
 }
 
 /* `--rope-scale` é o multiplicador de espessura escolhido pelo usuário; ele

@@ -11,7 +11,10 @@
 /* A moldura carrega a GEOMETRIA (posição, tamanho, z-index) e não recorta nada:
    é o que deixa as alças montarem em cima da borda, metade para fora. O card
    dentro dela é que recorta o conteúdo. */
-.node-frame { position: absolute; will-change: transform; }
+/* `will-change` NÃO mora aqui: ele é ligado só durante o gesto, em canvas.css
+   (ver "Promoção a camada"). Permanente, ele fazia o Chromium guardar o nó como
+   textura e ESCALAR essa textura no zoom — que é o texto de terminal borrado. */
+.node-frame { position: absolute; }
 
 /* Modo foco (isolar um grupo): os nós de FORA dele apagam. Só opacidade — o nó
    continua montado, o terminal continua rodando e o portal continua carregado.

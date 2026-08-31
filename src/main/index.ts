@@ -77,10 +77,15 @@ if (!app.isPackaged && process.platform === 'darwin') {
   if (!icon.isEmpty()) app.dock?.setIcon(icon)
 }
 
-// Instância única: dois processos disputando o mesmo socket IPC quebram o CLI
+// Instância única: dois processos disputando o mesmo socket IPC quebram o CLI.
+// `app.quit()` é assíncrono, e o boot desta instância continuaria correndo até
+// ele chegar — tempo de sobra para `interAgentServer.start()` apagar o socket
+// da instância legítima (ele remove o que julga ser um socket órfão), tomar o
+// lugar dela e, no shutdown, remover o socket de vez. O CLI ficava sem servidor
+// com o app ainda aberto. Nada foi inicializado aqui ainda, então saímos na hora.
 if (!app.requestSingleInstanceLock()) {
   log.warn('boot', 'outra instância já está rodando — encerrando esta')
-  app.quit()
+  app.exit(0)
 }
 
 app.on('second-instance', () => {

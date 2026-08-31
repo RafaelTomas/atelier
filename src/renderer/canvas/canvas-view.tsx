@@ -97,6 +97,15 @@ type Interaction =
 type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 
 /** Piso do nó ao redimensionar. Abaixo disto nem o cabeçalho cabe. */
+/**
+ * Repouso do pan/zoom antes de devolver a rasterização ao Chromium.
+ *
+ * Curto o bastante para o texto ficar nítido assim que a mão para, e longo o
+ * bastante para não entrar e sair da promoção de camada no meio de um gesto de
+ * roda, que chega em rajadas com pequenos vãos entre elas.
+ */
+const VIEWPORT_IDLE_MS = 180
+
 const MIN_NODE_WIDTH = 120
 const MIN_NODE_HEIGHT = 60
 
@@ -187,6 +196,8 @@ export function CanvasView(): JSX.Element {
   /** nodeId → instante em que o portal saiu da faixa de permanência. */
   const portalGrace = useRef(new Map<UUID, number>())
   const graceTimer = useRef<number | null>(null)
+  /** Conta o repouso do pan/zoom — ver o efeito de `is-viewporting`. */
+  const viewportIdle = useRef<number | null>(null)
   /** Redesenha quando o agente acorda (ou solta) um portal fora da viewport. */
   const [, setWakeTick] = useState(0)
   const [marquee, setMarquee] = useState<Rect | null>(null)
@@ -354,15 +365,36 @@ export function CanvasView(): JSX.Element {
     setVisibleIds(next)
   }, [renderOrder])
 
+  /**
+   * `is-viewporting`: o pan/zoom está MUDANDO agora.
+   *
+   * É o interruptor do `will-change: transform` das camadas transformadas (ver
+   * "Promoção a camada" em styles/canvas.css). A dica só ajuda enquanto o
+   * transform anda; deixada ligada, ela faz o Chromium compor uma textura
+   * antiga escalada em vez de redesenhar — e o texto do terminal sai borrado
+   * fora de 100%. Sai sozinha um tempinho depois do último evento, que é quando
+   * o quadro está parado e vale a pena rasterizar na escala real.
+   */
   useEffect(() => {
     const unsubscribe = viewport.subscribe(() => {
       if (nodesRef.current) nodesRef.current.style.transform = viewport.transform()
+      const host = hostRef.current
+      if (host) {
+        host.classList.add('is-viewporting')
+        if (viewportIdle.current !== null) clearTimeout(viewportIdle.current)
+        viewportIdle.current = window.setTimeout(() => {
+          viewportIdle.current = null
+          host.classList.remove('is-viewporting')
+        }, VIEWPORT_IDLE_MS)
+      }
       recomputeVisible()
     })
     return () => {
       unsubscribe()
       if (graceTimer.current !== null) clearTimeout(graceTimer.current)
       graceTimer.current = null
+      if (viewportIdle.current !== null) clearTimeout(viewportIdle.current)
+      viewportIdle.current = null
     }
   }, [recomputeVisible])
 

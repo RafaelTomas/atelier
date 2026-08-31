@@ -9,9 +9,14 @@
  * tela só — quem viu 89% em verde num canto e vermelho no outro deixa de
  * confiar nos dois.
  *
- * Só o que é de fato comum mora aqui. Os blocos (PC, IA, Perfis), os anéis de
- * janela e a configuração continuam no painel: a tira não os usa, e trazê-los
- * para cá faria deste arquivo um segundo painel disfarçado.
+ * Só o que é de fato comum mora aqui. Os blocos (PC, IA, Perfis) e a
+ * configuração continuam no painel: a tira não os usa, e trazê-los para cá
+ * faria deste arquivo um segundo painel disfarçado.
+ *
+ * O `Donut` desceu para cá numa segunda rodada, pelo mesmo argumento: a tira
+ * passou a medir CPU, memória e disco com o MESMO anel que o painel usa nas
+ * janelas de conta. Duas telas que desenham "quanto já foi" de jeitos
+ * diferentes obrigam a reaprender o desenho ao trocar de canto.
  */
 import { formatBytes } from '@shared/types'
 
@@ -105,6 +110,132 @@ export function Sparkline({
       aria-hidden="true"
     >
       <polyline points={points} fill="none" strokeWidth="1" />
+    </svg>
+  )
+}
+
+/**
+ * O anel de progresso: o trilho inteiro é o limite, e o arco é o quanto já foi.
+ * SVG inline pelo mesmo motivo do sparkline — são dois círculos numa caixa de
+ * 14px, e uma biblioteca de gráfico custaria mais que o widget inteiro.
+ *
+ * `pct` nulo desenha SÓ o trilho. Um anel de 0% e um anel sem leitura ficariam
+ * idênticos na tela — e o painel inteiro se apoia em não confundir "não gastei"
+ * com "não sei".
+ *
+ * O `viewBox` é sempre 14: quem muda é o tamanho RENDERIZADO, e a espessura do
+ * traço vem do CSS em unidades do viewBox, então o anel engorda junto com a
+ * caixa em vez de virar um aro fino de 20px.
+ */
+export function Donut({
+  pct,
+  stale,
+  size = 13
+}: {
+  pct: number | null
+  stale: boolean
+  /** Lado da caixa em px. O painel usa 13; a tira de borda pede um pouco mais. */
+  size?: number
+}): JSX.Element {
+  const r = 5
+  const circumference = 2 * Math.PI * r
+  const filled = pct === null ? 0 : (Math.max(0, Math.min(100, pct)) / 100) * circumference
+  const cls = [
+    'monitor-donut',
+    pct !== null && pct >= DANGER_PCT ? 'is-danger' : '',
+    stale ? 'is-stale' : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  return (
+    <svg className={cls} viewBox="0 0 14 14" width={size} height={size} aria-hidden="true">
+      <circle className="monitor-donut-track" cx="7" cy="7" r={r} />
+      {pct !== null && (
+        <circle
+          className="monitor-donut-fill"
+          cx="7"
+          cy="7"
+          r={r}
+          // Começa no topo, e não às 3 horas: um anel que enche a partir da
+          // direita não é lido como progresso.
+          transform="rotate(-90 7 7)"
+          strokeDasharray={`${filled.toFixed(2)} ${circumference.toFixed(2)}`}
+        />
+      )}
+    </svg>
+  )
+}
+
+/**
+ * O anel com o NÚMERO no centro — a variante grande do `Donut`.
+ *
+ * Existe para a tira EM PÉ. Deitada, a célula tem largura de sobra e o
+ * percentual cabe ao lado do anel; numa coluna de 44px, "CPU" e "30%" em linhas
+ * separadas viram duas fileiras de texto de 9px empilhadas sob um aro pequeno —
+ * três informações competindo pela mesma faixa estreita. Com o número DENTRO do
+ * anel, a medida vira uma peça só: o aro diz quanto foi, o número diz quanto é,
+ * e sobra a linha de baixo para a sigla.
+ *
+ * O `viewBox` é 36 e o raio, 15.9155 — o valor em que a circunferência dá
+ * exatamente 100. Com ele o `stroke-dasharray` recebe o percentual CRU, sem
+ * conta nenhuma, e o desenho passa a ser lido no código do mesmo jeito que na
+ * tela. É outro viewBox que o `Donut` de propósito: com 14 unidades, o furo do
+ * meio não comporta quatro caracteres sem o traço do aro invadir o texto.
+ */
+export function Gauge({
+  pct,
+  size = 34
+}: {
+  /** null = sem leitura: só o trilho, e `—` no lugar do número. */
+  pct: number | null
+  /** Lado da caixa em px. */
+  size?: number
+}): JSX.Element {
+  const r = 15.9155
+  const value = pct === null ? 0 : Math.max(0, Math.min(100, pct))
+  const danger = pct !== null && pct >= DANGER_PCT
+  // Em 100% o `%` não cabe com três dígitos, e o dígito é o que importa: o anel
+  // cheio já diz que a unidade é o limite inteiro.
+  const text = pct === null ? '—' : value >= 99.5 ? '100' : `${Math.round(value)}%`
+
+  return (
+    <svg
+      className={danger ? 'monitor-gauge is-danger' : 'monitor-gauge'}
+      viewBox="0 0 36 36"
+      width={size}
+      height={size}
+      aria-hidden="true"
+    >
+      <circle className="monitor-gauge-track" cx="18" cy="18" r={r} />
+      {pct !== null && (
+        <circle
+          className="monitor-gauge-fill"
+          cx="18"
+          cy="18"
+          r={r}
+          // Começa no topo, como no `Donut`: um anel que enche a partir da
+          // direita não é lido como progresso.
+          transform="rotate(-90 18 18)"
+          strokeDasharray={`${value.toFixed(1)} 100`}
+        />
+      )}
+      <text
+        className="monitor-gauge-text"
+        x="18"
+        y="18"
+        // `central` e não `middle`: o segundo alinha pela metade do x-height e
+        // deixaria o número um fio acima do centro do aro.
+        dominantBaseline="central"
+        textAnchor="middle"
+        // Em unidades do viewBox, não px: é isto que faz o número crescer junto
+        // com a caixa em vez de virar uma formiga num anel grande. 10 é o maior
+        // valor em que `100` ainda deixa ar entre o texto e o aro — em 11 os
+        // dois se encostam e o medidor parece apertado.
+        fontSize={10}
+      >
+        {text}
+      </text>
     </svg>
   )
 }

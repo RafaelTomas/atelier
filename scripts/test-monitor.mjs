@@ -48,6 +48,7 @@ await esbuild.build({
         countReporting,
         decodeStoredCodexUsage,
         dockSummary,
+        windowSpanMinutes,
         fromCodexAccountTokenUsage,
         fromCodexRateLimits,
         fromCodexTokenUsage,
@@ -89,6 +90,7 @@ const {
   countReporting,
   decodeStoredCodexUsage,
   dockSummary,
+  windowSpanMinutes,
   fromCodexAccountTokenUsage,
   fromCodexRateLimits,
   fromCodexTokenUsage,
@@ -953,18 +955,73 @@ test('a janela vence entre CONTAS, não dentro de uma — dois agentes não soma
   assert.equal(r.costUsd.toFixed(2), '2.00')
 })
 
+test('a tira separa a janela de SESSÃO da mais apertada', () => {
+  // O caso que motivou o campo: a semanal está mais cheia, mas quem decide se
+  // dá para abrir mais um agente AGORA é a de 5h. Uma tira que só mostrasse a
+  // mais apertada responderia sobre um prazo de seis dias.
+  const contas = groupByAccount([
+    live(
+      'a',
+      [
+        { window: '7d', pct: 81, resetsAt: FUTURO },
+        { window: '5h', pct: 33, resetsAt: FUTURO }
+      ],
+      '2026-08-29T12:00:00.000Z'
+    )
+  ])
+  const r = dockSummary([], contas)
+  assert.equal(r.tightest.window, '7d')
+  assert.equal(r.session.window, '5h')
+  assert.equal(r.session.pct, 33)
+})
+
+test('a de sessão é a de MENOR duração, e entre iguais a mais apertada', () => {
+  const contas = groupByAccount([
+    live('a', [{ window: '5h', pct: 20, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z'),
+    live('b', [{ window: '5h', pct: 64, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z'),
+    live('c', [{ window: '7d', pct: 99, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z')
+  ])
+  const r = dockSummary([], contas)
+  assert.equal(r.session.pct, 64, 'entre duas contas na mesma janela vale a mais apertada')
+  assert.equal(r.session.resetsAt, FUTURO, 'o prazo acompanha a janela vencedora')
+})
+
+test('janela de rótulo ilegível não vira a de sessão — mas ainda conta na apertada', () => {
+  // Chutar uma duração elegeria a janela errada como a da sessão, que é pior do
+  // que não eleger nenhuma.
+  const contas = groupByAccount([
+    live('a', [{ window: 'opus', pct: 90, resetsAt: FUTURO }], '2026-08-29T12:00:00.000Z')
+  ])
+  const r = dockSummary([], contas)
+  assert.equal(r.tightest.window, 'opus')
+  assert.equal(r.session, null)
+})
+
+test('windowSpanMinutes lê a duração do rótulo quando a fonte não a publica', () => {
+  // `activeWindows` guarda só `window` e `pct`: uma conta restaurada do boot
+  // chega sem `windowMinutes`, e sem ler o rótulo ela não teria janela de sessão.
+  assert.equal(windowSpanMinutes({ window: '5h' }), 300)
+  assert.equal(windowSpanMinutes({ window: '7d' }), 10080)
+  assert.equal(windowSpanMinutes({ window: '30min' }), 30)
+  // O publicado vence o rótulo — ele é a medida, o rótulo é a tradução dela.
+  assert.equal(windowSpanMinutes({ window: '5h', windowMinutes: 240 }), 240)
+  assert.equal(windowSpanMinutes({ window: 'limite' }), null)
+})
+
 test('ninguém publicando custo dá `null`, e não US$ 0,00', () => {
   // A diferença que o raspador de tela nunca soube marcar: "não gastei nada" e
   // "não sei" não podem sair iguais na borda.
   const r = dockSummary([leitura(null), leitura(null)], [])
   assert.equal(r.costUsd, null)
   assert.equal(r.tightest, null)
+  assert.equal(r.session, null)
 })
 
 test('canvas vazio: a tira não tem o que dizer sobre IA', () => {
   const r = dockSummary([], [])
   assert.equal(r.costUsd, null)
   assert.equal(r.tightest, null)
+  assert.equal(r.session, null)
 })
 
 test('empate entre janelas fica com a PRIMEIRA vista — a escolha é determinística', () => {

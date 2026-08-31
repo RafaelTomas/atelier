@@ -39,9 +39,16 @@
  * ─── O que a tira mostra, e o que ela não mostra ───
  *
  * Uma LINHA de leituras, não o painel de três blocos: CPU, memória e disco em
- * medidores finos, o custo somado dos agentes e a janela mais apertada entre as
- * contas. Não a lista de contas — com três contas, três anéis numa borda deixam
- * de ser legíveis, e essa é a leitura que o popover faz bem.
+ * anéis, o custo somado dos agentes, a janela de SESSÃO com quanto falta para
+ * ela reabrir e — só quando é outra e está mais cheia — a janela mais apertada.
+ * Não a lista de contas: com três contas, três linhas de anéis numa borda
+ * deixam de ser legíveis, e essa é a leitura que o popover faz bem.
+ *
+ * A janela de sessão ganhou lugar fixo porque é a única das duas que muda uma
+ * decisão dentro do expediente — a semanal reabre num prazo com que ninguém faz
+ * nada hoje. E o percentual sozinho não basta: "88%" não diz se o aperto passa
+ * em vinte minutos ou em quatro horas, e é essa resposta que decide entre
+ * esperar e trocar de conta. Daí o prazo ao lado, e não só no `title`.
  *
  * O limiar do vermelho e o formato do par de bytes vêm de `monitor-parts.tsx`,
  * compartilhados com o painel: duas telas que medem a mesma coisa e discordam
@@ -62,7 +69,7 @@ import { PillMenu } from './floating/pill-menu'
 import { usePill } from './floating/use-pill'
 import type { MonitorBlocks } from './panels/monitor-panel'
 import { MonitorPanel } from './panels/monitor-panel'
-import { DANGER_PCT, Sparkline, pair } from './panels/monitor-parts'
+import { DANGER_PCT, Gauge, pair } from './panels/monitor-parts'
 import { store, useStore } from './state/store'
 import { DEFAULT_INTERVAL, useSystemStats } from './state/use-system-stats'
 
@@ -70,7 +77,10 @@ export function MonitorDock(): JSX.Element {
   // Arrastar, menu de contexto e troca de borda: o mesmo comportamento da dock
   // e da rail, pelo mesmo hook.
   const pill = usePill('monitor')
-  const { stats, history } = useSystemStats('', DEFAULT_INTERVAL)
+  // Sem `history`: as métricas passaram do traço para o anel (ver `Cell`), e o
+  // histórico não tem quem o desenhe aqui. O popover, quando abre, monta o
+  // painel com o hook dele — o traço dos últimos minutos continua existindo lá.
+  const { stats } = useSystemStats('', DEFAULT_INTERVAL)
 
   const pc = useMemo(() => {
     const memPct = stats && stats.memTotal > 0 ? (stats.memUsed / stats.memTotal) * 100 : null
@@ -147,7 +157,6 @@ export function MonitorDock(): JSX.Element {
           <Cell
             label="CPU"
             pct={stats?.cpuPct ?? null}
-            series={history.cpu}
             title={
               stats
                 ? `CPU · Atelier em ${stats.appCpuPct}% e ${formatBytes(stats.appMemBytes)}`
@@ -157,12 +166,10 @@ export function MonitorDock(): JSX.Element {
           <Cell
             label="MEM"
             pct={pc.memPct}
-            series={history.mem}
             title={stats ? `memória · ${pair(stats.memUsed, stats.memTotal)}` : 'memória'}
           />
-          {/* Sem traço: o disco não anda em quatro minutos, e um sparkline reto
-              ocuparia largura para não dizer nada. Zeros = `statfs` falhou
-              (volume de rede caído, caminho apagado) e a célula mostra `—`. */}
+          {/* Zeros = `statfs` falhou (volume de rede caído, caminho apagado) e a
+              célula mostra `—` em vez de um anel vazio. */}
           <Cell
             label="DSK"
             pct={pc.diskPct}
@@ -176,7 +183,7 @@ export function MonitorDock(): JSX.Element {
           {/* Só aparece quando há o que dizer: sem agente publicando custo e sem
               conta com leitura, o traço e dois `—` ocupariam metade da tira para
               informar nada. */}
-          {(ai.costUsd !== null || ai.tightest !== null) && (
+          {(ai.costUsd !== null || ai.session !== null || ai.tightest !== null) && (
             <>
               <span className="monitor-dock-sep" />
               <span className="monitor-dock-ai">
@@ -188,7 +195,19 @@ export function MonitorDock(): JSX.Element {
                     ${ai.costUsd.toFixed(2)}
                   </span>
                 )}
-                {ai.tightest && <TightestWindow window={ai.tightest} />}
+                {/* A janela de SESSÃO primeiro, com o prazo: é a que decide se
+                    dá para abrir mais um agente agora. */}
+                {ai.session && <WindowCell window={ai.session} kind="session" />}
+                {/* A mais apertada só quando ela é OUTRA e está acima da de
+                    sessão. Repetir a mesma janela em duas caixinhas gastaria
+                    largura para dizer duas vezes a mesma coisa, e mostrar uma
+                    semanal mais folgada que a de sessão não muda decisão
+                    nenhuma. */}
+                {ai.tightest &&
+                  ai.tightest.window !== ai.session?.window &&
+                  ai.tightest.pct > (ai.session?.pct ?? -1) && (
+                    <WindowCell window={ai.tightest} kind="tightest" />
+                  )}
               </span>
             </>
           )}
@@ -238,36 +257,30 @@ export function MonitorDock(): JSX.Element {
 }
 
 /**
- * Uma métrica na tira: traço, rótulo e percentual.
+ * Uma métrica na tira: o medidor com o número DENTRO, e a sigla ao lado (ou
+ * embaixo, quando a tira está em pé — mas isso é assunto do CSS).
  *
- * A LARGURA é fixa por célula, e isso não é acabamento. Sem ela, `9%` virando
- * `100%` muda a largura do número, a pílula reflui e a tira pisca na borda a
- * cada amostra — de dois em dois segundos, para sempre, no canto do olho de
- * quem está trabalhando. A largura mora no CSS (`monitor-dock.css`), que é
- * quem conhece a fonte.
+ * O anel no lugar do traço, e o motivo é o que cada um responde. O sparkline
+ * conta a HISTÓRIA dos últimos minutos; a tira é olhada de relance para saber
+ * "quanto já foi do que dá", e para isso o traço obriga a estimar a altura da
+ * ponta contra uma escala invisível. O anel é o mesmo desenho que o painel usa
+ * nas janelas de conta — a tira deixou de ter dois vocabulários de medida, um
+ * para a máquina e outro para as contas. O histórico continua a um clique, no
+ * popover.
+ *
+ * O número foi para dentro do anel nas DUAS orientações, e não só na coluna
+ * estreita onde ele não cabia ao lado. Duas peças em vez de três é menos coisa
+ * para o olho percorrer, e o valor passa a ser lido no mesmo lugar em que o aro
+ * já estava sendo olhado. De quebra some o motivo original da largura reservada
+ * — o número não está mais no fluxo, então ele não pode mais esticar a célula e
+ * fazer a pílula refluir a cada amostra.
  */
-function Cell({
-  label,
-  pct,
-  series,
-  title
-}: {
-  label: string
-  /** null = sem leitura. O traço some e o número vira `—`, nunca `0%`. */
-  pct: number | null
-  series?: number[]
-  title: string
-}): JSX.Element {
+function Cell({ label, pct, title }: { label: string; pct: number | null; title: string }): JSX.Element {
   const danger = pct !== null && pct >= DANGER_PCT
   return (
     <span className={danger ? 'monitor-dock-cell is-danger' : 'monitor-dock-cell'} title={title}>
-      {series && series.length > 1 && (
-        // Menor que o do painel: numa borda de 34px de altura, a caixa de 44×14
-        // do nó empurraria o rótulo e o número para fora da pílula.
-        <Sparkline series={series} danger={danger} width={26} height={10} />
-      )}
+      <Gauge pct={pct} size={32} />
       <span className="monitor-dock-label">{label}</span>
-      <span className="monitor-dock-pct">{pct === null ? '—' : `${Math.round(pct)}%`}</span>
     </span>
   )
 }
@@ -346,25 +359,53 @@ function useMonitorDockAI(): DockSummary {
 }
 
 /**
- * A janela mais apertada — "5h 62%".
+ * Uma janela de limite na tira — "◕ 5h 62% · 1h12".
  *
- * Só UMA, e não a coluna de janelas do painel: numa borda, duas caixinhas de
- * percentual ao lado do custo passam a competir com as métricas de máquina, e a
- * pergunta que a tira responde é "sobra janela?", no singular. Qual delas venceu
- * e quando ela reabre ficam no `title` — e o popover mostra as duas.
+ * O anel é o mesmo das métricas de máquina e o mesmo do painel: "quanto já foi"
+ * tem um desenho só no app inteiro.
+ *
+ * O PRAZO só acompanha a janela de sessão, e é a diferença que justifica a
+ * caixinha existir. "62%" sozinho não diz se o aperto passa em vinte minutos ou
+ * em quatro horas — e é essa resposta que decide entre esperar e trocar de
+ * conta. Na janela semanal o prazo fica no `title`: um "6d03h" ao lado do
+ * percentual gastaria largura para informar um prazo com que ninguém faz nada
+ * hoje.
+ *
+ * O relógio se atualiza sozinho porque a tira já re-renderiza a cada amostra do
+ * monitor — sem timer próprio para um texto que muda de minuto em minuto.
  */
-function TightestWindow({ window: w }: { window: UsageWindow }): JSX.Element {
+function WindowCell({
+  window: w,
+  kind
+}: {
+  window: UsageWindow
+  /** `session` mostra o prazo na tira; `tightest` o deixa no title. */
+  kind: 'session' | 'tightest'
+}): JSX.Element {
   const falta = untilReset(w.resetsAt)
+  const what =
+    kind === 'session'
+      ? 'a janela de sessão mais apertada entre as contas'
+      : 'a janela mais apertada entre as contas'
   return (
     <span
       className={w.pct >= DANGER_PCT ? 'monitor-dock-window is-danger' : 'monitor-dock-window'}
-      title={
-        falta
-          ? `${w.window}: a janela mais apertada entre as contas — reabre em ${falta}`
-          : `${w.window}: a janela mais apertada entre as contas`
-      }
+      title={falta ? `${w.window}: ${what} — reabre em ${falta}` : `${w.window}: ${what}`}
     >
-      {w.window} {Math.round(w.pct)}%
+      <Gauge pct={w.pct} size={28} />
+      <span className="monitor-dock-window-name">{w.window}</span>
+      {/* A pista do prazo é reservada mesmo sem prazo — `—` e não nada. Uma
+          janela raspada da tela chega sem `resetsAt`, e deixar a coluna sumir
+          faria a caixinha encolher e a tira refluir quando a leitura seguinte a
+          trouxesse de volta. É a mesma regra do `—` das métricas. */}
+      {kind === 'session' && (
+        <span
+          className="monitor-dock-window-reset"
+          title={falta ? `reabre em ${falta}` : 'sem prazo publicado para esta janela'}
+        >
+          {falta ?? '—'}
+        </span>
+      )}
     </span>
   )
 }

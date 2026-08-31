@@ -397,18 +397,76 @@ export interface DockSummary {
   costUsd: number | null
   /** A janela mais apertada entre as contas. `null` = nenhuma conta tem leitura. */
   tightest: UsageWindow | null
+  /**
+   * A janela de SESSÃO mais apertada — a de menor duração entre as contas (a
+   * `5h` do Claude, a de horas do Codex).
+   *
+   * Ela é a leitura que muda uma decisão AGORA: a de 7 dias aperta devagar e
+   * reabre num prazo que não cabe numa tarde, enquanto a de sessão é a que
+   * decide se dá para abrir mais um agente antes do almoço. Vem separada de
+   * `tightest` porque as duas divergem justamente quando importa — a semanal
+   * pode estar mais alta e ainda assim não ser a que trava o próximo comando.
+   *
+   * `null` quando nenhuma conta tem leitura, ou quando nenhuma janela tem
+   * duração legível.
+   */
+  session: UsageWindow | null
+}
+
+/**
+ * Quantos minutos uma janela cobre. O inverso de `windowLabel`.
+ *
+ * Prefere o `windowMinutes` que a fonte publicou; só quando ele falta é que o
+ * RÓTULO é lido de volta. O rótulo é o que sobrevive à ida e volta pelo disco
+ * (`activeWindows` guarda `window` e `pct`, não a duração), e sem essa leitura
+ * uma conta restaurada do boot não teria como dizer qual das janelas dela é a
+ * de sessão.
+ *
+ * `null` = rótulo que não sabemos ler. Chutar uma duração aqui elegeria a
+ * janela errada como "a da sessão", que é pior do que não eleger nenhuma.
+ */
+export function windowSpanMinutes(w: {
+  window: string
+  windowMinutes?: number | null
+}): number | null {
+  if (typeof w.windowMinutes === 'number' && Number.isFinite(w.windowMinutes) && w.windowMinutes > 0)
+    return w.windowMinutes
+  const m = /^(\d+(?:[.,]\d+)?)\s*(min|h|d)$/i.exec(w.window.trim())
+  if (!m) return null
+  const n = Number(m[1].replace(',', '.'))
+  if (!Number.isFinite(n) || n <= 0) return null
+  const unit = m[2].toLowerCase()
+  return unit === 'min' ? n : unit === 'h' ? n * 60 : n * 1440
 }
 
 export function dockSummary(readings: AgentReading[], accounts: AccountUsage[]): DockSummary {
   let tightest: UsageWindow | null = null
+  let session: UsageWindow | null = null
+  let sessionSpan: number | null = null
+
   for (const account of accounts) {
     for (const limit of account.limits) {
       if (!Number.isFinite(limit.pct)) continue
       // `>` e não `>=`: no empate fica quem chegou primeiro.
       if (tightest === null || limit.pct > tightest.pct) tightest = limit
+
+      // A de sessão é a de MENOR duração; entre duas contas com a mesma janela,
+      // a mais apertada. Sem duração legível a janela não disputa este posto —
+      // ela ainda conta para `tightest`, que não depende de saber o prazo.
+      const span = windowSpanMinutes(limit)
+      if (span === null) continue
+      if (
+        sessionSpan === null ||
+        span < sessionSpan ||
+        (span === sessionSpan && session !== null && limit.pct > session.pct)
+      ) {
+        session = limit
+        sessionSpan = span
+      }
     }
   }
-  return { costUsd: sumCost(readings), tightest }
+
+  return { costUsd: sumCost(readings), tightest, session }
 }
 
 // ─── O payload da statusLine ──────────────────────────────────────────────────

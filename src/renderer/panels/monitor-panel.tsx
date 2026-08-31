@@ -40,7 +40,7 @@ import { accountLabel } from '../claude-accounts'
 import { IconPlus, IconReload } from '../icons'
 import { store, useStore } from '../state/store'
 import { DEFAULT_INTERVAL, INTERVALS, useSystemStats } from '../state/use-system-stats'
-import { DANGER_PCT, Meter, pair } from './monitor-parts'
+import { DANGER_PCT, Donut, Meter, pair } from './monitor-parts'
 
 export type MonitorBlocks = 'pc' | 'ai' | 'accounts' | 'both'
 
@@ -582,42 +582,4 @@ function WindowDonut({
   )
 }
 
-/**
- * O anel de progresso. SVG inline pelo mesmo motivo do sparkline: são dois
- * círculos numa caixa de 14px, e uma biblioteca de gráfico custaria mais que o
- * widget inteiro.
- *
- * `pct` nulo desenha SÓ o trilho. Um anel de 0% e um anel sem leitura ficariam
- * idênticos na tela — e o painel inteiro se apoia em não confundir "não gastei"
- * com "não sei".
- */
-function Donut({ pct, stale }: { pct: number | null; stale: boolean }): JSX.Element {
-  const r = 5
-  const circumference = 2 * Math.PI * r
-  const filled = pct === null ? 0 : (Math.max(0, Math.min(100, pct)) / 100) * circumference
-  const cls = [
-    'monitor-donut',
-    pct !== null && pct >= DANGER_PCT ? 'is-danger' : '',
-    stale ? 'is-stale' : ''
-  ]
-    .filter(Boolean)
-    .join(' ')
 
-  return (
-    <svg className={cls} viewBox="0 0 14 14" width="13" height="13" aria-hidden="true">
-      <circle className="monitor-donut-track" cx="7" cy="7" r={r} />
-      {pct !== null && (
-        <circle
-          className="monitor-donut-fill"
-          cx="7"
-          cy="7"
-          r={r}
-          // Começa no topo, e não às 3 horas: um anel que enche a partir da
-          // direita não é lido como progresso.
-          transform="rotate(-90 7 7)"
-          strokeDasharray={`${filled.toFixed(2)} ${circumference.toFixed(2)}`}
-        />
-      )}
-    </svg>
-  )
-}

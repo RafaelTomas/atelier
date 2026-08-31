@@ -203,6 +203,12 @@
 }
 .monitor-window-name { font-variant-numeric: tabular-nums; }
 
+/* O anel é peça COMPARTILHADA — o painel mede as janelas de conta com ele e a
+   tira de borda mede CPU, memória e disco. Mora aqui pelo mesmo motivo que
+   `.monitor-spark`: as classes `.monitor-*` nasceram nesta folha e o CSS do
+   renderer é global, então quebrá-la em duas só espalharia a mesma paleta por
+   dois arquivos. A espessura é em unidades do viewBox (14), e é isso que faz o
+   anel engordar junto quando a tira o desenha maior. */
 .monitor-donut { flex-shrink: 0; }
 .monitor-donut-track { fill: none; stroke: var(--surface-2); stroke-width: 3; }
 .monitor-donut-fill { fill: none; stroke: var(--accent); stroke-width: 3; }
@@ -211,6 +217,27 @@
    resetou) mas não é de agora, e o anel esmaecido é o que diz isso sem gastar
    uma coluna de texto — o resto está no title da célula. */
 .monitor-donut.is-stale { opacity: .55; }
+
+/* O mesmo anel com o número no meio — a variante que a tira usa quando está em
+   pé (ver `Gauge` em monitor-parts.tsx). Mora aqui junto do `.monitor-donut`
+   porque é o MESMO desenho numa segunda escala, e separar as duas metades em
+   folhas diferentes faria a paleta do medidor existir em dois lugares.
+
+   A espessura é em unidades do viewBox 36, e por isso é maior em número que a
+   do donut sem ser mais grossa na tela. */
+.monitor-gauge { flex-shrink: 0; }
+.monitor-gauge-track { fill: none; stroke: var(--surface-2); stroke-width: 3; }
+.monitor-gauge-fill { fill: none; stroke: var(--accent); stroke-width: 3; }
+.monitor-gauge.is-danger .monitor-gauge-fill { stroke: var(--rope-error); }
+
+/* `currentColor` para o número seguir a cor de quem hospeda o medidor: na tira
+   ele é a leitura forte, e no vermelho de 90% ele acompanha o aro. */
+.monitor-gauge-text {
+  fill: currentColor;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.monitor-gauge.is-danger .monitor-gauge-text { fill: var(--rope-error); }
 
 .monitor-account-add { display: flex; gap: 4px; }
 .monitor-input {

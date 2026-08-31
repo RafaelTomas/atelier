@@ -5,14 +5,19 @@
    uma linha de leituras densa o bastante para caber numa borda e estável o
    bastante para não piscar.
 
-   ─── Largura fixa por métrica ───
+   ─── O número mora DENTRO do medidor ───
 
-   É a regra que sustenta a folha inteira. O número de uma métrica vai de `9%` a
-   `100%`, e sem largura reservada a célula encolhe e cresce a cada amostra: a
-   pílula reflui, o `translate` da ancoragem recalcula, e a tira TREME na borda
-   de dois em dois segundos — no canto do olho de quem está trabalhando, para
-   sempre. `tabular-nums` resolve a dança entre dígitos; a largura reservada
-   resolve a dança entre 2 e 4 caracteres. Precisa das duas.
+   Era a regra que sustentava a folha inteira: o número de uma métrica vai de
+   `9%` a `100%`, e sem largura reservada a célula encolhia e crescia a cada
+   amostra — a pílula refluía, o `translate` da ancoragem recalculava, e a tira
+   TREMIA na borda de dois em dois segundos, no canto do olho de quem está
+   trabalhando.
+
+   Com o percentual desenhado dentro do anel (ver `Gauge`), o problema deixa de
+   existir na raiz: o SVG tem tamanho fixo e o texto lá dentro não participa do
+   layout, então `9%` e `100%` ocupam exatamente o mesmo espaço. A pista fixa por
+   célula continua, mas por outro motivo — manter as siglas em coluna umas sob as
+   outras — e por isso pôde encolher de 82 para 62px.
 
    Nenhuma paleta nova: `--accent` e o `--rope-error` acima de 90%, os mesmos do
    painel — o limiar é compartilhado em código (DANGER_PCT), e a cor tinha de
@@ -45,30 +50,15 @@
   cursor: inherit;
 }
 
-/* Nas bordas verticais a tira empilha as métricas, como a rail empilha botões:
-   três células lado a lado numa coluna de 46px sairiam pela janela. */
-.pill[data-edge='left'] .monitor-dock-strip,
-.pill[data-edge='right'] .monitor-dock-strip {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-}
-
+/* Medidor e sigla. A pista fixa é o que mantém as siglas alinhadas entre as
+   células — ver o topo do arquivo para o que ela deixou de ser. */
 .monitor-dock-cell {
   display: flex;
   align-items: center;
-  gap: 4px;
-  /* A largura reservada, e o motivo de ela existir está no topo do arquivo.
-     Não é `min-width`: com `min-width` a célula ainda CRESCE quando o número
-     estica, e é o crescimento que faz a pílula reflui. */
-  width: 92px;
-  flex: 0 0 92px;
-  white-space: nowrap;
-}
-/* Sem o traço (o disco), a célula não precisa da mesma pista. */
-.monitor-dock-cell:not(:has(.monitor-spark)) {
+  gap: 5px;
   width: 62px;
-  flex-basis: 62px;
+  flex: 0 0 62px;
+  white-space: nowrap;
 }
 
 .monitor-dock-label {
@@ -78,17 +68,95 @@
   letter-spacing: .04em;
 }
 
-/* O número encosta à DIREITA da pista reservada: alinhado à esquerda, `9%` e
-   `100%` começariam no mesmo lugar mas terminariam em lugares diferentes, e a
-   coluna de percentuais deixaria de ser uma coluna. */
-.monitor-dock-pct {
-  margin-left: auto;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+/* Acima de 90% o aro já ficou vermelho; a sigla acompanha para a célula inteira
+   virar o alerta, em vez de um anel vermelho ao lado de um rótulo indiferente. */
+.monitor-dock-cell.is-danger .monitor-dock-label { color: var(--rope-error); }
+
+/* ─── A tira EM PÉ ────────────────────────────────────────────────────────────
+
+   Nas bordas verticais a tira empilha as métricas, como a rail empilha botões:
+   três células lado a lado numa coluna de 46px sairiam pela janela.
+
+   E cada célula empilha por dentro, em DUAS peças: o medidor com o número no
+   meio, e a sigla embaixo dele. Deitada, a célula é uma linha de 70px — numa
+   coluna isso obrigava a pílula a ser larga o bastante para o pior caso de
+   texto (`MEM 100%`), e o resultado era uma cápsula gorda com três linhas
+   curtas boiando dentro. Empilhar as mesmas três peças também não resolvia: aro
+   pequeno, sigla e percentual viravam três informações de 9px disputando uma
+   faixa de 44px. Com o número DENTRO do anel (ver `Gauge`), a leitura vira uma
+   peça só e a coluna afina até a largura da rail, que é a peça ao lado dela na
+   mesma borda. */
+
+.pill[data-edge='left'] .monitor-dock-strip,
+.pill[data-edge='right'] .monitor-dock-strip {
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 44px;
+}
+
+/* `flex: 0 0 70px` numa coluna reserva 70px de ALTURA, não de largura: o eixo
+   principal virou o vertical, e a pista pensada para o número de `100%` esticava
+   cada célula até a tira virar um oval de três alturas. Aqui a base sai do
+   caminho — a largura passa a ser a da coluna.
+
+   `color` porque o número dentro do medidor é desenhado em `currentColor`: em
+   pé ele é A leitura da célula, e não o texto de apoio que a cor do vidro
+   pinta por padrão. */
+.pill[data-edge='left'] .monitor-dock-cell,
+.pill[data-edge='right'] .monitor-dock-cell {
+  flex: none;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   color: var(--dock-fg-strong);
 }
 
-.monitor-dock-cell.is-danger .monitor-dock-pct { color: var(--rope-error); }
+/* O agregado de IA empilha junto: custo e janelas lado a lado numa coluna de
+   44px sairiam pela pílula, pelo mesmo motivo das métricas. */
+.pill[data-edge='left'] .monitor-dock-ai,
+.pill[data-edge='right'] .monitor-dock-ai {
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.pill[data-edge='left'] .monitor-dock-cost,
+.pill[data-edge='right'] .monitor-dock-cost {
+  min-width: 0;
+  text-align: center;
+  font-size: var(--fs-2xs);
+}
+
+/* A caixinha da janela segue a mesma forma da célula: medidor, nome embaixo e o
+   prazo por último. O prazo troca a divisória de lado junto — uma barra
+   vertical entre duas linhas empilhadas não separaria nada, do mesmo jeito que
+   o `.dock-sep` da dock gira ao mudar de borda. */
+.pill[data-edge='left'] .monitor-dock-window,
+.pill[data-edge='right'] .monitor-dock-window {
+  flex: none;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 0;
+  color: var(--dock-fg-strong);
+  font-size: var(--fs-2xs);
+}
+.pill[data-edge='left'] .monitor-dock-window-name,
+.pill[data-edge='right'] .monitor-dock-window-name {
+  width: auto;
+  color: var(--text-dim);
+}
+.pill[data-edge='left'] .monitor-dock-window-reset,
+.pill[data-edge='right'] .monitor-dock-window-reset {
+  width: auto;
+  padding: 2px 0 0;
+  border-left: 0;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
 
 /* ─── O agregado de IA ────────────────────────────────────────────────────────
    O custo somado e a janela mais apertada entre as contas. Separados das
@@ -123,21 +191,35 @@
   color: var(--accent);
 }
 
-/* A janela mais apertada — "5h 62%". O nome dela cabe em duas letras e o
-   percentual em quatro; reservar os dois evita o reflow quando a janela que
-   vence troca de 5h para 7d. */
+/* Uma janela de limite — o medidor com o percentual dentro, o nome da janela e
+   o prazo. O nome cabe em duas letras e o prazo em cinco; reservar as duas
+   pistas evita o reflow quando a janela troca de 5h para 7d e quando o prazo
+   desce de `1h05` para `59min`. */
 .monitor-dock-window {
   display: flex;
   align-items: center;
   gap: 4px;
-  min-width: 62px;
-  padding: 0 4px;
+  padding: 0 5px;
   border-radius: var(--r-sm);
   background: var(--surface-2);
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .monitor-dock-window.is-danger { color: var(--rope-error); }
+
+.monitor-dock-window-name { width: 16px; }
+
+/* Quanto falta para a janela reabrir. Esmaecido e depois de um traço vertical:
+   é o CONTEXTO do percentual, não uma segunda métrica de mesmo peso — quem
+   decide é o quanto já foi, e o prazo diz se dá para esperar. */
+.monitor-dock-window-reset {
+  width: 38px;
+  padding-left: 5px;
+  border-left: 1px solid var(--border);
+  color: var(--text-dim);
+  text-align: right;
+}
 
 /* ─── O popover com o painel inteiro ──────────────────────────────────────────
 

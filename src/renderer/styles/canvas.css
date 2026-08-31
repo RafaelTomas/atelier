@@ -342,10 +342,214 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   will-change: transform;
 }
 
-.rope { stroke-width: 2; stroke-linecap: round; }
-.rope-idle { stroke: var(--rope); stroke-dasharray: 5 4; }
-.rope-communicating { stroke: var(--rope-active); filter: drop-shadow(0 0 4px var(--rope-active)); }
-.rope-error { stroke: var(--rope-error); stroke-dasharray: 3 3; }
+/* `--rope-scale` é o multiplicador de espessura escolhido pelo usuário; ele
+   desce como estilo inline na camada das conexões. O fallback 1 é para os
+   traços que vivem FORA dela — as amostras do seletor, que não devem encolher
+   junto: elas identificam o desenho, não a espessura. */
+.rope {
+  fill: none;
+  stroke: var(--rope-state-color, var(--rope));
+}
+
+/* O estado escolhe a cor; o desenho abaixo escolhe espessura, acabamento e
+   ritmo. Manter essas duas responsabilidades separadas garante que os seis
+   desenhos continuem dizendo repouso, tráfego e erro com a mesma linguagem. */
+.rope-idle { --rope-state-color: var(--rope); }
+.rope-communicating { --rope-state-color: var(--rope-active); }
+.rope-error { --rope-state-color: var(--rope-error); animation: none; }
+
+/* Pontilhada: é deliberadamente o traçado ORIGINAL das conexões — 2px, pontas
+   redondas e o passo 5/4, intactos. Continua sendo o padrão, e é a única razão
+   de ela não poder mudar de cara: quem abre um workspace antigo tem de
+   encontrar a linha com que ele foi feito. */
+.rope-shape-dotted {
+  stroke-width: calc(2px * var(--rope-scale, 1));
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: calc(5px * var(--rope-scale, 1)) calc(4px * var(--rope-scale, 1));
+}
+.rope-shape-dotted.rope-communicating { animation: rope-march .5s linear infinite; }
+.rope-shape-dotted.rope-error { stroke-dasharray: calc(3px * var(--rope-scale, 1)) calc(3px * var(--rope-scale, 1)); }
+
+/* Sisal: a corda torcida. Os cinco traços do `ropeLayers` sobre a mesma corda,
+   e os dois últimos sobre a HÉLICE que o `ropeSpiralPath` gera — o gomo é
+   geometria, com ângulo medido contra a tangente, e não um tracejado.
+
+   A corda é CINZA. A cor entra pelo `--rope-state-color`, que só deixa de ser
+   neutro quando há tráfego ou erro: um cabo parado não tem por que gritar. Os
+   cinco acabamentos saem todos dessa mesma cor, clareando ou escurecendo, e é
+   isso que mantém a corda coerente nos três estados sem repintá-la. */
+.rope-shape-rope {
+  /* Espessura em número puro: o seletor encolhe a corda inteira mexendo aqui. */
+  --rope-w: calc(10 * var(--rope-scale, 1));
+  --rope-rim: color-mix(in srgb, var(--rope-state-color) 62%, #000);
+  --rope-body: var(--rope-state-color);
+  --rope-groove: color-mix(in srgb, var(--rope-state-color) 55%, #000);
+  --rope-sheen: color-mix(in srgb, var(--rope-state-color) 55%, #fff);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: none;
+}
+.rope-shape-rope.rope-layer-shadow {
+  stroke: rgb(0 0 0 / .28);
+  stroke-width: calc(var(--rope-w) * 1.06px);
+  /* Deslocamento e borrão em FRAÇÃO da espessura, como todo o resto: fixos em
+     px, eles não encolhiam com a corda e a amostra do seletor ganhava uma
+     sombra do tamanho dela mesma. */
+  transform: translate(calc(var(--rope-w) * .05px), calc(var(--rope-w) * .2px));
+  filter: blur(calc(var(--rope-w) * .15px));
+}
+/* A borda escura é o que dá volume: sem ela o corpo vira uma fita chapada. */
+.rope-shape-rope.rope-layer-core {
+  stroke: var(--rope-rim);
+  stroke-width: calc(var(--rope-w) * 1px);
+}
+/* O corpo é o VÃO, não o fio: fica escuro, e é ele que aparece entre um gomo e
+   o seguinte. Pintá-lo claro apagaria a torção — os fios sumiriam no fundo. */
+.rope-shape-rope.rope-layer-body {
+  stroke: var(--rope-groove);
+  stroke-width: calc(var(--rope-w) * .84px);
+}
+/* O fio: grosso, ponta redonda e na diagonal. Cada passo vira um gomo cheio,
+   como o da corda de verdade, e não um risco riscado por cima do corpo. */
+.rope-shape-rope.rope-layer-ribs {
+  stroke: var(--rope-body);
+  stroke-width: calc(var(--rope-w) * .46px);
+  stroke-linecap: round;
+}
+/* A luz que cada gomo pega em cima. Sobe uma fração da espessura porque a
+   iluminação do canvas vem de cima — é o par luz/vão que fecha o cilindro. */
+.rope-shape-rope.rope-layer-sheen {
+  stroke: var(--rope-sheen);
+  stroke-width: calc(var(--rope-w) * .15px);
+  stroke-linecap: round;
+  transform: translate(0, calc(var(--rope-w) * -.13px));
+  opacity: .5;
+}
+
+/* Tráfego: a corda inteira já vira `--rope-active` pelas quatro cores acima,
+   e o brilho respira por cima disso.
+
+   Sem `stroke-dasharray` aqui, e a razão é a geometria: a hélice é uma lista de
+   subtrajetos curtos, e o tracejado REINICIA em cada um. Um deslocamento
+   animado faria os gomos piscarem todos juntos, no mesmo compasso — o oposto
+   de torcer. Girar de verdade exigiria regerar a hélice com fase nova a cada
+   quadro, e a física dorme quando ninguém move um nó: a corda parada ficaria
+   parada de qualquer jeito. O brilho respirando diz tráfego sem mentir. */
+.rope-shape-rope.rope-communicating.rope-layer-sheen {
+  animation: rope-pulse 1s ease-in-out infinite;
+  opacity: .8;
+}
+
+/* Cabo físico: corpo grosso e brilho curto, como uma capa que pega luz. */
+.rope-shape-cable {
+  stroke-width: calc(4px * var(--rope-scale, 1));
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: none;
+  filter: drop-shadow(0 0 1px color-mix(in srgb, var(--rope-state-color) 68%, white));
+}
+
+/* Corrente: duas fileiras de elos alternados, deitado e de perfil, e cada elo é
+   um CONTORNO fechado. Sem preenchimento de propósito — é o cruzamento dos
+   contornos na sobreposição que diz "engatado". Preencher fecharia o furo e a
+   corrente viraria um cordão de contas, e engrossar demais o traço faz o mesmo
+   estrago: por isso ela é bem mais fina que o sisal. */
+.rope-shape-chain {
+  --chain-w: calc(7 * var(--rope-scale, 1));
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: none;
+}
+.rope-shape-chain.rope-layer-shadow {
+  stroke: rgb(0 0 0 / .22);
+  stroke-width: calc(var(--chain-w) * .5px);
+  transform: translate(calc(var(--chain-w) * .06px), calc(var(--chain-w) * .22px));
+  filter: blur(calc(var(--chain-w) * .17px));
+}
+/* Os de perfil ficam ATRÁS e um tom abaixo: é a diferença de brilho entre as
+   duas fileiras que faz a corrente alternar em profundidade em vez de virar
+   uma renda plana. */
+.rope-shape-chain.rope-layer-link-b {
+  stroke: color-mix(in srgb, var(--rope-state-color) 66%, #000);
+  stroke-width: calc(var(--chain-w) * .28px);
+}
+.rope-shape-chain.rope-layer-link-a {
+  stroke: var(--rope-state-color);
+  stroke-width: calc(var(--chain-w) * .28px);
+}
+.rope-shape-chain.rope-communicating.rope-layer-link-a {
+  animation: rope-pulse 1s ease-in-out infinite;
+}
+
+/* Trança: dois fios cruzando. Quem faz o trançado é a ORDEM dos traços no
+   `ropeLayers`; aqui só se decide espessura e quem é mais claro. O fio B fica
+   um tom abaixo do A para o par frente/fundo sobreviver ao instante do
+   cruzamento, quando as duas curvas encostam. */
+.rope-shape-braid {
+  --braid-w: calc(7 * var(--rope-scale, 1));
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: none;
+}
+.rope-shape-braid.rope-layer-shadow {
+  stroke: rgb(0 0 0 / .22);
+  stroke-width: calc(var(--braid-w) * .72px);
+  transform: translate(calc(var(--braid-w) * .06px), calc(var(--braid-w) * .22px));
+  filter: blur(calc(var(--braid-w) * .17px));
+}
+.rope-shape-braid.rope-layer-strand-a,
+.rope-shape-braid.rope-layer-strand-a-front {
+  stroke: var(--rope-state-color);
+  stroke-width: calc(var(--braid-w) * .34px);
+}
+.rope-shape-braid.rope-layer-strand-b {
+  stroke: color-mix(in srgb, var(--rope-state-color) 70%, #000);
+  stroke-width: calc(var(--braid-w) * .34px);
+}
+.rope-shape-braid.rope-communicating.rope-layer-strand-a-front {
+  animation: rope-pulse 1s ease-in-out infinite;
+}
+
+/* Trilha de placa: quinas secas e um pouco menos saturada nos estados normais. */
+.rope-shape-circuit {
+  stroke-width: calc(1.5px * var(--rope-scale, 1));
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+  stroke-dasharray: none;
+}
+.rope-shape-circuit:not(.rope-error) {
+  stroke: color-mix(in srgb, var(--rope-state-color) 72%, var(--text-dim));
+}
+
+/* Neon: o halo é contínuo e acompanha a cor sem esconder o núcleo do traço. */
+.rope-shape-neon {
+  stroke-width: calc(2.5px * var(--rope-scale, 1));
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: none;
+  filter:
+    drop-shadow(0 0 2px var(--rope-state-color))
+    drop-shadow(0 0 7px var(--rope-state-color));
+}
+
+/* Linha técnica: a presença mínima possível sem deixar de ser clicável pela
+   geometria de hit-test separada da camada visual. */
+.rope-shape-line {
+  stroke-width: calc(1px * var(--rope-scale, 1));
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
+  stroke-dasharray: none;
+}
+
+/* Nos desenhos sólidos, a respiração luminosa comunica tráfego sem transformar
+   o corpo em uma corrente tracejada. O erro corta toda animação. */
+.rope-shape-cable.rope-communicating,
+.rope-shape-circuit.rope-communicating,
+.rope-shape-neon.rope-communicating,
+.rope-shape-line.rope-communicating {
+  animation: rope-pulse 1s ease-in-out infinite;
+}
 
 /* Tesourinha do hover na corda — segue o cursor, não a corda (ela balança
    sozinha pela física). */
@@ -369,16 +573,69 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 .connection-preview { z-index: 40; }
 
 .rope-preview {
-  stroke: var(--accent);
-  stroke-dasharray: 6 5;
-  animation: rope-march .5s linear infinite;
+  --rope-state-color: var(--accent);
+  stroke: var(--rope-state-color);
 }
+.rope-preview.rope-shape-dotted { animation: rope-march .5s linear infinite; }
+.rope-preview:not(.rope-shape-dotted) { animation: rope-pulse 1s ease-in-out infinite; }
 /* Sobre um alvo que aceita o cabo: mais grosso e com brilho */
-.rope-preview[data-target='valid'] { stroke-width: 3; filter: drop-shadow(0 0 5px var(--accent)); }
+.rope-preview[data-target='valid'] { stroke-width: calc(3px * var(--rope-scale, 1)); filter: drop-shadow(0 0 5px var(--accent)); }
 /* Sobre um alvo que não aceita: para de marchar e fica vermelho */
-.rope-preview[data-target='invalid'] { stroke: var(--rope-error); animation: none; }
+.rope-preview[data-target='invalid'] {
+  --rope-state-color: var(--rope-error);
+  stroke: var(--rope-error);
+  animation: none;
+  filter: none;
+}
 
-@keyframes rope-march { to { stroke-dashoffset: -11; } }
+@keyframes rope-march { to { stroke-dashoffset: calc(-11px * var(--rope-scale, 1)); } }
+@keyframes rope-pulse {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rope-communicating,
+  .rope-preview { animation: none !important; }
+}
+
+/* Seletor de desenho: replica a ancoragem e a superfície do seletor de tema,
+   acrescentando apenas espaço para a amostra SVG. */
+.rope-picker { position: relative; display: flex; }
+.rope-menu {
+  position: absolute; top: calc(100% + 6px); right: 0;
+  min-width: 174px;
+}
+.rope-menu > button {
+  display: flex; align-items: center; gap: 7px; white-space: nowrap;
+}
+.rope-style-preview {
+  display: block; width: 28px; height: 14px; flex: none;
+  overflow: visible;
+}
+/* A corda de sisal tem 10px de corpo e a amostra tem 14px de altura: sem
+   encolher, ela cobriria o quadrinho inteiro. */
+.rope-style-preview .rope-shape-rope { --rope-w: 4.5; }
+.rope-style-preview .rope-shape-chain { --chain-w: 5; }
+.rope-style-preview .rope-shape-braid { --braid-w: 5; }
+.rope-style-check { width: 12px; flex: none; color: var(--accent); }
+
+/* Espessura: mora no MESMO menu do desenho porque as duas perguntas são a
+   mesma — "como a conexão deve parecer". Separada por um filete, que é o que
+   diz que ela vale para todos os desenhos, e não só para o marcado. */
+.rope-thickness {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 9px 5px;
+  margin-top: 3px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-xs); color: var(--text-dim);
+}
+.rope-thickness input { flex: 1; min-width: 84px; accent-color: var(--accent); }
+.rope-thickness output {
+  width: 30px; text-align: right;
+  font-variant-numeric: tabular-nums; color: var(--text);
+}
+.rope-picker-button-preview { width: 24px; height: 14px; }
 
 .node.is-connect-target {
   border-color: var(--accent);

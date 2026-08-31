@@ -15,6 +15,57 @@ export interface Point {
   y: number
 }
 
+/**
+ * Traçado usado para desenhar as conexões entre nós.
+ *
+ * A lista vive AQUI, e não em cada validador, porque três donos a leem — o
+ * decoder das preferências no main, o boot da store no renderer e o seletor.
+ * Escrita à mão em cada um deles, acrescentar um desenho falharia em silêncio:
+ * o id passaria num lugar e cairia no padrão no outro.
+ */
+export const ROPE_STYLE_IDS = [
+  'dotted',
+  'rope',
+  'chain',
+  'braid',
+  'cable',
+  'circuit',
+  'neon',
+  'line'
+] as const
+
+export type RopeStyleId = (typeof ROPE_STYLE_IDS)[number]
+
+export function isRopeStyleId(value: unknown): value is RopeStyleId {
+  return typeof value === 'string' && (ROPE_STYLE_IDS as readonly string[]).includes(value)
+}
+
+/**
+ * Espessura das conexões, como MULTIPLICADOR — não como px.
+ *
+ * Um fator, e não uma medida, porque os oito desenhos não têm a mesma
+ * espessura natural: a corrente precisa ser fina para o furo do elo não fechar,
+ * o sisal precisa de corpo para caber gomo e brilho. Um px só serviria a um
+ * deles. O fator preserva a proporção de cada um e ainda move JUNTO a coisa que
+ * mais quebra por aqui: os raios da geometria (elo, gomo, fio da trança) e as
+ * espessuras do CSS são casados, e escalá-los separadamente é o que fura a
+ * borda da corda e fecha o furo do elo.
+ */
+export const ROPE_THICKNESS_MIN = 0.5
+export const ROPE_THICKNESS_MAX = 2
+export const ROPE_THICKNESS_DEFAULT = 1
+
+/** Valor ausente, fora da faixa ou com lixo dentro cai no padrão. */
+export function clampRopeThickness(value: unknown): number {
+  // `null` e string vazia saem antes do `Number`, que os converteria em ZERO e
+  // devolveria a espessura mínima onde o certo é o padrão — chave apagada não é
+  // pedido de corda fina.
+  if (value === null || value === '') return ROPE_THICKNESS_DEFAULT
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return ROPE_THICKNESS_DEFAULT
+  return Math.min(Math.max(n, ROPE_THICKNESS_MIN), ROPE_THICKNESS_MAX)
+}
+
 export interface Rect {
   x: number
   y: number
@@ -1166,6 +1217,14 @@ export interface Preferences {
   fontSize: number
   fontFamily: string
   theme: string
+  /**
+   * Chave DESTE binário: o app nativo Swift não a conhece e um save de lá
+   * a apaga. Perder a chave devolve `dotted`, o traçado histórico das conexões
+   * — e não `rope`, que hoje é a corda torcida.
+   */
+  ropeStyle: string
+  /** Multiplicador da espessura das conexões. Mesma ressalva do `ropeStyle`. */
+  ropeThickness: number
   /**
    * Campo MORTO desde que a sidebar virou o rail em cascata: nada no renderer
    * lê nem escreve. Fica no tipo porque `preferences.json` é compartilhado com

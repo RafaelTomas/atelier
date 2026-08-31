@@ -12,7 +12,10 @@ import {
   MONITOR_PLACEMENT_DEFAULT,
   PORTAL_POPUP_MODES,
   RAIL_PLACEMENT_DEFAULT,
+  ROPE_THICKNESS_DEFAULT,
+  clampRopeThickness,
   formatPlacement,
+  isRopeStyleId,
   parsePlacement
 } from '@shared/types'
 import { asRecord, bool, decodeDate, decodeOptionalDate, normalizeUUID, num, str } from '../coding'
@@ -116,6 +119,8 @@ export function makePreferences(): Preferences {
     fontSize: 13,
     fontFamily: 'system',
     theme: 'system',
+    ropeStyle: 'dotted',
+    ropeThickness: ROPE_THICKNESS_DEFAULT,
     sidebarCollapsed: false,
     sidebarWidth: 220,
     autoScanOnLaunch: true,
@@ -148,6 +153,10 @@ export function decodePreferences(value: unknown): Preferences {
     fontSize: num(o.fontSize, base.fontSize),
     fontFamily: str(o.fontFamily, base.fontFamily),
     theme: str(o.theme, base.theme),
+    // Chave ausente (inclusive depois de um save do app nativo) ou desconhecida
+    // volta ao traçado histórico; nunca propagamos um id sem implementação.
+    ropeStyle: isRopeStyleId(o.ropeStyle) ? o.ropeStyle : base.ropeStyle,
+    ropeThickness: clampRopeThickness(o.ropeThickness),
     sidebarCollapsed: bool(o.sidebarCollapsed, base.sidebarCollapsed),
     // Ausente em preferences.json escrito antes do painel redimensionável
     sidebarWidth: num(o.sidebarWidth, base.sidebarWidth),

@@ -24,6 +24,7 @@ import type {
   Preferences,
   Project,
   Rect,
+  RopeStyleId,
   StoredAccountUsage,
   TerminalDraft,
   UUID,
@@ -37,7 +38,9 @@ import {
   DOCK_PLACEMENT_DEFAULT,
   MONITOR_PLACEMENT_DEFAULT,
   RAIL_PLACEMENT_DEFAULT,
+  clampRopeThickness,
   formatPlacement,
+  isRopeStyleId,
   parsePlacement,
   readButtonConfig,
   writeButtonConfig
@@ -164,6 +167,10 @@ export interface AppSnapshot {
   railRequest: RailRequest | null
   /** Tema escolhido — espelha preferences.theme. */
   theme: ThemeMode
+  /** Traçado das conexões — espelha preferences.ropeStyle. */
+  ropeStyle: RopeStyleId
+  /** Multiplicador da espessura das conexões — espelha preferences.ropeThickness. */
+  ropeThickness: number
   /** Ferramenta ativa (caneta, marca-texto, borracha ou seleção). */
   tool: Tool
   pen: PenSettings
@@ -336,6 +343,8 @@ const initial: AppSnapshot = {
   placing: null,
   railRequest: null,
   theme: 'system',
+  ropeStyle: 'dotted',
+  ropeThickness: 1,
   tool: 'select',
   pen: { color: '#e0245e', lineWidth: 3 },
   roles: [],
@@ -485,6 +494,7 @@ class Store {
       const workspace = id ? await window.atelier.workspace.open(id) : null
       const integrity = id ? await window.atelier.workspace.integrity(id) : null
       const theme = isThemeMode(prefs.theme) ? prefs.theme : 'system'
+      const ropeStyle: RopeStyleId = isRopeStyleId(prefs.ropeStyle) ? prefs.ropeStyle : 'dotted'
       applyTheme(theme)
       this.resetHistory()
       this.set({
@@ -498,6 +508,8 @@ class Store {
         prefs,
         projects,
         theme,
+        ropeStyle,
+        ropeThickness: clampRopeThickness(prefs.ropeThickness),
         // A posição das pílulas é derivada de `prefs`, e sai da string uma vez
         // aqui em vez de a cada render das duas peças.
         dockPlacement: parsePlacement(prefs.dockPlacement, DOCK_PLACEMENT_DEFAULT),
@@ -2067,6 +2079,31 @@ class Store {
     this.set({ theme })
     this.mirrorPrefs({ theme })
     void window.atelier.prefs.set({ theme })
+  }
+
+  setRopeStyle(id: RopeStyleId): void {
+    this.set({ ropeStyle: id })
+    this.mirrorPrefs({ ropeStyle: id })
+    void window.atelier.prefs.set({ ropeStyle: id })
+  }
+
+  /**
+   * Espessura ao vivo, enquanto o controle está sendo arrastado. NÃO grava.
+   *
+   * Mesma divisão de `setRailWidth` e `setPillPlacement`: gravar durante o
+   * gesto escreveria `preferences.json` a cada pixel do controle por um valor
+   * do qual só o último importa. Quem grava é o `commitRopeThickness`, uma vez,
+   * quando o gesto acaba.
+   */
+  previewRopeThickness(value: number): void {
+    this.set({ ropeThickness: clampRopeThickness(value) })
+  }
+
+  /** Fecha o gesto: espelha e grava a espessura que ficou na tela. */
+  commitRopeThickness(): void {
+    const ropeThickness = this.state.ropeThickness
+    this.mirrorPrefs({ ropeThickness })
+    void window.atelier.prefs.set({ ropeThickness })
   }
 
   /** Espelho local de preferences.json — sem isto `prefs` envelhece na store. */

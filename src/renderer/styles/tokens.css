@@ -145,12 +145,35 @@
      duas nesta borda?" sem ler o DOM. */
   --pill-pad: 18px;
 
-  /* Faixa reservada no TOPO para as pílulas flutuantes. O chip do workspace e
-     os controles de vista ocupam `top: 10px` com 28px de altura, e no macOS os
-     semáforos ficam na mesma linha; uma dock em `top: 18px` assentava em cima
-     deles. 10 do inset + 28 da altura + 10 de ar. Espelha EDGE_PAD_TOP em
+  /* A LINHA DO TOPO. O chip do workspace, as pílulas horizontais e os controles
+     de vista dividem uma faixa só, todos ancorados neste inset: a dock deixou
+     de assentar numa segunda fileira abaixo do chip. Quem impede a sobreposição
+     não é mais uma altura reservada, e sim a pista do topo, que começa depois
+     do chip e termina antes dos controles (ver --pill-track-start/end). */
+  --pill-inset-top: 10px;
+
+  /* Altura dessa faixa: a da pílula horizontal (34 do botão + 2×7 de padding +
+     2 de borda). O chip e os controles são mais baixos e se CENTRAM nela, senão
+     "mesma linha" viraria três topos alinhados e três centros diferentes. */
+  --pill-row-h: 50px;
+
+  /* Faixa reservada no topo para as pílulas VERTICAIS: uma rail em `offset: 0`
+     encosta no mesmo canto que a linha do topo ocupa. Inset + altura da linha +
+     ar. Espelha EDGE_PAD_TOP em shared/placement.ts. */
+  --pill-safe-top: 70px;
+
+  /* Espaço mínimo entre duas peças que dividem uma borda. Espelha PILL_GAP em
      shared/placement.ts. */
-  --pill-safe-top: 48px;
+  --pill-gap: 12px;
+
+  /* Onde a linha do topo termina de cada lado, em px a partir da borda da
+     janela — o chip à esquerda e os controles de vista à direita, JÁ com o
+     respiro somado. Medidos no DOM e escritos aqui por use-chrome-band.ts: o
+     nome do workspace e os controles mudam de largura, e uma reserva fixa ou
+     cobriria o chip ou desperdiçaria pista. O 0 é o valor antes da primeira
+     medida — o `max()` da pista devolve a folga comum enquanto isso. */
+  --chrome-left-end: 0px;
+  --chrome-right-end: 0px;
 
   /* Geometria do canto do canvas, hoje só do minimapa. A altura vem daqui e
      não do <canvas> de dentro: assim mudar o tamanho do mapa não desalinha

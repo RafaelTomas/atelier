@@ -5,8 +5,19 @@
    46px da janela inteira para mostrar um nome e três botões; agora cada peça
    fica no canto onde é procurada e o meio da tela é todo do trabalho. */
 
+/* Primeira peça da LINHA DO TOPO, que ele divide com as pílulas horizontais e
+   com os controles de vista. `height` + `align-items: center` porque o chip tem
+   28px e a pílula 50: alinhar os TOPOS deixaria os centros em alturas
+   diferentes, que é justamente o que faz duas peças parecerem fileiras
+   distintas. O `left` é a mesma folga por onde a pista das pílulas começa. */
 .canvas-chip-row {
-  position: absolute; top: 10px; left: 10px; z-index: 100;
+  position: absolute;
+  top: var(--pill-inset-top); z-index: 100;
+  /* No macOS os semáforos flutuam sobre a página nesta mesma linha; fora dele
+     o token vale 0 e sobra a folga comum, que é por onde a pista das pílulas
+     também começa. */
+  left: max(var(--pill-pad), var(--window-controls-width));
+  height: var(--pill-row-h);
   display: flex; align-items: center; gap: 6px;
   max-width: calc(100% - 320px);
 }
@@ -42,8 +53,11 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   box-shadow: 0 12px 32px rgb(0 0 0 / .26);
 }
 
+/* A outra ponta da mesma linha — ver .canvas-chip-row para o porquê da altura. */
 .view-controls {
-  position: absolute; top: 10px; right: 10px; z-index: 100;
+  position: absolute;
+  top: var(--pill-inset-top); right: var(--pill-pad); z-index: 100;
+  height: var(--pill-row-h);
   display: flex; align-items: center; gap: 6px;
 }
  /* O grupo do Git não ganha cápsula: a pílula dele já tem borda própria, e

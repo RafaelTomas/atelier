@@ -11,6 +11,7 @@
  */
 import { useEffect, useState } from 'react'
 import { dialToZoom, nodesBounds, viewport, zoomToDial } from './canvas/viewport'
+import { useTopChromeBand } from './floating/chrome-band'
 import { store, useStore } from './state/store'
 import { WorkspaceChip } from './workspace-chip'
 import type { CanvasNode } from '@shared/types'
@@ -25,6 +26,11 @@ const THEMES: { id: ThemeMode; icon: string; label: string }[] = [
 export function CanvasChrome(): JSX.Element {
   const { workspace, connectingFrom, placing, notice, theme } = useStore()
   const [themeMenu, setThemeMenu] = useState(false)
+
+  // O chip e os controles de vista dividem a linha do topo com as pílulas
+  // horizontais; é daqui que sai a medida de onde essa linha acaba de cada
+  // lado, para que a dock comece depois dela. Ver floating/chrome-band.ts.
+  useTopChromeBand()
 
   useEffect(() => {
     if (!themeMenu) return

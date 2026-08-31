@@ -73,6 +73,13 @@
 .pill[data-edge='bottom'] {
   flex-direction: row;
   padding: 7px 10px;
+  /* A altura da FAIXA, não a do conteúdo: no topo o chip e os controles de
+     vista se centram nesta mesma medida, e uma pílula mais baixa que a outra
+     (a tira do monitor é só texto, a dock tem botões de 34px) desmancharia a
+     linha justamente onde ela é o ponto. `border-box` porque o 50 já conta o
+     padding e a borda. */
+  box-sizing: border-box;
+  min-height: var(--pill-row-h);
 }
 
 .pill[data-edge='left'],
@@ -108,14 +115,39 @@
 .pill[data-edge='right'] { right: 10px; }
 
 /* O topo é a única borda que já tem dono: o chip do workspace de um lado e os
-   controles de vista do outro, ambos em `top: 10px`. A pílula assenta ABAIXO
-   deles em vez de dividir a faixa — cobrir o nome do workspace e o botão de
-   salvar não é um lugar legítimo para uma barra de ferramentas. */
-.pill[data-edge='top'] { top: var(--pill-safe-top); }
+   controles de vista do outro. A pílula assenta na MESMA linha que eles, e não
+   numa segunda fileira abaixo. O que impede a sobreposição não é mais uma
+   altura reservada: é a PISTA do topo (logo abaixo), que começa depois do chip
+   e termina antes dos controles — cobrir o nome do workspace ou o zoom continua
+   não sendo um lugar legítimo para uma barra de ferramentas. */
+.pill[data-edge='top'] { top: var(--pill-inset-top); }
+
+/* A pista ao longo de uma borda horizontal, em px a partir de cada ponta.
+   Padrão: a folga comum dos dois lados — é o caso da base, onde não há nada
+   para desviar. */
+.pill,
+.rail-cascade {
+  --pill-track-start: var(--pill-pad);
+  --pill-track-end: var(--pill-pad);
+}
+
+/* No topo a pista encolhe até depois do chip e até antes dos controles. O
+   `max()` é o que mantém a folga comum enquanto as medidas não chegaram (as
+   vars nascem em 0) e nas janelas em que a peça de chrome é mais estreita que
+   a própria folga. A cascata da rail entra na mesma regra: ela segue a pílula
+   pela mesma conta, e ficaria fora de fase se a pista dela fosse outra. */
+.pill[data-edge='top'],
+.rail-cascade[data-edge='top'] {
+  --pill-track-start: max(var(--pill-pad), var(--chrome-left-end));
+  --pill-track-end: max(var(--pill-pad), var(--chrome-right-end));
+}
 
 .pill[data-edge='top'],
 .pill[data-edge='bottom'] {
-  left: calc(var(--pill-pad) + var(--pill-offset) * (100% - 2 * var(--pill-pad)));
+  left: calc(
+    var(--pill-track-start) + var(--pill-offset) *
+      (100% - var(--pill-track-start) - var(--pill-track-end))
+  );
   transform: translateX(calc(var(--pill-offset) * -100%));
 }
 

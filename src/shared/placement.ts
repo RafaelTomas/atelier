@@ -20,29 +20,56 @@ import { clampOffset, isVerticalEdge } from './types'
 export const EDGE_PAD = 18
 
 /**
- * Faixa reservada no TOPO da janela, em px.
+ * Faixa reservada no TOPO da janela para as pílulas VERTICAIS, em px.
  *
  * O topo não é uma borda vazia como as outras: o chip do workspace mora no
- * canto esquerdo dele e os controles de vista (zoom, tema, Salvar) no direito,
- * os dois em `top: 10px` com 28px de altura — e no macOS os semáforos da janela
- * ficam na mesma faixa. Uma pílula em `top: 18px` cai exatamente em cima
- * disso, e uma barra de ferramentas que cobre o nome do workspace e o botão de
- * salvar é pior do que uma que não chega lá.
+ * canto esquerdo dele, os controles de vista (zoom, tema, Salvar) no direito, e
+ * no macOS os semáforos da janela ficam na mesma faixa. A borda de cima divide
+ * essa LINHA com eles e desvia na horizontal (ver `EdgeReserve`); uma pílula
+ * vertical não tem como desviar, então ela COMEÇA abaixo da linha inteira.
  *
- * Vale para a borda de cima (é o afastamento dela) e para o COMEÇO das bordas
- * laterais (uma pílula vertical em `offset: 0` encosta no mesmo canto). As
- * outras três pontas continuam em `EDGE_PAD`: não há nada para desviar lá.
+ * Vale só para o começo das bordas laterais. As outras três pontas continuam em
+ * `EDGE_PAD`: não há nada para desviar lá.
  *
- * ESPELHA `--pill-safe-top` em tokens.css — 10 do inset, 28 da altura, 10 de ar.
+ * ESPELHA `--pill-safe-top` em tokens.css — 10 do inset, 50 da linha, 10 de ar.
  */
-export const EDGE_PAD_TOP = 48
+export const EDGE_PAD_TOP = 70
+
+/**
+ * O chrome que já ocupa as PONTAS de uma borda, em px a partir de cada ponta —
+ * hoje só o topo tem: o chip do workspace no começo e os controles de vista no
+ * fim, com o respiro já somado.
+ *
+ * Vem de FORA porque é medido: o nome do workspace e os controles mudam de
+ * largura, e uma constante ou cobriria o chip de um workspace de nome longo ou
+ * desperdiçaria pista no de nome curto. Quem mede é o renderer
+ * (`floating/chrome-band.ts`), que escreve os mesmos números nas CSS vars
+ * `--chrome-left-end` / `--chrome-right-end` — as contas daqui e as do CSS
+ * PRECISAM dar no mesmo pixel, senão o empurrão calculado aqui não bate com a
+ * posição desenhada lá.
+ *
+ * Vazio (o padrão) = borda sem dono, que é o caso das outras três.
+ */
+export interface EdgeReserve {
+  /** Fim do chrome no começo da borda, medido a partir do começo dela. */
+  start?: number
+  /** Começo do chrome no fim da borda, medido a partir do fim dela. */
+  end?: number
+}
 
 /**
  * A folga do COMEÇO da borda: a faixa reservada nas verticais (onde o começo é
- * o topo da janela), a folga comum nas horizontais.
+ * o topo da janela), a folga comum nas horizontais — e nunca menos do que o
+ * chrome que já está lá. O `max` espelha o `max()` da pista em floating.css.
  */
-export function padStart(edge: PlacementEdge): number {
-  return isVerticalEdge(edge) ? EDGE_PAD_TOP : EDGE_PAD
+export function padStart(edge: PlacementEdge, reserve: EdgeReserve = {}): number {
+  const base = isVerticalEdge(edge) ? EDGE_PAD_TOP : EDGE_PAD
+  return Math.max(base, reserve.start ?? 0)
+}
+
+/** O espelho: a folga do FIM da borda. */
+export function padEnd(edge: PlacementEdge, reserve: EdgeReserve = {}): number {
+  return Math.max(EDGE_PAD, reserve.end ?? 0)
 }
 
 /**
@@ -127,8 +154,8 @@ export function placementFor(x: number, y: number, vp: Viewport): Placement | nu
  *
  * Reproduz exatamente o que o CSS faz (`floating.css`, bloco de ancoragem): o
  * inset anda pela pista e o `translate` desconta a MESMA fração do tamanho
- * próprio. O efeito é que a fração 0 encosta no começo, a 1 no fim, e a pista
- * do começo tem comprimento `total - 2*EDGE_PAD - length`.
+ * próprio. O efeito é que a fração 0 encosta no começo da pista, a 1 no fim, e o
+ * curso tem comprimento `total - padStart - padEnd - length`.
  *
  * Está aqui, e não só no CSS, porque é impossível decidir se duas pílulas se
  * cruzam sem saber onde cada uma começa e termina.
@@ -137,10 +164,12 @@ export function spanStart(
   offset: number,
   length: number,
   total: number,
-  edge: PlacementEdge
+  edge: PlacementEdge,
+  reserve: EdgeReserve = {}
 ): number {
-  const from = padStart(edge)
-  return from + clampOffset(offset) * Math.max(0, total - from - EDGE_PAD - length)
+  const from = padStart(edge, reserve)
+  const to = padEnd(edge, reserve)
+  return from + clampOffset(offset) * Math.max(0, total - from - to - length)
 }
 
 /** O caminho de volta: um começo em px vira a fração que o CSS entende. */
@@ -148,10 +177,11 @@ export function offsetForStart(
   start: number,
   length: number,
   total: number,
-  edge: PlacementEdge
+  edge: PlacementEdge,
+  reserve: EdgeReserve = {}
 ): number {
-  const from = padStart(edge)
-  const track = total - from - EDGE_PAD - length
+  const from = padStart(edge, reserve)
+  const track = total - from - padEnd(edge, reserve) - length
   if (track <= 0) return 0
   return clampOffset((start - from) / track)
 }
@@ -192,17 +222,19 @@ export function fitAlongEdge(
   moved: PillSpan,
   other: PillSpan,
   total: number,
-  edge: PlacementEdge
+  edge: PlacementEdge,
+  reserve: EdgeReserve = {}
 ): EdgeFit {
-  const from = padStart(edge)
+  const from = padStart(edge, reserve)
+  const to = padEnd(edge, reserve)
 
   // Nem as duas juntas cabem: nenhuma posição resolve, e insistir só produziria
   // uma delas espremida contra a ponta por cima da outra.
-  if (moved.length + other.length + PILL_GAP > total - from - EDGE_PAD) return { kind: 'swap' }
+  if (moved.length + other.length + PILL_GAP > total - from - to) return { kind: 'swap' }
 
-  const a0 = spanStart(moved.offset, moved.length, total, edge)
+  const a0 = spanStart(moved.offset, moved.length, total, edge, reserve)
   const a1 = a0 + moved.length
-  const b0 = spanStart(other.offset, other.length, total, edge)
+  const b0 = spanStart(other.offset, other.length, total, edge, reserve)
   const b1 = b0 + other.length
 
   // Já há folga entre as duas: mexer em qualquer uma seria mexer no que o
@@ -212,7 +244,7 @@ export function fitAlongEdge(
   const before = a0 - PILL_GAP - other.length
   const after = a1 + PILL_GAP
   const fitsBefore = before >= from
-  const fitsAfter = after + other.length <= total - EDGE_PAD
+  const fitsAfter = after + other.length <= total - to
 
   // A arrastada pode ter parado no meio sem deixar vão de nenhum lado — uma
   // pílula larga contra uma borda curta. A troca de bordas é a saída.
@@ -229,7 +261,7 @@ export function fitAlongEdge(
         ? before
         : after
 
-  return { kind: 'push', offset: offsetForStart(start, other.length, total, edge) }
+  return { kind: 'push', offset: offsetForStart(start, other.length, total, edge, reserve) }
 }
 
 /**
@@ -255,7 +287,8 @@ export function fitAmong(
   moved: PillSpan,
   others: PillSpan[],
   total: number,
-  edge: PlacementEdge
+  edge: PlacementEdge,
+  reserve: EdgeReserve = {}
 ): EdgeFit[] {
   // Quem já tem lugar garantido nesta borda. A arrastada abre a lista.
   const fixed: PillSpan[] = [moved]
@@ -271,7 +304,7 @@ export function fitAmong(
     for (let pass = 0; pass < fixed.length; pass++) {
       let moveu = false
       for (const f of fixed) {
-        const fit = fitAlongEdge(f, cur, total, edge)
+        const fit = fitAlongEdge(f, cur, total, edge, reserve)
         if (fit.kind === 'ok') continue
         if (fit.kind === 'swap') {
           verdict = { kind: 'swap' }
@@ -290,7 +323,7 @@ export function fitAmong(
     // o único estado de fato quebrado.
     if (
       verdict.kind !== 'swap' &&
-      fixed.some((f) => fitAlongEdge(f, cur, total, edge).kind !== 'ok')
+      fixed.some((f) => fitAlongEdge(f, cur, total, edge, reserve).kind !== 'ok')
     ) {
       verdict = { kind: 'swap' }
     }

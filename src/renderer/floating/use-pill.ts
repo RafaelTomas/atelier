@@ -21,6 +21,7 @@ import {
   isVerticalEdge
 } from '@shared/types'
 import { fitAmong, resolveCollision } from '@shared/placement'
+import { reserveFor } from './chrome-band'
 import { store, useStore } from '../state/store'
 import { usePlacementDrag } from './use-placement'
 
@@ -152,7 +153,11 @@ export function usePill(id: PillId): Pill {
       { offset: placement.offset, length: mine },
       rivals.map((r) => ({ offset: r.placement.offset, length: r.length })),
       total,
-      placement.edge
+      placement.edge,
+      // No topo a pista é mais curta do que a borda: o chip e os controles de
+      // vista ficam na mesma linha. Sem esta reserva a conta ofereceria à irmã
+      // um vão que o CSS não desenha, e ela pousaria por cima do zoom.
+      reserveFor(placement.edge)
     )
 
     rivals.forEach((rival, i) => {

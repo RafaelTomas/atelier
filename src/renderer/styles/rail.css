@@ -87,13 +87,19 @@
    colunas passam a dividir a LARGURA da janela em vez da altura. */
 .rail-cascade[data-edge='top'],
 .rail-cascade[data-edge='bottom'] {
-  left: calc(var(--pill-pad) + var(--pill-offset) * (100% - 2 * var(--pill-pad)));
+  left: calc(
+    var(--pill-track-start) + var(--pill-offset) *
+      (100% - var(--pill-track-start) - var(--pill-track-end))
+  );
   transform: translateX(calc(var(--pill-offset) * -100%));
   max-height: min(70vh, calc(100% - 100px));
 }
-/* 44px abaixo do topo da pílula — a altura dela mais o respiro. Era 62px fixo,
-   que somava a mesma folga a um `top: 18px` que a borda de cima não usa mais. */
-.rail-cascade[data-edge='top'] { top: calc(var(--pill-safe-top) + 44px); }
+/* Logo abaixo da linha do topo: o inset mais a altura da faixa mais o respiro.
+   Era um 62px fixo, e depois `--pill-safe-top + 44px` — os dois somavam a folga
+   a um afastamento que a borda de cima não usa mais. */
+.rail-cascade[data-edge='top'] {
+  top: calc(var(--pill-inset-top) + var(--pill-row-h) + 10px);
+}
 .rail-cascade[data-edge='bottom'] { bottom: 62px; }
 
 .rail-col {

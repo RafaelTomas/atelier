@@ -32,6 +32,7 @@ await esbuild.build({
         fitAmong,
         offsetFor,
         offsetForStart,
+        padEnd,
         padStart,
         spanStart,
         placementFor,
@@ -70,6 +71,7 @@ const {
   fitAmong,
   offsetFor,
   offsetForStart,
+  padEnd,
   padStart,
   spanStart,
   placementFor,
@@ -575,18 +577,20 @@ test('numa vertical, as três respeitam a faixa reservada do topo', () => {
 // ─── Colisão dock/rail ────────────────────────────────────────────────────────
 
 test('EDGE_PAD, EDGE_PAD_TOP e PILL_GAP são os números que o CSS também usa', () => {
-  // Espelham --pill-pad e --pill-safe-top em tokens.css. Mudar um sem o outro
-  // desalinha a conta de encaixe da tela em silêncio.
+  // Espelham --pill-pad, --pill-safe-top e --pill-gap em tokens.css. Mudar um
+  // sem o outro desalinha a conta de encaixe da tela em silêncio. O 70 é a
+  // linha do topo inteira: 10 do inset + 50 da altura da pílula + 10 de ar.
   assert.equal(EDGE_PAD, 18)
-  assert.equal(EDGE_PAD_TOP, 48)
+  assert.equal(EDGE_PAD_TOP, 70)
   assert.equal(PILL_GAP, 12)
 })
 
-// ─── A faixa reservada do topo ────────────────────────────────────────────────
+// ─── A linha do topo ──────────────────────────────────────────────────────────
 //
 // O topo da janela já tem dono: o chip do workspace à esquerda e os controles de
-// vista à direita, em `top: 10px` com 28px de altura (e os semáforos do macOS na
-// mesma linha). Uma pílula que assenta em 18px cobre os dois.
+// vista à direita (e os semáforos do macOS na mesma linha). A borda de cima
+// DIVIDE essa linha com eles e desvia na horizontal, pela reserva; as verticais
+// não têm como desviar e começam abaixo da linha inteira.
 
 test('o começo das bordas VERTICAIS desvia da faixa do topo', () => {
   // Uma rail em offset 0 encosta no mesmo canto que o chip do workspace.
@@ -597,11 +601,48 @@ test('o começo das bordas VERTICAIS desvia da faixa do topo', () => {
 })
 
 test('as bordas HORIZONTAIS mantêm a folga comum nas duas pontas', () => {
-  // Nelas a pílula desvia pelo outro eixo (o `top` da borda de cima), e apertar
-  // o percurso encurtaria o alcance sem resolver nada.
+  // Sem reserva medida (a base, ou o topo antes da primeira medida) elas caem
+  // na folga comum dos dois lados.
   assert.equal(padStart('top'), EDGE_PAD)
   assert.equal(padStart('bottom'), EDGE_PAD)
+  assert.equal(padEnd('top'), EDGE_PAD)
   assert.equal(spanStart(0, DOCK, 1200, 'top'), EDGE_PAD)
+})
+
+test('a reserva do topo encurta a pista pelas DUAS pontas', () => {
+  // O chip acaba em 120 e os controles começam a 260 do fim — os números que
+  // chrome-band.ts mede e escreve nas CSS vars. A pista vai de 120 a 940.
+  const r = { start: 120, end: 260 }
+  assert.equal(padStart('top', r), 120)
+  assert.equal(padEnd('top', r), 260)
+  assert.equal(spanStart(0, DOCK, 1200, 'top', r), 120)
+  assert.equal(spanStart(1, DOCK, 1200, 'top', r), 1200 - 260 - DOCK)
+
+  // Menor que a folga comum não vale como reserva: o `max()` da pista em
+  // floating.css faz a mesma conta, e as duas PRECISAM dar no mesmo pixel.
+  assert.equal(padStart('top', { start: 5 }), EDGE_PAD)
+  assert.equal(padEnd('top', { end: 5 }), EDGE_PAD)
+})
+
+test('o round-trip e o encaixe do topo enxergam a mesma pista', () => {
+  const r = { start: 120, end: 260 }
+  for (const o of [0, 0.25, 0.5, 1]) {
+    const back = offsetForStart(spanStart(o, DOCK, 1200, 'top', r), DOCK, 1200, 'top', r)
+    assert.ok(Math.abs(back - o) < 1e-9, `${o} não fechou o círculo`)
+  }
+
+  // A irmã empurrada não pode pousar em cima do chip nem dos controles.
+  const fits = fitAmong(
+    { offset: 0.5, length: DOCK },
+    [{ offset: 0.5, length: RAIL }],
+    1200,
+    'top',
+    r
+  )
+  assert.equal(fits[0].kind, 'push')
+  const start = spanStart(fits[0].offset, RAIL, 1200, 'top', r)
+  assert.ok(start >= 120 - 1e-9, `entrou na faixa do chip: ${start}`)
+  assert.ok(start + RAIL <= 1200 - 260 + 1e-9, `entrou na faixa dos controles: ${start}`)
 })
 
 test('o FIM das verticais continua na folga comum — embaixo não há nada', () => {

@@ -630,7 +630,11 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   position: absolute; top: calc(100% + 6px); right: 0;
   min-width: 174px;
 }
-.rope-menu > button {
+/* `.context-menu.rope-menu` e não só `.rope-menu`: dialogs.css é importado
+   DEPOIS deste arquivo e lá `.context-menu > button` é `display: block`. Com a
+   mesma especificidade, quem vem por último ganha — e o item virava três
+   linhas empilhadas (✓, amostra, rótulo). A classe a mais desempata. */
+.context-menu.rope-menu > button {
   display: flex; align-items: center; gap: 7px; white-space: nowrap;
 }
 .rope-style-preview {
@@ -642,7 +646,9 @@ button.canvas-chip:hover { background: var(--dock-hover); }
 .rope-style-preview .rope-shape-rope { --rope-w: 4.5; }
 .rope-style-preview .rope-shape-chain { --chain-w: 5; }
 .rope-style-preview .rope-shape-braid { --braid-w: 5; }
-.rope-style-check { width: 12px; flex: none; color: var(--accent); }
+/* O ✓ fecha a linha à direita: o olho corre a coluna de rótulos e só depois
+   confere a marca, em vez de pular a marca antes de cada nome. */
+.rope-style-check { width: 12px; flex: none; margin-left: auto; text-align: right; color: var(--accent); }
 
 /* Espessura: mora no MESMO menu do desenho porque as duas perguntas são a
    mesma — "como a conexão deve parecer". Separada por um filete, que é o que

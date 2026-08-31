@@ -91,9 +91,18 @@
   position: absolute; top: calc(100% + 6px); right: 0;
   min-width: 140px;
 }
-.theme-menu button { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+/* `.context-menu.theme-menu > button` e não `.theme-menu button`: este último
+   perde para `.context-menu > button { display: block }` logo acima, e o item
+   virava duas linhas empilhadas (✓ e depois ícone + rótulo). */
+.context-menu.theme-menu > button {
+  display: flex; align-items: center; gap: 6px; white-space: nowrap;
+}
 
-.theme-check { width: 12px; flex-shrink: 0; color: var(--accent); }
+/* O ✓ fecha a linha à direita, como no menu de desenho das conexões. */
+.theme-check {
+  width: 12px; flex-shrink: 0; margin-left: auto; text-align: right;
+  color: var(--accent);
+}
 
 /* ─── Modal ────────────────────────────────────────────────────────────────── */
 

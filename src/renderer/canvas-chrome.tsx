@@ -227,9 +227,9 @@ function ViewControls({
                   setRopeMenu(() => false)
                 }}
               >
-                <span className="rope-style-check">{ropeStyle === style.id ? '✓' : ''}</span>
                 <RopeStylePreview id={style.id} />
                 <span>{style.label}</span>
+                <span className="rope-style-check">{ropeStyle === style.id ? '✓' : ''}</span>
               </button>
             ))}
             <span className="context-menu-label">Cor</span>
@@ -298,8 +298,10 @@ function ViewControls({
                   setThemeMenu(() => false)
                 }}
               >
+                <span>
+                  {t.icon} {t.label}
+                </span>
                 <span className="theme-check">{theme === t.id ? '✓' : ''}</span>
-                {t.icon} {t.label}
               </button>
             ))}
           </div>

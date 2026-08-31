@@ -36,6 +36,8 @@ export function terminalContentFromOpts(
     workingDirectory: String(opts.workingDirectory ?? ''),
     icon: String(opts.icon ?? 'terminal'),
     color: String(opts.color ?? '#007AFF'),
+    // Campo de compatibilidade com o app nativo, sem leitor na interface: ele
+    // só é preservado no round-trip. Quem manda no canvas é o Artesão.
     isManager: opts.isManager === true,
     monitorWithOmbro: opts.monitorWithOmbro === true,
     themeId: optStr(opts.themeId),

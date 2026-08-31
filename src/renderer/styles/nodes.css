@@ -116,5 +116,4 @@
   background: color-mix(in srgb, currentColor 14%, transparent);
   max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.node-badge.is-manager { color: #af52de; }
 .node-badge.is-artisan { color: #34C759; }

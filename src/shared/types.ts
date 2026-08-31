@@ -2,8 +2,8 @@
  * Tipos do domínio, compartilhados entre main e renderer.
  *
  * Estes são os modelos *em memória*. A forma serializada em disco é diferente
- * (formato Maestri) e vive em src/main/core/models/ — nunca serialize estes
- * objetos direto com JSON.stringify.
+ * (o formato em disco do app nativo) e vive em src/main/core/models/ — nunca
+ * serialize estes objetos direto com JSON.stringify.
  */
 
 export type UUID = string // sempre MAIÚSCULO, como o UUID.uuidString do Swift
@@ -42,6 +42,10 @@ export interface TerminalContent {
   shellPath: string
   workingDirectory: string
   status: string
+  /**
+   * Existe só para compatibilidade com o app nativo, que grava a chave: não tem
+   * leitor na interface. Quem manda no canvas é o Artesão (ver `isArtisan`).
+   */
   isManager: boolean
   monitorWithOmbro: boolean
   autoScrollLocked: boolean
@@ -1411,6 +1415,10 @@ export interface TerminalDraft {
   icon: string
   color: string
   monitorWithOmbro: boolean
+  /**
+   * Existe só para compatibilidade com o app nativo, que grava a chave: não tem
+   * leitor na interface. Quem manda no canvas é o Artesão (ver `isArtisan`).
+   */
   isManager: boolean
   themeId: string | null
   fontFamily: string | null

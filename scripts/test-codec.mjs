@@ -1,7 +1,7 @@
 /**
  * Teste de compatibilidade do formato — a checagem mais importante deste porte.
  *
- * Valida que o codec TypeScript lê o formato Maestri e o escreve de volta SEM
+ * Valida que o codec TypeScript lê o formato do app nativo e o escreve de volta SEM
  * PERDA, incluindo os tipos de nó que a UI ainda não renderiza. É o que garante
  * que abrir um workspace do app Swift aqui e voltar para lá não destrói dados.
  *
@@ -75,7 +75,7 @@ const raw = JSON.parse(readFileSync(join(ROOT, 'fixtures/full-workspace.json'), 
 const { payload } = decodeWorkspaceDocument(raw)
 const reencoded = encodeWorkspaceDocument(payload)
 
-console.log('\ncodec de compatibilidade Maestri\n')
+console.log('\ncodec de compatibilidade com o app nativo\n')
 
 test('decodifica os 9 tipos de nó', () => {
   const types = payload.nodes.map((n) => n.content.type).sort()
@@ -375,7 +375,7 @@ test('nós não implementados na UI sobrevivem ao round-trip', () => {
   }
 })
 
-test('nó dataTable faz round-trip no formato Maestri { dataTable: { _0: … } }', () => {
+test('nó dataTable faz round-trip no formato do app nativo { dataTable: { _0: … } }', () => {
   const doc = decodeWorkspaceDocument({
     ...raw,
     payload: {
@@ -445,7 +445,7 @@ test('conexão terminal↔dataTable vira kind "data" e volta para dataConnection
   assert.ok('dataNodeId' in back.payload.dataConnections[0])
 })
 
-test('nó image faz round-trip no formato Maestri { image: { _0: … } }', () => {
+test('nó image faz round-trip no formato do app nativo { image: { _0: … } }', () => {
   const doc = decodeWorkspaceDocument({
     ...raw,
     payload: {
@@ -665,7 +665,7 @@ function widgetDoc(value) {
   }
 }
 
-test('nó widget faz round-trip no formato Maestri { widget: { _0: … } }', () => {
+test('nó widget faz round-trip no formato do app nativo { widget: { _0: … } }', () => {
   const doc = decodeWorkspaceDocument(
     widgetDoc({
       kind: 'git',

@@ -1,5 +1,5 @@
 /**
- * Entrada do processo main — porte de OpenMaestriApp.swift + AppDelegate.swift.
+ * Entrada do processo main — porte da entrada do app nativo (`AppDelegate.swift`).
  *
  * A ORDEM DE BOOT É FIXA, pelos mesmos motivos do app nativo:
  *

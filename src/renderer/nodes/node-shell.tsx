@@ -184,11 +184,6 @@ export function NodeShell({
               </span>
             )}
             <span className="node-title">{title(node, projectName)}</span>
-            {terminal?.isManager && (
-              <span className="node-badge is-manager" title="Maestro deste canvas">
-                maestro
-              </span>
-            )}
             {terminal?.isArtisan && (
               <span
                 className="node-badge is-artisan"

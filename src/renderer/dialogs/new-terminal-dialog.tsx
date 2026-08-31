@@ -64,7 +64,7 @@ function emptyDraft(workingDirectory: string): TerminalDraft {
     icon: 'terminal',
     color: NODE_COLORS[0],
     // Fora do diálogo: monitorar fica sempre ligado (é o que faz `atelier ask`
-    // saber quando o agente ficou ocioso) e maestro nasce desligado.
+    // saber quando o agente ficou ocioso).
     monitorWithOmbro: true,
     isManager: false,
     themeId: SYSTEM_THEME_ID,

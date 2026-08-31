@@ -52,7 +52,7 @@ function decodeWorkspaceEntry(value: unknown): WorkspaceEntry {
 export function makeManifest(): WorkspaceManifest {
   return {
     schemaVersion: 1,
-    type: 'appState', // sim, "appState" — herança do formato Maestri
+    type: 'appState', // sim, "appState" — herança do formato do app nativo
     app: 'atelier',
     appVersion: '1.0.0',
     dataFormat: 2,

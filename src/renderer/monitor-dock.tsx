@@ -109,6 +109,23 @@ export function MonitorDock(): JSX.Element {
   // painel com o hook dele — o traço dos últimos minutos continua existindo lá.
   const { stats } = useSystemStats('', DEFAULT_INTERVAL)
 
+  useEffect(() => {
+    // A tira assina, e agora isso é barato: do outro lado, assinar liga um
+    // OBSERVADOR DE ARQUIVO nos rollouts do Codex (ver codex-rollout.ts), não um
+    // subprocesso nem um relógio. O comentário que morava aqui dizia que
+    // assinar em permanência era um custo que aquela rodada não decidiu pagar —
+    // era verdade enquanto assinar significava levantar o App Server.
+    //
+    // E ela precisa assinar: a tira pode ser o único monitor montado na sessão,
+    // e depender do cache do boot faria uma leitura velha parecer atual. O
+    // ref-count do main compartilha o canal com o popover, quando os dois estão
+    // abertos.
+    void store.subscribeCodexAccount()
+    return () => {
+      void store.unsubscribeCodexAccount()
+    }
+  }, [])
+
   const pc = useMemo(() => {
     const memPct = stats && stats.memTotal > 0 ? (stats.memUsed / stats.memTotal) * 100 : null
     const diskPct = stats && stats.diskTotal > 0 ? (stats.diskUsed / stats.diskTotal) * 100 : null
@@ -461,12 +478,6 @@ function useMonitorDockAccounts(): DockAccount[] {
 
     // A do Codex primeiro, como no bloco de Perfis: uma tira que a listasse
     // depois discordaria do popover aberto logo acima dela.
-    //
-    // Sem `subscribeCodexAccount` aqui de propósito: a tira usa o que a store
-    // JÁ tem — a leitura guardada que veio do boot, ou a viva se algum painel
-    // de contas estiver aberto. Assinar em permanência é um custo que esta
-    // rodada não decidiu pagar, e a alternativa seria a tira ligar um canal do
-    // App Server por conta própria.
     if (codexAccountUsage.available && codexAccountUsage.authMode !== 'api-key') {
       out.push({
         id: 'codex',

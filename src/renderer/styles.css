@@ -61,3 +61,7 @@
 
 @import './styles/git.css';
 @import './styles/dialogs.css';
+/* DEPOIS de dialogs: `.modal.is-wide` é uma variante de `.modal`, e a tela de
+   Configurações ajusta o modal genérico escrevendo só a diferença — a mesma
+   lógica de `nodes.css` vir antes de `nodes/*`. */
+@import './styles/settings.css';

@@ -18,7 +18,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { IconChevronDown } from './icons'
 import { WorkspacePanel } from './panels/workspace-panel'
-import { useStore } from './state/store'
+import { store, useStore } from './state/store'
 
 export function WorkspaceChip(): JSX.Element {
   const { workspace } = useStore()
@@ -65,6 +65,22 @@ export function WorkspaceChip(): JSX.Element {
       {open && (
         <div className="workspace-popover" role="menu" aria-label="Workspaces">
           <WorkspacePanel onOpened={() => setOpen(false)} />
+          {/* O rodapé é do APP, não da lista: este popover é o menu que já
+              existe para "coisas do Atelier", e Configurações não pertence a
+              nenhum workspace em particular. Por isso mora aqui, e não dentro
+              do WorkspacePanel — que é a lista, e é reusado noutros lugares. */}
+          <div className="workspace-popover-foot">
+            <button
+              type="button"
+              className="workspace-popover-item"
+              onClick={() => {
+                setOpen(false)
+                store.openSettings()
+              }}
+            >
+              Configurações…
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -7,6 +7,7 @@ import { ButtonDialog } from './dialogs/button-dialog'
 import { ClockDialog } from './dialogs/clock-dialog'
 import { NewTerminalDialog } from './dialogs/new-terminal-dialog'
 import { ScanDialog } from './dialogs/scan-dialog'
+import { SettingsDialog } from './dialogs/settings-dialog'
 import { ProjectCandidates } from './project-candidates'
 import { CanvasChrome } from './canvas-chrome'
 import { Rail } from './rail'
@@ -263,6 +264,11 @@ export function App(): JSX.Element {
       )}
 
       {scanDialogOpen && <ScanDialog />}
+
+      {/* Sem guarda de `settingsOpen` aqui, ao contrário dos outros: quem lê a
+          store e devolve null quando está fechada é a própria tela — ela
+          precisa do valor para saber em QUE grupo abrir. */}
+      <SettingsDialog />
 
       {closingEditor && <UnsavedEditorDialog />}
 

@@ -53,6 +53,21 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   box-shadow: 0 12px 32px rgb(0 0 0 / .26);
 }
 
+/* O rodapé do popover: o que é do APP, e não do workspace escolhido. Separado
+   por um traço porque a lista acima ROLA — sem a linha, o item de
+   Configurações pareceria o último workspace da lista. */
+.workspace-popover-foot {
+  flex-shrink: 0; margin-top: 6px; padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.workspace-popover-item {
+  display: block; width: 100%; text-align: left;
+  padding: 6px 12px; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--text); font: inherit; cursor: pointer;
+}
+.workspace-popover-item:hover { background: var(--dock-hover); }
+
 /* A outra ponta da mesma linha — ver .canvas-chip-row para o porquê da altura. */
 .view-controls {
   position: absolute;

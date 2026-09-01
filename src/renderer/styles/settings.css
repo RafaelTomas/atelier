@@ -1,0 +1,406 @@
+/* A tela de Configurações: a variante larga do modal, as duas colunas e as
+   linhas de que os sete grupos são feitos.
+
+   Arquivo próprio, e não um pedaço de dialogs.css, porque é a única superfície
+   do app com geometria de FORMULÁRIO — rótulo à esquerda, controle à direita,
+   alinhados entre linhas que nem estão no mesmo grupo. Misturar isso com o
+   modal genérico faria as regras de alinhamento caírem em diálogos que não as
+   pediram. */
+
+/* ─── O modal largo ────────────────────────────────────────────────────────── */
+
+/* ~880×620, com teto RELATIVO à janela: numa tela pequena o modal encolhe em
+   vez de vazar, e as duas colunas continuam existindo — quem some primeiro é a
+   folga, não a navegação. */
+.modal.is-wide {
+  width: 880px;
+  max-width: calc(100vw - 48px);
+  height: 620px;
+  max-height: calc(100vh - 80px);
+}
+
+/* ─── As duas colunas ──────────────────────────────────────────────────────── */
+
+.settings-columns {
+  flex: 1; min-height: 0;
+  display: grid; grid-template-columns: 200px 1fr;
+  gap: var(--s-5);
+}
+
+/* A coluna esquerda inteira: o campo de busca em cima, e embaixo dele OU a
+   lista de grupos OU os resultados — nunca os dois, é a busca quem decide
+   (ver settings-dialog.tsx). `min-height: 0` é o que deixa o filho de baixo
+   rolar dentro da própria altura, em vez de esticar o modal. */
+.settings-groups-column {
+  display: flex; flex-direction: column; gap: var(--s-3); min-height: 0;
+  border-right: 1px solid var(--border);
+  padding-right: var(--s-4);
+}
+
+.settings-groups {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  overflow-y: auto;
+}
+
+.settings-group {
+  text-align: left; width: 100%;
+  padding: 7px 10px; border: 0; border-radius: var(--r-md);
+  background: transparent; color: var(--text);
+  font: inherit; cursor: pointer;
+}
+.settings-group:hover { background: var(--surface-2); }
+.settings-group.is-active { background: var(--border); color: var(--text); font-weight: 600; }
+
+.settings-content {
+  overflow-y: auto;
+  padding: 2px var(--s-2) 2px 0;
+  display: flex; flex-direction: column; gap: var(--s-6);
+}
+
+/* ─── Busca (fase 7) ───────────────────────────────────────────────────────── */
+
+.settings-search {
+  flex: 0 0 auto;
+  padding: 6px 10px; border-radius: var(--r-md);
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  font: inherit;
+}
+.settings-search:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+/* O "x" nativo de limpar de um input[type=search] duplicaria o Esc — que já
+   limpa a busca com o campo focado (ver settings-dialog.tsx) — com um alvo de
+   clique redundante ao lado dele. */
+.settings-search::-webkit-search-cancel-button { display: none; }
+
+.settings-search-results {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  overflow-y: auto;
+}
+
+.settings-search-empty { margin: var(--s-3) 0 0; color: var(--text-dim); font-size: var(--fs-md); }
+
+.settings-search-result {
+  display: flex; flex-direction: column; gap: 1px;
+  width: 100%; text-align: left;
+  padding: 6px 8px; border: 0; border-radius: var(--r-md);
+  background: transparent; color: var(--text);
+  font: inherit; cursor: pointer;
+}
+.settings-search-result:hover { background: var(--surface-2); }
+
+.settings-search-result-group {
+  font-size: var(--fs-xs); letter-spacing: .04em; text-transform: uppercase;
+  color: var(--text-dim);
+}
+.settings-search-result-label { color: var(--text); }
+.settings-search-result-hint {
+  font-size: var(--fs-sm); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* A linha achada pisca uma vez e volta ao normal sozinha — não precisa de
+   clique nenhum para desligar, e por isso é uma animação, não uma classe que
+   fica presa até a próxima busca. */
+@keyframes settings-search-hit {
+  from { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+  to { background: transparent; }
+}
+.settings-row.is-search-hit { animation: settings-search-hit 1.6s ease-out; }
+
+/* ─── Seção ────────────────────────────────────────────────────────────────── */
+
+.settings-section { display: flex; flex-direction: column; gap: var(--s-2); }
+
+/* O único texto em caixa alta da tela: separa sem desenhar uma caixa em volta,
+   que faria a coluna virar uma pilha de cartões dentro de um cartão. */
+.settings-section-title {
+  margin: 0; font-size: var(--fs-xs); font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim);
+}
+
+.settings-section-rows { display: flex; flex-direction: column; }
+
+/* ─── Linha ────────────────────────────────────────────────────────────────── */
+
+/* `align-items: start` e não `center`: o controle da direita pode ser alto (a
+   grade de desenhos de corda tem duas fileiras) e a dica da esquerda pode
+   quebrar em duas linhas. Centralizar faria o rótulo flutuar no meio de um
+   bloco alto, longe da primeira linha do controle que ele nomeia. */
+.settings-row {
+  display: grid; grid-template-columns: 1fr auto;
+  align-items: start; gap: var(--s-5);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-row:last-child { border-bottom: 0; }
+
+.settings-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+label.settings-row-text { cursor: pointer; }
+
+.settings-row-label { color: var(--text); }
+
+.settings-row-hint { font-size: var(--fs-sm); color: var(--text-dim); }
+
+/* O controle nunca é esticado: um <select> de três opções largo como a coluna
+   inteira pareceria um campo de texto. Quem quiser largura pede na própria
+   regra do controle. */
+.settings-row-control {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: var(--s-3); flex-wrap: wrap;
+  max-width: 340px;
+}
+
+/* ─── Controles ────────────────────────────────────────────────────────────── */
+
+.settings-checkbox {
+  width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer;
+}
+
+.settings-select {
+  min-width: 150px; max-width: 240px;
+  padding: 5px 8px; border-radius: var(--r-md);
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  font: inherit; cursor: pointer;
+}
+.settings-select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.settings-number { display: flex; align-items: center; gap: var(--s-2); }
+.settings-number input {
+  width: 76px; padding: 5px 8px; border-radius: var(--r-md);
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  font: inherit; text-align: right;
+}
+.settings-number input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.settings-number-unit { color: var(--text-dim); font-size: var(--fs-md); }
+
+.settings-slider { display: flex; align-items: center; gap: var(--s-3); }
+.settings-slider input { width: 160px; accent-color: var(--accent); }
+.settings-slider output {
+  min-width: 34px; text-align: right;
+  color: var(--text-dim); font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Conexões ─────────────────────────────────────────────────────────────── */
+
+/* Duas fileiras de quatro para os oito desenhos: a lista vertical do menu do
+   canvas caberia, mas empurraria a linha da corda para trezentos pixels de
+   altura numa tela onde tudo o mais tem trinta. */
+.settings-rope-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+
+.settings-rope-option {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 4px; border: 1px solid transparent; border-radius: var(--r-md);
+  background: transparent; color: var(--text-dim);
+  font-size: var(--fs-sm); cursor: pointer;
+}
+.settings-rope-option:hover { background: var(--surface-2); }
+.settings-rope-option.is-on {
+  border-color: var(--accent); color: var(--text);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.settings-rope-colors { display: flex; gap: var(--s-3); }
+
+.settings-rope-swatch {
+  width: 22px; height: 22px; padding: 0; border-radius: 50%;
+  border: 2px solid transparent; cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%);
+}
+.settings-rope-swatch.is-on { border-color: var(--text); }
+
+/* ─── Esboço ───────────────────────────────────────────────────────────────── */
+
+/* O travessão das linhas dos grupos que ainda não têm conteúdo. Existe para a
+   linha "Em construção" não ficar com a coluna da direita vazia, que pareceria
+   um controle que não carregou. */
+.settings-soon { color: var(--text-dim); }
+
+/* ─── Um bloco por grupo, daqui para baixo ────────────────────────────────────
+
+   Acima está o que é da TELA — as duas colunas, os primitivos, o que todo grupo
+   herda. Daqui para baixo, o que é de um grupo só, e cada um tem um bloco
+   próprio de propósito: as fases 2 a 6 foram escritas em paralelo, e um bloco
+   por grupo é o que permitiu a cinco mãos tocarem este arquivo sem que uma
+   apagasse a outra. Mantenha a divisão — ela também responde "de quem é esta
+   regra?" sem ter de abrir o .tsx. */
+
+/* ─── Grupo Canvas (fase 2) ─────────────────────────────────────────────────── */
+
+/* ─── Grupo Terminais (fase 3) ──────────────────────────────────────────────── */
+
+.settings-theme-list {
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 280px;
+}
+
+.settings-theme-item {
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: 4px 0;
+}
+
+.settings-theme-swatch {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 24px; border-radius: var(--r-sm);
+  font-size: var(--fs-sm); font-family: ui-monospace, monospace;
+  flex: 0 0 auto;
+}
+
+.settings-theme-name { flex: 1; }
+
+.settings-theme-lock { color: var(--text-dim); font-size: var(--fs-sm); }
+
+.settings-theme-input {
+  flex: 1; min-width: 0;
+  padding: 4px 6px; border-radius: var(--r-sm);
+  border: 1px solid transparent; background: transparent; color: var(--text);
+  font: inherit;
+}
+.settings-theme-input:hover, .settings-theme-input:focus {
+  border-color: var(--border); background: var(--surface-2);
+}
+.settings-theme-input:focus { outline: none; }
+
+/* ─── Grupo Agentes e Contas (fase 4) ───────────────────────────────────────── */
+
+.settings-accounts {
+  display: flex; flex-direction: column; gap: var(--s-2);
+  width: 100%;
+}
+.settings-accounts-header { display: flex; justify-content: flex-end; }
+
+/* A lista reusa `.monitor-accounts` (monitor-panel/monitor-parts), mas aqui
+   ela é a leitura PRINCIPAL da linha, não uma tira estreita — folga um pouco
+   mais entre as linhas para caber os botões de ação sem apertar os anéis. */
+.settings-account-list { gap: 6px; }
+
+.settings-account-actions {
+  display: flex; align-items: center; gap: 2px;
+  margin-left: var(--s-2); flex-shrink: 0;
+}
+
+.settings-account-rename {
+  flex: 1; min-width: 0;
+  padding: 3px 6px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: var(--fs-sm);
+}
+.settings-account-rename:focus { outline: none; border-color: var(--accent); }
+
+/* A confirmação de remover: nasce fechada, e só existe depois do clique na
+   lixeira — é o gesto destrutivo carregando a própria confirmação, não a tela
+   (ver o plano, decisão 4). */
+.settings-account-confirm {
+  display: flex; flex-direction: column; gap: var(--s-2);
+  margin: 2px 0 6px; padding: var(--s-3);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.settings-account-confirm-actions {
+  display: flex; justify-content: flex-end; gap: var(--s-2);
+}
+
+.settings-roles { display: flex; flex-direction: column; gap: var(--s-2); width: 100%; }
+.settings-role-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.settings-role-item { display: flex; align-items: center; gap: var(--s-2); }
+.settings-role-swatch {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: var(--r-sm);
+  color: #fff; flex-shrink: 0;
+}
+.settings-role-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-role-scope { color: var(--text-dim); font-size: var(--fs-xs); }
+
+/* O RoleEditor abre num modal PRÓPRIO por cima do de Configurações — o único
+   lugar do plano em que isso acontece (ver agents.tsx). z-index um degrau
+   acima de `.modal-backdrop` (200, em dialogs.css): mesma pilha, uma camada
+   por cima, para não depender só da ordem de pintura no DOM. */
+.settings-role-backdrop { z-index: 210; }
+.settings-role-modal { width: 480px; }
+
+/* ─── Grupo Projetos (fase 5) ───────────────────────────────────────────────── */
+
+.settings-roots {
+  display: flex; flex-direction: column; align-items: flex-end; gap: var(--s-2);
+}
+
+.settings-roots-empty { color: var(--text-dim); font-size: var(--fs-md); }
+
+.settings-roots-list {
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 260px;
+}
+
+.settings-roots-item {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-2);
+  padding: 2px 0;
+}
+
+.settings-roots-path {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-md);
+}
+
+/* ─── Grupo Portais (fase 5) ────────────────────────────────────────────────── */
+
+/* Rádio e não .settings-select: cada opção precisa da explicação sempre
+   visível, não escondida atrás de um clique num <select> fechado. */
+.settings-radio-group {
+  display: flex; flex-direction: column; gap: var(--s-3);
+  border: none; margin: 0; padding: 0;
+  width: 100%;
+}
+
+.settings-radio-option {
+  display: flex; align-items: flex-start; gap: var(--s-2);
+  cursor: pointer;
+}
+
+.settings-radio-option input { margin-top: 3px; accent-color: var(--accent); cursor: pointer; }
+
+.settings-radio-text { display: flex; flex-direction: column; gap: 2px; }
+
+.settings-radio-label { color: var(--text); }
+
+/* ─── Grupo Sobre (fase 6) ──────────────────────────────────────────────────── */
+
+.settings-about-value {
+  color: var(--text); font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Único destaque colorido da tela: correr sobre um ATELIER_HOME de
+   desenvolvimento sem notar já custou tempo real, e uma linha cinza entre as
+   outras não teria salvado ninguém. */
+.settings-about-warning {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-bottom: var(--s-4); padding: var(--s-3) var(--s-4);
+  border: 1px solid #F5A623; border-radius: var(--r-md);
+  background: #F5A62333;
+  color: var(--text); font-size: var(--fs-md);
+}
+.settings-about-warning code {
+  font-family: ui-monospace, monospace; font-size: var(--fs-sm);
+}
+
+.settings-about-shortcuts {
+  display: flex; flex-direction: column; gap: var(--s-2);
+  width: 100%;
+}
+.settings-about-shortcut {
+  display: flex; align-items: baseline; gap: var(--s-3);
+}
+.settings-about-shortcut kbd {
+  flex: 0 0 150px;
+  padding: 2px 6px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface-2);
+  font: inherit; font-size: var(--fs-sm); text-align: center;
+}
+.settings-about-shortcut span {
+  color: var(--text-dim); font-size: var(--fs-md);
+}

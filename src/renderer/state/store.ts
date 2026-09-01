@@ -139,6 +139,24 @@ export interface Placement {
   finish: (frame: Rect) => void
 }
 
+/**
+ * As páginas da tela de Configurações.
+ *
+ * O tipo mora na store, e não no diálogo, porque é a store que guarda QUAL
+ * delas está aberta. Se o nome viesse do componente, `store.ts` importaria de
+ * `dialogs/` só para tipar um campo — e a dependência ficaria de cabeça para
+ * baixo. A LISTA (rótulo e componente de cada grupo) continua no diálogo, que é
+ * quem a desenha; aqui está só o vocabulário.
+ */
+export type SettingsGroup =
+  | 'aparencia'
+  | 'canvas'
+  | 'terminais'
+  | 'agentes'
+  | 'projetos'
+  | 'portais'
+  | 'sobre'
+
 export interface AppSnapshot {
   entries: WorkspaceEntry[]
   activeId: UUID | null
@@ -265,6 +283,16 @@ export interface AppSnapshot {
    */
   scanning: boolean
   scanDialogOpen: boolean
+  /**
+   * A tela de Configurações. `null` = fechada; um grupo = aberta NELE.
+   *
+   * O grupo mora aqui, e não num `useState` do diálogo, porque as portas de
+   * entrada querem escolher onde a tela abre: "Configurações" no popover do
+   * chip cai na Aparência, mas um aviso que ofereça "ajustar isto" pode mandar
+   * direto no grupo certo. Guardar o grupo dentro do componente obrigaria a
+   * remontá-lo para trocar de página.
+   */
+  settingsOpen: SettingsGroup | null
   /** Projetos que a varredura do boot achou e que aguardam resposta do usuário. */
   candidates: DiscoveredProject[]
   /**
@@ -392,6 +420,7 @@ const initial: AppSnapshot = {
   selectedProjectId: null,
   scanning: false,
   scanDialogOpen: false,
+  settingsOpen: null,
   candidates: [],
   autoDescribe: DESCRIBE_PROJECTS_ENABLED,
   prefs: null,
@@ -1847,6 +1876,11 @@ class Store {
     }
   }
 
+  async renameClaudeAccount(id: string, label: string): Promise<void> {
+    const claudeAccounts = await window.atelier.claudeAccount.rename(id, label)
+    this.set({ claudeAccounts })
+  }
+
   async removeClaudeAccount(id: string, deleteFiles: boolean): Promise<void> {
     const claudeAccounts = await window.atelier.claudeAccount.remove(id, deleteFiles)
     this.set({ claudeAccounts })
@@ -2199,6 +2233,41 @@ class Store {
     const ropeThickness = this.state.ropeThickness
     this.mirrorPrefs({ ropeThickness })
     void window.atelier.prefs.set({ ropeThickness })
+  }
+
+  // ─── Configurações ──────────────────────────────────────────────────────────
+
+  /**
+   * Abre a tela. Sem argumento, na Aparência — é a primeira da lista, e quem
+   * chega pelo item genérico do popover não pediu grupo nenhum.
+   */
+  openSettings(group: SettingsGroup = 'aparencia'): void {
+    this.set({ settingsOpen: group })
+  }
+
+  closeSettings(): void {
+    this.set({ settingsOpen: null })
+  }
+
+  /**
+   * Escrita GENÉRICA em `preferences.json` — o caminho por onde toda linha da
+   * tela de Configurações grava.
+   *
+   * Espelha antes de gravar de propósito: a tela lê `prefs` da store a cada
+   * render, e esperar a volta do IPC faria o controle ficar no valor velho por
+   * um frame — um interruptor que não desce quando se clica nele. O que o main
+   * devolve (as preferências INTEIRAS, já normalizadas) sobrescreve o espelho
+   * logo em seguida, então um valor recusado lá volta ao lugar sozinho.
+   *
+   * Não serve para tudo: preferências com estado DERIVADO na store — tema,
+   * desenho e cor da corda, posição das pílulas, largura da rail — têm seu
+   * próprio verbo acima, e é por ele que a tela passa. Gravar `theme` por aqui
+   * mudaria o disco sem mexer no `<html>`.
+   */
+  async setPrefs(patch: Partial<Preferences>): Promise<void> {
+    this.mirrorPrefs(patch)
+    const prefs = await window.atelier.prefs.set(patch)
+    this.set({ prefs })
   }
 
   /** Espelho local de preferences.json — sem isto `prefs` envelhece na store. */

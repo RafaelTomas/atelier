@@ -455,9 +455,19 @@ TSV, else CSV. JSON is accepted as an array of objects (\`[{"id":1,"name":"a"}]\
 or the explicit form \`{"columns":[…],"rows":[[…]]}\`. CSV/TSV take the first line
 as the header.
 
-Good inputs come straight from the client: \`sqlite3 -json db "SELECT …"\` or
-\`psql -A -F',' -c "SELECT …"\`. Results over ~2000 rows (or 200k cells) are
-truncated, and the reply says so. \`append\` adds rows to an existing table but
+Good inputs come straight from the client, and the FLAGS matter:
+
+\`\`\`
+psql --csv -c "SELECT …"          # header, no footer, quotes values with commas
+sqlite3 -json db "SELECT …"       # array of objects
+\`\`\`
+
+Do NOT use \`psql -A -F','\`: it appends a \`(N rows)\` footer, and that footer
+becomes a bogus last row in the table. \`-At\` drops the footer but drops the
+HEADER too, so the columns come out unnamed. \`--csv\` is the one that gives both
+— measured against psql 15.
+
+Results over ~2000 rows (or 200k cells) are truncated, and the reply says so. \`append\` adds rows to an existing table but
 refuses if the columns differ — a schema change between calls is an error, not
 a merge.
 `,

@@ -269,6 +269,26 @@ await testAsync('references órfãs de uma versão anterior são removidas', asy
   }
 })
 
+test('a reference de table não recomenda flag de psql que quebra o CSV', () => {
+  // Medido contra psql 15 em 01/09: `psql -A -F','` acrescenta um rodapé
+  // `(N rows)`, e esse rodapé entra como ÚLTIMA LINHA do CSV — vira um registro
+  // falso na tabela publicada. `-At` tira o rodapé e tira o cabeçalho junto, o
+  // que deixa as colunas sem nome. `--csv` dá os dois, e ainda cita valores com
+  // vírgula.
+  //
+  // Isto custou duas chamadas por corrida ao sujeito do S2 no ciclo 0: ele
+  // seguiu o exemplo da reference, viu o resultado sair torto, e refez montando
+  // o cabeçalho à mão com printf.
+  const table = REFERENCES['table.md']
+  assert.ok(table, 'a reference de table desapareceu')
+  assert.match(table, /psql --csv/, 'o exemplo que funciona saiu da reference')
+  assert.match(table, /\(N rows\)` footer/, 'a reference parou de explicar a armadilha')
+  assert.ok(
+    !/psql -A -F','\s*-c/.test(table.replace(/Do NOT use[\s\S]*/, '')),
+    'o exemplo quebrado voltou a ser recomendado'
+  )
+})
+
 await testAsync(
   'o settings do nó aponta para o diretório que o instalador REALMENTE criou',
   async () => {

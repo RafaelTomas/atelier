@@ -235,6 +235,52 @@ test('a bancada respeita a quantidade pedida, e não despeja o canvas inteiro', 
   assert.deepEqual(benchFor({ needs: { notes: 1 } }, muitos), ['Uma'])
 })
 
+test('--bench escolhe o recurso pelo NOME, e não pela posição no list', () => {
+  // Com dois quadros cabeados ao coordenador, a escolha por posição entregou ao
+  // sujeito de S4 o quadro de trabalho de verdade em vez do de rascunho — e S4
+  // manda o sujeito MEXER nos cartões. Visto em 01/09.
+  const doisQuadros = parseList([
+    'Connected notes:',
+    '  Note 5',
+    'Connected boards:',
+    '  Tarefas  todo 6  doing 1  done 11',
+    '  Rascunho eval  todo 3'
+  ].join('\n'))
+  assert.deepEqual(benchFor(scenario('S4'), doisQuadros), ['Note 5', 'Tarefas'])
+  assert.deepEqual(
+    benchFor(scenario('S4'), doisQuadros, { boards: 'Rascunho eval' }),
+    ['Note 5', 'Rascunho eval']
+  )
+})
+
+test('o nome escolhido vem PRIMEIRO, e a quantidade pedida continua valendo', () => {
+  const tres = parseList([
+    'Connected notes:',
+    '  Uma',
+    '  Outra',
+    '  Terceira'
+  ].join('\n'))
+  assert.deepEqual(benchFor({ needs: { notes: 1 } }, tres, { notes: 'Terceira' }), ['Terceira'])
+  assert.deepEqual(benchFor({ needs: { notes: 2 } }, tres, { notes: 'Terceira' }), ['Terceira', 'Uma'])
+})
+
+test('nome que não está cabeado é ERRO, nunca queda silenciosa para a posição', () => {
+  // Cair de volta para a posição mediria um cenário diferente do pedido, e a
+  // troca só apareceria no score — depois de gastar a cota.
+  const inv1 = parseList(['Connected boards:', '  Tarefas  todo 6'].join('\n'))
+  assert.throws(
+    () => benchFor(scenario('S4'), inv1, { boards: 'Rascunho eval' }),
+    /nenhum boards chamado 'Rascunho eval'/
+  )
+  assert.throws(() => benchFor(scenario('S4'), inv1, { boards: 'Rascunho eval' }), /há: Tarefas/)
+})
+
+test('pick de um tipo que o cenário não pede é ignorado', () => {
+  // `--bench portals=X` numa corrida de S4 não deve arrastar portal nenhum para
+  // a bancada: quem decide o que o cenário precisa é a matriz.
+  assert.deepEqual(benchFor(scenario('S2'), inv, { portals: 'App local' }), [])
+})
+
 // ─── O desfecho do ask, e a corrida nula ──────────────────────────────────────
 
 test('os códigos de saída do ask viram os desfechos do M7c', () => {

@@ -78,6 +78,11 @@ function args() {
     // não termina. Vale para o avaliador também — trocar só os sujeitos deixaria
     // o ciclo pela metade quando a conta velha estourasse no meio.
     account: flag('account', null),
+    // Qual recurso do canvas vai para a bancada, por tipo:
+    // `--bench boards="Rascunho eval",notes="Note 5"`. Sem isto a escolha é por
+    // posição no `atelier list`, e S4 recebeu o quadro de trabalho de verdade
+    // em vez do de rascunho. Ver `benchFor`.
+    bench: parseBench(flag('bench', '')),
     evaluator: flag('evaluator', 'Avaliador'),
     out: flag('out', join('docs', 'eval-runs', new Date().toISOString().replace(/[:.]/g, '-'))),
     runTimeoutMs: Number(flag('run-timeout', 300)) * 1000,
@@ -85,6 +90,26 @@ function args() {
     dryRun: has('dry-run'),
     keepEvaluator: has('keep-evaluator')
   }
+}
+
+/**
+ * `boards=Rascunho eval,notes=Note 5` vira `{ boards: 'Rascunho eval', notes: 'Note 5' }`.
+ *
+ * Vírgula separa pares e o primeiro `=` separa chave de valor, porque nome de nó
+ * tem espaço e pode ter `=`; vírgula em nome de nó não é suportada, e um par
+ * torto é erro na hora em vez de bancada silenciosamente errada.
+ */
+function parseBench(spec) {
+  const pick = {}
+  for (const par of String(spec).split(',').map((t) => t.trim()).filter(Boolean)) {
+    const i = par.indexOf('=')
+    if (i < 1 || i === par.length - 1) {
+      console.error(`--bench: par inválido '${par}'. Use tipo=nome, por exemplo boards=Rascunho eval`)
+      process.exit(1)
+    }
+    pick[par.slice(0, i).trim()] = par.slice(i + 1).trim()
+  }
+  return pick
 }
 
 function cli(argv, timeoutMs = 600_000) {
@@ -302,14 +327,23 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
   const room = ceilingRoom(inventory(), CONFIG.terminalCeiling)
   if (room < 1) return { ...record, outcome: 'skipped', reason: 'canvas no teto de terminais' }
 
+  // A BANCADA, resolvida ANTES do recruit. O recruta nasce cabeado só a quem o
+  // recrutou, e o cenário pede que ELE enxergue o editor, o portal, a nota, o
+  // quadro — sem isto o eval mediria um canvas vazio, o buraco que o piloto de
+  // 01/09 encontrou. Resolver antes porque `benchFor` pode recusar (`--bench`
+  // nomeando nó que não está cabeado), e recusar depois do recruit deixaria um
+  // nó órfão no canvas comendo vaga do teto.
+  let bench
+  try {
+    bench = benchFor(scn, inventory(), opts.bench)
+  } catch (e) {
+    return { ...record, outcome: 'skipped', reason: String(e.message ?? e) }
+  }
+
   const recruited = cli(['recruit', name, '--model', opts.model, ...(opts.account ? ['--account', opts.account] : [])])
   if (recruited.code !== 0) return { ...record, outcome: 'skipped', reason: `recruit falhou: ${recruited.out}` }
 
   try {
-    // A BANCADA. O recruta nasce cabeado só a quem o recrutou, e o cenário pede
-    // que ELE enxergue o editor, o portal, a nota, o quadro. Sem isto o eval
-    // mediria um canvas vazio — o buraco que o piloto de 01/09 encontrou.
-    const bench = benchFor(scn, inventory())
     for (const resource of bench) {
       const wired = cli(['connect', name, resource])
       if (wired.code !== 0 || /^error:/.test(wired.out)) {
@@ -384,6 +418,19 @@ async function main() {
   const inv = inventory()
   const plan = chosen.map((s) => ({ scenario: s, missing: missingNeeds(s, inv) }))
 
+  // Um `--bench` que nomeia nó inexistente para o programa AQUI, antes de
+  // recrutar ninguém: descobrir isso no meio da terceira corrida custa cota e
+  // deixa metade do ciclo medindo outro canvas.
+  for (const { scenario: s, missing } of plan) {
+    if (missing.length) continue
+    try {
+      benchFor(s, inv, opts.bench)
+    } catch (e) {
+      console.error(`${s.id}: ${e.message ?? e}`)
+      process.exit(1)
+    }
+  }
+
   console.log(`Harness da eval suite — ciclo ${opts.cycle}, ${opts.runs} run(s) por cenário`)
   console.log(`Sujeitos: --model ${opts.model}${opts.account ? ` --account ${opts.account}` : ' (conta deste nó)'}`)
   console.log(`Cenários: ${chosen.map((s) => s.id).join(', ')}  (${applicablePairs(chosen.map((s) => s.id))} pares por run completa)`)
@@ -393,7 +440,7 @@ async function main() {
     const mark = missing.length ? `PULADO — falta ${missing.join('; ')}` : 'pronto'
     console.log(`  ${s.id}  ${mark}`)
     if (!missing.length) {
-      const bench = benchFor(s, inv)
+      const bench = benchFor(s, inv, opts.bench)
       if (bench.length) console.log(`        bancada do sujeito: ${bench.join(', ')}`)
       if (s.manual) console.log(`        confira à mão: ${s.manual}`)
     }

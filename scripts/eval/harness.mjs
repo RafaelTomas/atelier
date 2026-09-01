@@ -338,16 +338,40 @@ export function renderToolTrail(calls) {
  * o cenário exige, na quantidade que ele exige, para o `atelier connect` levar
  * ao sujeito.
  *
- * A ordem é a do inventário, e não importa qual portal ou qual nota vai: o
- * cenário pede UM, e o que se mede é o que o agente faz com ele.
+ * Por padrão a ordem é a do inventário — o cenário pede UM portal, e qual
+ * portal vai não muda o que se mede.
+ *
+ * `pick` existe para quando muda. S4 manda o sujeito PEGAR a tarefa de cima do
+ * quadro e mexer nela; com dois quadros cabeados ao coordenador, a escolha por
+ * posição entregou o quadro de trabalho de verdade em vez do de rascunho (visto
+ * em 01/09). Duas razões para nomear em vez de confiar na posição: sujeitos que
+ * escrevem no quadro errado estragam trabalho real, e a ordem do `atelier list`
+ * é acidental — ela mudaria a bancada entre runs sem ninguém ver, que é
+ * exatamente a variável escondida que o eval não pode ter.
+ *
+ * Nome que não existe no inventário é ERRO, nunca queda silenciosa para a
+ * posição: cair de volta mediria um cenário diferente do pedido, e é o tipo de
+ * troca que só aparece no score.
  */
-export function benchFor(scenario, inventory) {
+export function benchFor(scenario, inventory, pick = {}) {
   const bench = []
   for (const [kind, count] of Object.entries(scenario.needs ?? {})) {
     // `agents` é o único que não se cabeia: o sujeito já nasce vendo o
     // coordenador, e cabeá-lo a OUTRO sujeito misturaria duas corridas.
     if (kind === 'agents') continue
-    for (const item of (inventory[kind] ?? []).slice(0, count)) bench.push(item.name)
+    const pool = inventory[kind] ?? []
+    const wanted = pick[kind]
+    if (wanted) {
+      const chosen = pool.find((item) => item.name === wanted)
+      if (!chosen) {
+        const nomes = pool.map((i) => i.name).join(', ') || 'nenhum'
+        throw new Error(`bancada: nenhum ${kind} chamado '${wanted}' está cabeado a este nó (há: ${nomes})`)
+      }
+      bench.push(chosen.name)
+      for (const item of pool.filter((i) => i.name !== wanted).slice(0, count - 1)) bench.push(item.name)
+      continue
+    }
+    for (const item of pool.slice(0, count)) bench.push(item.name)
   }
   return bench
 }

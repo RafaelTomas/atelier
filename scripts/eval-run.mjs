@@ -401,7 +401,31 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
     let outcome = classifyAsk(asked.code)
     if (outcome === 'working') outcome = (await waitStop(name, deadline)) === 'waiting' ? 'waiting' : 'answered'
     if (outcome === 'waiting') {
-      return { ...record, outcome: 'null', reason: `sujeito parado pedindo autorização: ${stateOf(name)?.detail ?? '?'}` }
+      // A TELA VAI PARA DISCO ANTES DE O NÓ MORRER.
+      //
+      // Uma corrida nula por travamento era descartada aqui, e o `finally`
+      // dispensava o nó logo depois: a única evidência de EM QUE o sujeito
+      // travou morria com ele. No ciclo 0 de 01/09 duas anulações seguidas
+      // saíram com o detalhe `?` — `detectWaiting` casou o diálogo mas
+      // `commandUnderReview` não achou o comando em forma legível, e prefere
+      // `null` a inventar um rótulo — e não sobrou nada para olhar depois.
+      //
+      // Anular é repetir, e repetir é cota: se a mesma parada acontecer três
+      // vezes, quem retoma precisa poder ver a tela em vez de recontratar a
+      // corrida para descobrir.
+      const stuckPath = join(outDir, `travado-${scn.id}-${run}.txt`)
+      try {
+        writeFileSync(stuckPath, screenOf(name), 'utf8')
+        console.log(`  (tela de '${name}' travado guardada em ${stuckPath})`)
+      } catch {
+        // sem disco: a anulação continua valendo, só sem a evidência
+      }
+      return {
+        ...record,
+        outcome: 'null',
+        reason: `sujeito parado pedindo autorização: ${stateOf(name)?.detail ?? '?'}`,
+        stuckScreen: stuckPath
+      }
     }
     if (outcome === 'failed') return { ...record, outcome: 'null', reason: `ask falhou: ${asked.out}` }
 

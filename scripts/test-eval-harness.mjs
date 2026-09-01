@@ -21,6 +21,7 @@ import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 import {
+  dismissRefusedBusy,
   parseList,
   missingNeeds,
   classifyAsk,
@@ -160,6 +161,14 @@ test('exit 0 é o ÚNICO desfecho que vale como resposta', () => {
   // defeito que anulou duas leituras da sessão de 01/09.
   const respostas = [0, 2, 3, 1].filter((c) => classifyAsk(c) === 'answered')
   assert.deepEqual(respostas, [0])
+})
+
+test('a recusa do dismiss por [working] é reconhecida, e o sucesso não vira recusa', () => {
+  // Texto literal de dismiss.ts. O harness ignorava a recusa, e a corrida da
+  // conta FCX deixou um Avaliador órfão no canvas por causa disso.
+  assert.equal(dismissRefusedBusy(1, "error: 'Avaliador' is still working."), true)
+  assert.equal(dismissRefusedBusy(0, "Dismissed 'Avaliador': process killed and node removed from the canvas."), false)
+  assert.equal(dismissRefusedBusy(1, "error: agent 'Fulano' not found."), false, 'nó que já sumiu não é recusa por trabalho')
 })
 
 // ─── O veredito chega pela tela, e o TUI come os espaços ──────────────────────

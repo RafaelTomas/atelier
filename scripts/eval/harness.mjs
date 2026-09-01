@@ -273,6 +273,20 @@ export function subjectName(scenarioId, run) {
   return `Sujeito ${scenarioId}-${'abcdefgh'[run] ?? run}`
 }
 
+/**
+ * O `dismiss` recusou porque o nó ainda estava trabalhando?
+ *
+ * `dismiss` sem `--force` recusa um nó em `working` — de propósito, para o
+ * coordenador não matar trabalho em curso sem olhar. O harness ignorava a
+ * recusa, e um avaliador que ainda estava animando quando a corrida acabou
+ * FICAVA NO CANVAS: comia uma vaga do teto, e a corrida seguinte o reusava como
+ * se fosse um avaliador limpo. Aconteceu na corrida da conta FCX, e só apareceu
+ * porque um `atelier list` posterior mostrou o órfão.
+ */
+export function dismissRefusedBusy(code, out) {
+  return code !== 0 && /is still working/i.test(String(out))
+}
+
 /** O teto de terminais é do canvas inteiro, e o coordenador e o avaliador contam. */
 export function ceilingRoom(inventory, ceiling) {
   return ceiling - inventory.agents.length - 1

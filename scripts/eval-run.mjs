@@ -40,6 +40,7 @@ import {
   missingNeeds,
   classifyAsk,
   parseVerdicts,
+  dismissRefusedBusy,
   promptStuck,
   screenSettled,
   scoreRun,
@@ -150,6 +151,26 @@ async function waitStop(name, deadline) {
   return 'working'
 }
 
+/**
+ * Dispensa e CONFERE que dispensou.
+ *
+ * `dismiss` recusa um nó em `working`, e o harness ignorava a recusa: um
+ * avaliador que ainda animava quando a corrida acabou ficava no canvas comendo
+ * uma vaga do teto — e a corrida seguinte o reusava como se fosse limpo. O
+ * `--force` no fim é legítimo aqui e só aqui: é um nó que o próprio harness
+ * abriu, cujo trabalho terminou, e cuja tela já foi lida.
+ */
+async function dismissNode(name) {
+  const first = cli(['dismiss', name])
+  if (!dismissRefusedBusy(first.code, first.out)) return true
+  await sleep(5000)
+  const second = cli(['dismiss', name])
+  if (!dismissRefusedBusy(second.code, second.out)) return true
+  const forced = cli(['dismiss', name, '--force'])
+  console.log(`  (dismiss de '${name}' precisou de --force: o nó continuava em [working])`)
+  return forced.code === 0
+}
+
 /** A trilha, que é o que o avaliador lê. 200 linhas, como manda a suite. */
 function trail(name) {
   return cli(['check', name, '200']).out
@@ -238,9 +259,9 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
       evaluatorRaw: raw?.slice(-800)
     }
   } finally {
-    // Sempre. Um sujeito esquecido no canvas come uma vaga do teto da próxima
-    // corrida, e o M7c fez o `dismiss` parar de recusar quem está só travado.
-    cli(['dismiss', name])
+    // Sempre, e conferindo: um sujeito esquecido no canvas come uma vaga do
+    // teto da próxima corrida.
+    await dismissNode(name)
   }
 }
 
@@ -318,7 +339,7 @@ async function main() {
       }
     }
   } finally {
-    if (!opts.keepEvaluator && !existing) cli(['dismiss', opts.evaluator])
+    if (!opts.keepEvaluator && !existing) await dismissNode(opts.evaluator)
   }
 
   const total = aggregate(records)

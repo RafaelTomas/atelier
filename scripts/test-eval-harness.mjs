@@ -21,6 +21,8 @@ import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 import {
+  parseGitStatus,
+  treeDelta,
   effortByScenario,
   benchFor,
   sessionIdFromScreen,
@@ -772,6 +774,87 @@ test('a linha de base do ciclo 0 continua reproduzível', () => {
   assert.equal(e.S4.median, 16)
   // A faixa do S4 é o sujeito que percebeu os cartões fictícios (cartão C7E1E1C4).
   assert.equal(e.S4.max, 41)
+})
+
+// ─── A árvore: atribuir o que a corrida mexeu ─────────────────────────────────
+
+test('o porcelain -z é fatiado por NUL, e o renome consome DOIS campos', () => {
+  // Saída real do `git status --porcelain -z --untracked-files=all`, capturada de
+  // um repositório de teste com renome, acento e espaço. Quem trata todo campo
+  // como uma entrada conta o nome ANTIGO do renome como arquivo mexido a mais.
+  const z = [
+    ' D acentuado-ção.txt',
+    ' M mantido.txt',
+    'R  renomeado.txt',
+    'renomear.txt',
+    '?? src-novo.ts',
+    '?? sub/outro novo.txt'
+  ].join('\0') + '\0'
+
+  const paths = parseGitStatus(z)
+  assert.deepEqual(paths, [
+    'acentuado-ção.txt',
+    'mantido.txt',
+    'renomeado.txt',
+    'src-novo.ts',
+    'sub/outro novo.txt'
+  ])
+  assert.ok(!paths.includes('renomear.txt'), 'o nome antigo do renome entrou como entrada')
+  assert.ok(paths.includes('renomeado.txt'), 'o nome novo do renome não entrou')
+})
+
+test('caminho com espaço e com acento sai inteiro, sem escape octal', () => {
+  // O `--porcelain` SEM `-z` entrega `"acentuado-\\303\\247\\303\\243o.txt"`, e um
+  // parser que não desfizesse o escape reportaria caminho que não existe. É por
+  // isso que o driver usa `-z`.
+  const paths = parseGitStatus(' M sub dir/com acento ção.ts\0')
+  assert.deepEqual(paths, ['sub dir/com acento ção.ts'])
+})
+
+test('entrada vazia e lixo não viram caminho', () => {
+  assert.deepEqual(parseGitStatus(''), [])
+  assert.deepEqual(parseGitStatus('\0\0'), [])
+  // Campo curto demais para ter caminho depois do `XY `.
+  assert.deepEqual(parseGitStatus(' M \0'), [])
+})
+
+test('o delta atribui à corrida só o que apareceu NELA', () => {
+  // Uma árvore que já começa suja continua medindo: o que interessa é o que a
+  // corrida acrescentou. Sem isso, uma sessão com trabalho em curso não poderia
+  // rodar o eval — ou atribuiria ao sujeito o que já estava lá.
+  const antes = ['src/ja-estava.ts', 'scripts/tambem.mjs']
+  const depois = ['src/ja-estava.ts', 'scripts/tambem.mjs', 'src/main/core/date-coding.ts']
+  const d = treeDelta(antes, depois)
+  assert.deepEqual(d.touched, ['src/main/core/date-coding.ts'])
+  assert.deepEqual(d.resolved, [])
+})
+
+test('arquivo que a corrida LIMPOU sai como resolved, não como touched', () => {
+  const d = treeDelta(['src/a.ts', 'src/b.ts'], ['src/a.ts'])
+  assert.deepEqual(d.touched, [])
+  assert.deepEqual(d.resolved, ['src/b.ts'])
+})
+
+test('árvore limpa antes e depois não atribui nada', () => {
+  const d = treeDelta([], [])
+  assert.deepEqual(d.touched, [])
+  assert.deepEqual(d.resolved, [])
+})
+
+test('o caso real do ciclo 0 seria pego', () => {
+  // Um sujeito do S4 criou src/main/core/date-coding.ts e mexeu em treze
+  // chamadores, deixando o typecheck quebrado. A árvore estava LIMPA antes.
+  const antes = []
+  const depois = [
+    'scripts/make-demo-workspace.mjs',
+    'scripts/test-data-table.mjs',
+    'src/main/core/coding.ts',
+    'src/main/core/date-coding.ts',
+    'src/main/core/models/app-state.ts'
+  ]
+  const d = treeDelta(antes, depois)
+  assert.equal(d.touched.length, 5)
+  assert.ok(d.touched.includes('src/main/core/date-coding.ts'))
 })
 
 console.log(`\n${passed} passaram, ${failed} falharam\n`)

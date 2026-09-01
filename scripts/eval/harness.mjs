@@ -264,6 +264,66 @@ export function aggregate(records) {
 }
 
 /**
+ * Os caminhos que o `git status --porcelain -z --untracked-files=all` reporta.
+ *
+ * ─── Por que `-z`, e por que `--untracked-files=all` ───
+ *
+ * O `--porcelain` sozinho ESCAPA caminho não-ASCII e o entrega entre aspas:
+ * `acentuado-ção.txt` volta como `"acentuado-\303\247\303\243o.txt"`. Num
+ * repositório com nome de arquivo em português — este tem — um parser que não
+ * desfizesse o escape octal reportaria caminho que não existe. O `-z` entrega os
+ * bytes crus, delimitados por NUL, sem aspas e sem escape.
+ *
+ * E sem `--untracked-files=all` um diretório novo inteiro colapsa numa entrada
+ * só (`sub/`), então "que arquivos a corrida criou" sairia como um diretório.
+ *
+ * ─── A regra que faz um parser ingênuo errar ───
+ *
+ * Renome e cópia (`R`, `C`) ocupam DOIS campos: primeiro o caminho NOVO, depois
+ * o antigo. Quem fatia por NUL e trata todo campo como uma entrada conta o nome
+ * antigo como se fosse um arquivo mexido a mais, e o status dele viria do texto
+ * do caminho. Medido contra o `git` de verdade antes de escrever isto.
+ */
+export function parseGitStatus(z) {
+  const campos = String(z).split('\0').filter((c) => c.length > 0)
+  const caminhos = []
+  for (let i = 0; i < campos.length; i++) {
+    const campo = campos[i]
+    // `XY <caminho>`: dois caracteres de status, um espaço, o resto é caminho.
+    const status = campo.slice(0, 2)
+    const caminho = campo.slice(3)
+    if (!caminho) continue
+    caminhos.push(caminho)
+    // R/C trazem o caminho antigo no campo seguinte, que NÃO é outra entrada.
+    if (status[0] === 'R' || status[0] === 'C') i += 1
+  }
+  return caminhos.sort()
+}
+
+/**
+ * O que a corrida mexeu no repositório: o que está sujo agora e não estava antes.
+ *
+ * O eval é desassistido, e um sujeito do S4 já editou treze arquivos e deixou o
+ * `npm run typecheck` quebrado sem nada na saída acusando (01/09). A defesa não é
+ * proibir — S4 manda "começa a tarefa de cima do quadro", e começar uma tarefa de
+ * código É editar código. A defesa é ATRIBUIR: comparar antes e depois de cada
+ * corrida e dizer alto o que apareceu.
+ *
+ * Diferença de CONJUNTOS, e não "estava limpo / está sujo": uma árvore que já
+ * começa suja continua medindo, porque o que interessa é o delta daquela corrida.
+ * Sem isso, uma sessão que começasse com trabalho em curso não poderia rodar o
+ * eval — ou pior, atribuiria ao sujeito o que já estava lá.
+ */
+export function treeDelta(antes, depois) {
+  const eraSujo = new Set(antes)
+  const estaSujo = new Set(depois)
+  return {
+    touched: depois.filter((p) => !eraSujo.has(p)),
+    resolved: antes.filter((p) => !estaSujo.has(p))
+  }
+}
+
+/**
  * Quantas chamadas cada cenário custou, por corrida.
  *
  * ─── Por que isto existe, e por que não é um critério ───

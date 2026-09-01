@@ -7,6 +7,7 @@
  * SwiftTerm → node-pty (ConPTY no Windows, forkpty no resto).
  */
 import { EventEmitter } from 'node:events'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { IPty } from 'node-pty'
@@ -15,8 +16,9 @@ import { Constants } from '../constants'
 import { log } from '../logger'
 import { defaultShell } from '../models/node-content'
 import { atelierBinDir } from '../interagent/cli-install'
+import { handleBrief } from '../interagent/handlers/brief'
 import { persistence } from '../persistence/persistence-manager'
-import { ipcSocketPath } from '../persistence/paths'
+import { dataDir, ipcSocketPath } from '../persistence/paths'
 import { childEnv, prependPath } from '../subprocess-env'
 import { forgetTerminalSecrets, hasSecrets, maskForTerminal } from '../vault/masking'
 import { uuid } from '../coding'
@@ -111,6 +113,44 @@ function resolveCwd(opts: TerminalSpawnOptions): string {
   return opts.workingDirectory || process.env.HOME || process.env.USERPROFILE || process.cwd()
 }
 
+/**
+ * Onde mora o brief renderizado deste terminal. Mesma pasta do `--settings` —
+ * ela já deixou de ser só a barra de status, ver o cabeçalho de
+ * terminal/agent-settings.ts.
+ *
+ * Exportada porque `handlers/list.ts` precisa do MESMO caminho para citá-lo no
+ * cabeçalho: `ATELIER_BRIEF` é uma variável do ambiente do PTY, e o processo
+ * main que responde `list` não herda o ambiente do filho — recalcular pela
+ * mesma fórmula é o único jeito de main e PTY concordarem sem passar o valor
+ * por um canal a mais.
+ */
+export function briefFilePath(terminalId: UUID): string {
+  return join(dataDir(), 'agent-settings', `${terminalId}.brief.txt`)
+}
+
+/**
+ * Grava o brief em texto puro e devolve o caminho — o canal universal do M1b
+ * do plano de aderência (docs/2026-09-01-PLANO-aderencia-dos-agentes.md).
+ *
+ * `handleBrief` é a MESMA função que atende `atelier brief` pelo socket: o
+ * texto aqui é idêntico ao que este nó receberia perguntando pelo CLI, só que
+ * já em disco quando o agente sobe — todo preset sabe ler um arquivo, nenhum é
+ * obrigado a ter hook de `SessionStart` (Claude Code é o único que tem).
+ *
+ * `null` na falha, e o boot segue sem `ATELIER_BRIEF`: um brief que não pôde
+ * ser escrito não pode ser motivo para o PTY não subir.
+ */
+async function writeBriefFile(terminalId: UUID): Promise<string | null> {
+  const path = briefFilePath(terminalId)
+  try {
+    await mkdir(join(dataDir(), 'agent-settings'), { recursive: true })
+    await writeFile(path, handleBrief(['brief'], terminalId), 'utf8')
+    return path
+  } catch {
+    return null
+  }
+}
+
 export interface TerminalSession {
   id: UUID
   workspaceId: UUID
@@ -167,7 +207,8 @@ class TerminalManager extends EventEmitter {
     extraEnv?: Record<string, string>,
     claudeConfigDir?: string,
     innerStatusLine?: string | null,
-    isArtisan?: boolean
+    isArtisan?: boolean,
+    briefPath?: string | null
   ): NodeJS.ProcessEnv {
     return buildTerminalEnv({
       terminalId,
@@ -176,7 +217,8 @@ class TerminalManager extends EventEmitter {
       extraEnv,
       claudeConfigDir,
       innerStatusLine,
-      isArtisan
+      isArtisan,
+      briefPath
     })
   }
 
@@ -215,6 +257,13 @@ class TerminalManager extends EventEmitter {
       artisan: opts.isArtisan === true
     })
 
+    // O brief, pelo mesmo motivo do settings: precisa estar em disco ANTES do
+    // spawn para o ambiente do PTY já nascer com `ATELIER_BRIEF` apontando
+    // para ele. O nó já existe no workspace neste ponto (quem chama
+    // `terminals.spawn` garante isso — ver ipc/bridge.ts), então
+    // `connectedNodes` enxerga os cabos certos.
+    const briefPath = await writeBriefFile(opts.nodeId)
+
     // A sessão do agente, pelo mesmo motivo: as flags entram no comando ANTES
     // de ele ser digitado. Ver terminal/agent-resume.ts e session-store.ts.
     const plan = await this.planSession(opts, cwd, agent.command)
@@ -232,7 +281,8 @@ class TerminalManager extends EventEmitter {
           opts.extraEnv,
           opts.claudeConfigDir,
           agent.innerCommand,
-          opts.isArtisan === true
+          opts.isArtisan === true,
+          briefPath
         ) as Record<string, string>
       })
     } catch (err) {
@@ -697,6 +747,14 @@ export function buildTerminalEnv(params: {
    * Artesão para um Codex que nunca verá um `SessionStart`.
    */
   isArtisan?: boolean
+  /**
+   * Caminho do brief já renderizado deste terminal, ou `null` se a gravação
+   * falhou. Vira `ATELIER_BRIEF` — o canal universal do M1a/M1b do plano de
+   * aderência: Claude Code recebe o mesmo conteúdo pelo hook `SessionStart`
+   * (`atelier brief`), mas Codex, opencode, antigravity e o shell puro não têm
+   * hook nenhum, e é por isso que o arquivo existe — todo preset sabe ler um.
+   */
+  briefPath?: string | null
 }): NodeJS.ProcessEnv {
   const env = childEnv()
   env.ATELIER_TERMINAL_ID = params.terminalId
@@ -712,6 +770,7 @@ export function buildTerminalEnv(params: {
   }
 
   if (params.isArtisan) env.ATELIER_ARTESAO = '1'
+  if (params.briefPath) env.ATELIER_BRIEF = params.briefPath
 
   if (params.claudeConfigDir) env.CLAUDE_CONFIG_DIR = params.claudeConfigDir
   if (params.innerStatusLine) env.ATELIER_STATUSLINE_INNER = params.innerStatusLine

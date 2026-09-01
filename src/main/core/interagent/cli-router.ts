@@ -7,6 +7,7 @@
 import type { UUID } from '@shared/types'
 import { handleArtesao } from './handlers/artesao'
 import { handleAsk } from './handlers/ask'
+import { handleBrief } from './handlers/brief'
 import { handleButton } from './handlers/button'
 import { handleCheck } from './handlers/check'
 import { handleDismiss } from './handlers/dismiss'
@@ -73,6 +74,13 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
     // Oferecê-lo no help daria ao agente um verbo que não faz nada na mão dele.
     case 'artesao':
       return handleArtesao(args, terminalId)
+    // Fora de COMMANDS pelo mesmo motivo: não é um verbo que um agente digita.
+    // Quem chama é o hook `SessionStart` que o Atelier instala para TODO nó
+    // Claude Code, e o boot do PTY, que grava a mesma resposta em
+    // `ATELIER_BRIEF` para os presets sem hook (ver terminal-manager.ts e
+    // terminal/agent-settings.ts).
+    case 'brief':
+      return handleBrief(args, terminalId)
     case 'debug':
       return buildDebugInfo(terminalId)
 

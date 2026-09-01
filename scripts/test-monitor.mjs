@@ -1130,16 +1130,20 @@ test('os outros presets ficam de fora — statusLine é do Claude Code', () => {
   }
 })
 
-test('o settings gerado instala a statusLine, e nada mais', () => {
-  // Sem Artesão o arquivo é exatamente o que sempre foi. É a asserção que
-  // impede o Artesão de vazar configuração para os outros nós do canvas.
+test('o settings gerado instala a statusLine e o brief, sem o bloqueio do Task', () => {
+  // Sem Artesão a statusLine é exatamente a de sempre, e o `hooks.SessionStart`
+  // do brief chega para TODO nó (ver terminal/agent-settings.ts) — é a
+  // asserção que impede o bloqueio do Task, que É exclusivo do Artesão, de
+  // vazar para os outros nós do canvas.
   const cfg = JSON.parse(agentSettings({ artisan: false }))
-  assert.deepEqual(Object.keys(cfg), ['statusLine'], 'o Atelier mexeu em outra chave do usuário')
+  assert.deepEqual(Object.keys(cfg), ['statusLine', 'hooks'], 'o Atelier mexeu em outra chave do usuário')
   assert.equal(cfg.statusLine.type, 'command')
   // Caminho inteiro, e não `atelier statusline`: o PATH do PTY pode ter sido
   // reescrito pelo profile do usuário, e o nome solto resolveria para outro
   // binário — a falha era silenciosa, e o monitor ficava vazio.
   assert.match(cfg.statusLine.command, /^"[^"]*\/bin\/atelier" statusline$/)
+  assert.match(cfg.hooks.SessionStart[0].hooks[0].command, /^"[^"]*\/bin\/atelier" brief$/)
+  assert.equal(cfg.hooks.PreToolUse, undefined, 'o bloqueio do Task vazou sem Artesão')
 })
 
 // ─── Ref-count do amostrador ──────────────────────────────────────────────────

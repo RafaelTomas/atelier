@@ -1,10 +1,17 @@
-/** `atelier list` — agentes, notas e portais conectados ao chamador. */
+/**
+ * `atelier list` — agentes, notas e portais conectados ao chamador.
+ *
+ * Uma leitura mais completa já está em disco antes deste comando rodar: o
+ * caminho em `ATELIER_BRIEF` (variável de ambiente, gravada no boot do PTY —
+ * ver terminal/terminal-manager.ts) tem o mesmo inventário com o verbo que
+ * abre cada recurso, prontos para ler sem rodar nada.
+ */
 import type { CanvasNode, TodoBoard, UUID } from '@shared/types'
 import { editorState } from '../../editor/editor-registry'
 import { nodeDisplayName } from '../../models/node-content'
 import { paths } from '../../persistence/paths'
 import { roles } from '../../state/role-store'
-import { terminals } from '../../terminal/terminal-manager'
+import { briefFilePath, terminals } from '../../terminal/terminal-manager'
 import { readBoard } from '../../todo/todo-store'
 import { artisanBanner } from '../artisan-doctrine'
 import { connectedNodes, requireTerminalId, workspaceForTerminal } from './context'
@@ -24,6 +31,20 @@ function artisanHeader(tid: UUID): string[] {
 }
 
 /**
+ * A linha que aponta para a leitura mais completa: `$ATELIER_BRIEF` (gravado
+ * no boot do PTY, ver terminal/terminal-manager.ts) tem o mesmo inventário com
+ * o verbo que abre cada recurso, sem precisar rodar `list` de novo. Uma linha
+ * só — quem quer o texto lê o arquivo, não este cabeçalho.
+ *
+ * O caminho é recalculado pela mesma fórmula de `briefFilePath`, e não lido
+ * de `process.env`: quem responde `list` é o processo MAIN, que nunca herdou
+ * o ambiente do PTY que fez a pergunta.
+ */
+function briefHint(tid: UUID): string[] {
+  return [`(Full brief with open verbs already in $ATELIER_BRIEF: ${briefFilePath(tid)})`, '']
+}
+
+/**
  * O quadro daquele nó, lido do disco. `null` quando o arquivo não existe ou está
  * corrompido — e aí a linha diz `(unreadable)` em vez de mentir um zero.
  */
@@ -39,7 +60,7 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
   const tid = requireTerminalId(terminalId)
   if (!tid) return 'error: missing terminal ID'
 
-  const header = artisanHeader(tid)
+  const header = [...artisanHeader(tid), ...briefHint(tid)]
 
   const nodes = connectedNodes(tid)
   if (nodes.length === 0) {

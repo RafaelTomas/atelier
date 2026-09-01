@@ -111,10 +111,14 @@ console.log('\nartesao\n')
 
 // ─── O settings gerado ────────────────────────────────────────────────────────
 
-test('sem Artesão o settings é exatamente o de antes', () => {
+test('sem Artesão a statusLine fica intacta e o brief entra para todo mundo', () => {
   const cfg = JSON.parse(agentSettings({ artisan: false }))
-  assert.deepEqual(Object.keys(cfg), ['statusLine'])
+  assert.deepEqual(Object.keys(cfg), ['statusLine', 'hooks'], 'o Atelier mexeu em outra chave do usuário')
   assertCliCommand(cfg.statusLine.command, 'statusline')
+
+  const start = cfg.hooks.SessionStart[0].hooks[0]
+  assertCliCommand(start.command, 'brief', 'todo nó Claude Code devia ganhar o SessionStart do brief')
+  assert.equal(cfg.hooks.PreToolUse, undefined, 'o bloqueio do Task vazou para um nó sem Artesão')
 })
 
 test('sem argumento nenhum o padrão é não-Artesão', () => {
@@ -125,9 +129,12 @@ test('com Artesão os hooks entram e a statusLine FICA', () => {
   const cfg = JSON.parse(agentSettings({ artisan: true }))
   assertCliCommand(cfg.statusLine.command, 'statusline', 'o monitor foi atropelado')
 
+  // Mesmo com Artesão, o SessionStart chama `brief` — não `artesao brief`. A
+  // doutrina entra como BLOCO da resposta de `brief` (handlers/brief.ts), e
+  // não como um segundo hook concorrente.
   const start = cfg.hooks.SessionStart[0].hooks[0]
   assert.equal(start.type, 'command')
-  assertCliCommand(start.command, 'artesao brief')
+  assertCliCommand(start.command, 'brief')
 
   const pre = cfg.hooks.PreToolUse[0]
   assert.equal(pre.matcher, 'Task', 'o bloqueio não está mirando o subagente interno')

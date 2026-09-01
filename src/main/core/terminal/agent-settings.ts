@@ -47,17 +47,32 @@ export function agentSettingsPath(terminalId: UUID): string {
 }
 
 /**
- * Os hooks do Artesão.
+ * Os hooks que TODO nó Claude Code ganha, Artesão ou não.
+ *
+ * `SessionStart` é o canal desenhado para "acrescente isto ao contexto no
+ * início da sessão", e é aqui — não só no Artesão — que o G1 do plano de
+ * aderência se resolve: sem este hook, um nó comum não recebe NADA no boot, e
+ * o aviso de `injectSkillInto()` (skill-injector.ts) aparece na TELA do
+ * usuário, nunca no contexto do agente. `atelier brief` devolve o inventário
+ * do canvas — quem está cabeado, o verbo que abre cada um — e a doutrina do
+ * Artesão entra como um BLOCO dele quando o nó é um (ver
+ * interagent/handlers/brief.ts); não é mais um texto concorrente instalado só
+ * para o Artesão.
+ */
+function sessionStartHook(): { SessionStart: object[] } {
+  return {
+    SessionStart: [{ hooks: [{ type: 'command', command: cliCommand('brief') }] }]
+  }
+}
+
+/**
+ * O bloqueio do Artesão — só ele ganha isto.
  *
  * `PreToolUse` com matcher `Task` é o bloqueio, e é ele — não uma regra em
  * `permissions.deny` — porque a recusa precisa ENSINAR: o `atelier artesao
  * guard` responde `deny` com a razão, e a razão é o caminho do canvas
  * (`atelier recruit` + `atelier ask`). Uma regra de deny bloquearia calada, e um
  * agente que não sabe por que perdeu a ferramenta tenta de novo.
- *
- * `SessionStart` é a doutrina. É o canal desenhado para "acrescente isto ao
- * contexto no início da sessão" — o comando é o mesmo CLI do resto, e a resposta
- * dele conhece o canvas (quem já está cabeado, quantas vagas sobram).
  *
  * O matcher é `Task`, e não `Agent`, apesar de a ferramenta aparecer na tela do
  * agente como **Agent**: verificado contra o Claude Code 2.1.251, o hook casa
@@ -66,35 +81,30 @@ export function agentSettingsPath(terminalId: UUID): string {
  * O matcher também é ESTREITO: com ele instalado, Read, Bash e o resto passam
  * sem tocar no hook.
  */
-function artisanHooks(): object {
+function artisanGuardHook(): { PreToolUse: object[] } {
   return {
-    hooks: {
-      SessionStart: [
-        { hooks: [{ type: 'command', command: cliCommand('artesao brief') }] }
-      ],
-      PreToolUse: [
-        {
-          matcher: 'Task',
-          hooks: [{ type: 'command', command: cliCommand('artesao guard') }]
-        }
-      ]
-    }
+    PreToolUse: [
+      {
+        matcher: 'Task',
+        hooks: [{ type: 'command', command: cliCommand('artesao guard') }]
+      }
+    ]
   }
 }
 
 /**
  * O conteúdo do arquivo.
  *
- * Sem Artesão o JSON é EXATAMENTE o que era antes deste módulo existir — a
- * asserção que o test-monitor faz, e o que garante que ligar o Artesão em um nó
- * não muda nada em nenhum outro.
+ * `statusLine` e `hooks.SessionStart` (o brief) valem para TODO nó Claude
+ * Code — a asserção que o test-monitor faz hoje é sobre a `statusLine` não ter
+ * sido atropelada, não sobre o arquivo estar vazio de hooks. Só
+ * `hooks.PreToolUse`, o bloqueio do `Task`, depende de `opts.artisan`: é o que
+ * garante que ligar o Artesão num nó não muda o COMPORTAMENTO de nenhum outro,
+ * mesmo que todos agora recebam o mesmo hook de boot.
  */
 export function agentSettings(opts: { artisan: boolean } = { artisan: false }): string {
-  return JSON.stringify(
-    { ...statusLineBlock(), ...(opts.artisan ? artisanHooks() : {}) },
-    null,
-    2
-  )
+  const hooks = { ...sessionStartHook(), ...(opts.artisan ? artisanGuardHook() : {}) }
+  return JSON.stringify({ ...statusLineBlock(), hooks }, null, 2)
 }
 
 /**

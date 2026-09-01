@@ -185,6 +185,18 @@ test('linha corrompida no transcript não derruba a trilha', () => {
 
 // ─── A bancada: o sujeito não herda o cabeamento do coordenador ───────────────
 
+test('S5 mede a metade de E-10 que este protocolo consegue medir', () => {
+  // O cabo de cofre injeta as chaves no BOOT do PTY, e o sujeito é cabeado
+  // depois de nascer — medido em 01/09 no /proc/<pid>/environ de um nó cabeado
+  // ao cofre. `vault get` é o único caminho que existe para ele, e penalizá-lo
+  // mediria a ordem em que o harness monta a bancada, não o agente.
+  const s5 = scenario('S5')
+  assert.ok(s5.applicable.includes('E-10'), 'o vazamento continua sendo medido')
+  assert.ok(s5.applicable.includes('E-05'), 'publicar no canvas em vez de despejar texto')
+  assert.match(s5.prompt, /banco de teste/)
+  assert.match(s5.expected, /table create/)
+})
+
 test('a bancada leva ao sujeito os nós que o cenário exige', () => {
   assert.deepEqual(benchFor(scenario('S1'), inv), ['index.ts'])
   assert.deepEqual(benchFor(scenario('S4'), inv), ['Decisões', 'Tarefas'])
@@ -404,7 +416,9 @@ test('os oito cenários têm prompt literal e ação correta', () => {
 test('os sentinelas são S1–S4, e valem um terço do custo', () => {
   assert.deepEqual(SENTINELS, ['S1', 'S2', 'S3', 'S4'])
   assert.equal(applicablePairs(SENTINELS), 20)
-  assert.equal(applicablePairs(), 41)
+  // 42, e não 41: S5 passou a terminar em publicação no canvas e por isso
+  // exercita E-05 também. O total é calculado da matriz, nunca digitado.
+  assert.equal(applicablePairs(), 42)
 })
 
 const DOC = join(ROOT, 'docs/eval-aderencia-agentes.md')

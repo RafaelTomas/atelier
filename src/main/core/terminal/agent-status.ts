@@ -132,7 +132,13 @@ export function scanAgentStatus(chunk: string): AgentStatus {
  * hook, que recebe a mensagem intacta.
  */
 export interface WaitingReason {
-  kind: 'permission'
+  /**
+   * `permission` é o diálogo de autorização; `question` é o agente perguntando
+   * algo ao usuário numa lista de opções. Os dois param o agente do mesmo jeito
+   * — e é por isso que os dois são `waiting` — mas quem lê o canvas precisa
+   * saber qual, porque só um deles é sobre o que o agente ia FAZER.
+   */
+  kind: 'permission' | 'question'
   detail: string | null
 }
 
@@ -188,7 +194,37 @@ export function detectWaiting(screen: string): WaitingReason | null {
   const escape = d.includes('esctocancel')
   if (asks && (numbered || escape)) return { kind: 'permission', detail: commandUnderReview(tail) }
 
+  // A OUTRA parada do Claude Code: `AskUserQuestion`, a lista de opções.
+  //
+  // Não é diálogo de permissão — é o agente perguntando algo ao usuário, com
+  // opções numeradas — e por isso não casa em nada acima. Um sujeito do eval
+  // parado aqui foi PONTUADO como se tivesse terminado (01/09, cenário S5): o
+  // agente descobriu que faltava uma variável de ambiente, parou para perguntar
+  // como proceder, e a corrida entrou no relatório como resposta.
+  //
+  // A âncora é o rodapé da lista, `Enter to select`, que só existe quando há
+  // uma seleção aberta esperando tecla. Sozinho ele bastaria; exigir também as
+  // opções numeradas é o que impede que a frase, aparecendo no texto de uma
+  // conversa qualquer, vire uma espera inventada.
+  const selecting = d.includes('entertoselect')
+  if (selecting && numbered) return { kind: 'question', detail: questionAsked(tail) }
+
   // Os outros presets caem aqui de propósito, até existir tela capturada deles.
+  return null
+}
+
+/**
+ * A pergunta que o agente fez, quando ela sobrevive ao redesenho.
+ *
+ * A primeira opção da lista é o que chega mais inteiro — o enunciado costuma vir
+ * com os espaços comidos —, e é ela que diz ao coordenador o que destravaria o
+ * nó. Sem candidata boa, `null`: um rótulo sem espaços seria pior que nenhum.
+ */
+function questionAsked(tail: string): string | null {
+  for (const line of tail.split('\n')) {
+    const m = /(?:❯\s*)?1\.\s*(.{3,80}?)\s*$/.exec(line)
+    if (m && m[1] && /\s/.test(m[1])) return `asking: ${m[1]}`
+  }
   return null
 }
 

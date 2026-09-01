@@ -47,6 +47,7 @@ const cli = await import(pathToFileURL(join(ROOT, 'resources/atelier.cjs')).href
 const { OUTCOMES, exitCodeFor } = cli.default ?? cli
 
 const REAL = await readFile(join(ROOT, 'scripts/fixtures/waiting-claude-permission.txt'), 'utf8')
+const QUESTION = await readFile(join(ROOT, 'scripts/fixtures/waiting-claude-question.txt'), 'utf8')
 
 let passed = 0
 let failed = 0
@@ -184,6 +185,39 @@ test('o Notification não atropela os hooks que já existiam', () => {
   assert.ok(cfg.hooks.SessionStart, 'o brief sumiu')
   assert.ok(cfg.hooks.PreToolUse, 'o bloqueio do Task sumiu')
   assert.ok(cfg.statusLine, 'a barra de status sumiu')
+})
+
+// ─── A outra parada: AskUserQuestion ──────────────────────────────────────────
+//
+// Tela real do `Sujeito S5-a` (sonnet, conta FCX, 01/09): o agente descobriu que
+// faltava uma variável de ambiente e parou para perguntar como proceder. Antes
+// desta detecção, o harness do eval PONTUOU essa corrida como se ela tivesse
+// terminado — o pior desfecho possível, porque entra no relatório como número.
+
+test('a lista de opções do AskUserQuestion é espera, não fim de trabalho', () => {
+  const reason = detectWaiting(QUESTION)
+  assert.ok(reason, 'a pergunta com lista de opções não foi vista')
+  assert.equal(reason.kind, 'question')
+})
+
+test('a pergunta e a permissão não se confundem', () => {
+  assert.equal(detectWaiting(REAL).kind, 'permission')
+  assert.equal(detectWaiting(QUESTION).kind, 'question')
+})
+
+test('o detalhe da pergunta sai legível, ou não sai', () => {
+  const { detail } = detectWaiting(QUESTION)
+  // `null` é resposta válida: um rótulo com os espaços comidos seria pior que
+  // nenhum. O que não pode é vir lixo.
+  if (detail !== null) {
+    assert.match(detail, /^asking: /)
+    assert.match(detail, /\s\w/, 'rótulo sem espaço nenhum é tela comida, não rótulo')
+  }
+})
+
+test('a frase solta numa conversa não inventa espera', () => {
+  // Sem a lista numerada, `Enter to select` no meio de um texto é só texto.
+  assert.equal(detectWaiting('o rodapé diz Enter to select quando há lista'), null)
 })
 
 await rm(outdir, { recursive: true, force: true })

@@ -32,7 +32,7 @@
  *
  * Módulo sem `electron` — o smoke headless exercita a montagem.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { UUID } from '@shared/types'
@@ -125,24 +125,91 @@ function taskGuardHook(): { PreToolUse: object[] } {
 }
 
 /**
+ * O diretório da skill do Atelier entra como diretório de trabalho do nó.
+ *
+ * ─── O problema, medido ───
+ *
+ * A skill que o Atelier instala mora em `~/.claude/skills/atelier` — fora do
+ * cwd do nó, que é o projeto do usuário. Quando o agente carrega a skill e vai
+ * abrir uma reference (`references/todo.md`, `portal.md`, …), o Claude Code
+ * abre um diálogo: `Allow reads outside the working directories?`. O agente
+ * PARA ali.
+ *
+ * No ciclo 0 de 01/09 esse diálogo apareceu em SEIS das sete trilhas, e um
+ * sujeito do S4 não saiu dele. É o pior lugar possível para uma parada: o
+ * agente acabou de decidir usar o recurso certo, e o que o interrompe é ler a
+ * própria instrução de como usá-lo. Custa uma resposta do usuário no melhor
+ * caso, e o nó no pior.
+ *
+ * ─── Por que `permissions.additionalDirectories`, e por que só ele ───
+ *
+ * Verificado ao vivo em 01/09 com o `claude -p` (haiku, prompt de uma linha):
+ * sem a chave, o agente responde *"I need permission to read that file"*; com
+ * ela, lê. A descrição da TOOL homônima fala em "strict subdirectory of cwd", e
+ * essa restrição não vale para a chave de settings — foi por isso que valeu
+ * medir em vez de deduzir.
+ *
+ * O escopo é o diretório DA SKILL, não `~/.claude` e muito menos `$HOME`: o
+ * Atelier escreveu aquele texto e o agente precisa poder lê-lo, e nada mais é
+ * liberado por isso. Um diretório que não existe fica de fora em vez de entrar
+ * na lista — declarar caminho inexistente é pedir um erro num lugar onde o
+ * sintoma seria "o nó não sobe".
+ *
+ * A conta importa: um nó com `CLAUDE_CONFIG_DIR` próprio lê a skill de
+ * `<configDir>/skills/atelier`, e foi de lá que a trilha do sujeito veio. Os
+ * dois candidatos entram quando existem, porque a conta padrão usa o de `~`.
+ */
+async function skillDirectories(claudeConfigDir?: string): Promise<string[]> {
+  const candidatos = [join(homedir(), '.claude', 'skills', SKILL_DIR_NAME)]
+  if (claudeConfigDir) candidatos.push(join(claudeConfigDir, 'skills', SKILL_DIR_NAME))
+
+  const existem: string[] = []
+  for (const dir of candidatos) {
+    if (existem.includes(dir)) continue
+    try {
+      await access(dir)
+      existem.push(dir)
+    } catch {
+      // Não existe neste momento: fora da lista.
+    }
+  }
+  return existem
+}
+
+/**
+ * O nome do diretório da skill.
+ *
+ * Duplicado do `SKILL_NAME` de `connection/skill-injector.ts` de propósito:
+ * importar aquele módulo aqui traria o `SKILL.md` inteiro e as nove references
+ * para dentro deste, que é carregado no spawn de todo nó. O teste
+ * `test-skill-docs` confere que os dois não divergem.
+ */
+const SKILL_DIR_NAME = 'atelier'
+
+/**
  * O conteúdo do arquivo.
  *
  * Os quatro blocos valem para TODO nó Claude Code: `statusLine`,
  * `hooks.SessionStart` (o brief), `hooks.Notification` (o sinal de espera) e
- * `hooks.PreToolUse` (o bloqueio do subagente).
+ * `hooks.PreToolUse` (o bloqueio do subagente). O quinto, `permissions`, entra
+ * quando o diretório da skill existe — ver `skillDirectories`.
  *
  * O `opts.artisan` sobrevive porque o BRIEF continua diferente — o Artesão
  * recebe a doutrina inteira —, mas ele não decide mais quem pode abrir
  * subagente. Ver o comentário do bloqueio: trabalho fora do canvas é trabalho
  * que o usuário não vê, venha de qual nó vier.
  */
-export function agentSettings(opts: { artisan: boolean } = { artisan: false }): string {
+export function agentSettings(
+  opts: { artisan: boolean; skillDirs?: string[] } = { artisan: false }
+): string {
   const hooks = {
     ...sessionStartHook(),
     ...notificationHook(),
     ...taskGuardHook()
   }
-  return JSON.stringify({ ...statusLineBlock(), hooks }, null, 2)
+  const dirs = opts.skillDirs ?? []
+  const permissions = dirs.length ? { permissions: { additionalDirectories: dirs } } : {}
+  return JSON.stringify({ ...statusLineBlock(), ...permissions, hooks }, null, 2)
 }
 
 /**
@@ -174,7 +241,14 @@ export async function withAgentSettings(
   const path = agentSettingsPath(terminalId)
   try {
     await mkdir(join(dataDir(), 'agent-settings'), { recursive: true })
-    await writeFile(path, agentSettings({ artisan: opts.artisan === true }), 'utf8')
+    await writeFile(
+      path,
+      agentSettings({
+        artisan: opts.artisan === true,
+        skillDirs: await skillDirectories(opts.claudeConfigDir)
+      }),
+      'utf8'
+    )
   } catch {
     return { command, innerCommand: null }
   }

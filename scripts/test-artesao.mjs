@@ -127,6 +127,41 @@ test('sem Artesão a statusLine fica intacta e os quatro blocos entram', () => {
   assert.equal(cfg.hooks.PreToolUse[0].matcher, 'Task')
 })
 
+test('a skill entra como diretório de trabalho, e nada além dela', () => {
+  // A skill do Atelier mora fora do cwd do nó, e abrir uma reference dela fazia
+  // o Claude Code perguntar `Allow reads outside the working directories?`. No
+  // ciclo 0 de 01/09 o diálogo apareceu em seis das sete trilhas, e um sujeito
+  // do S4 não saiu dele: o agente para justamente ao ler a instrução de como
+  // usar o recurso que acabou de escolher.
+  const dirs = ['/home/x/.claude/skills/atelier', '/home/x/.atelier/contas/1/skills/atelier']
+  const cfg = JSON.parse(agentSettings({ artisan: false, skillDirs: dirs }))
+  assert.deepEqual(cfg.permissions, { additionalDirectories: dirs })
+
+  // O escopo é o diretório DA SKILL. Nem `~/.claude`, nem `$HOME`, nem uma
+  // regra larga de leitura: o Atelier escreveu aquele texto, e é só ele que o
+  // agente ganha o direito de ler.
+  for (const d of cfg.permissions.additionalDirectories) {
+    assert.match(d, /skills\/atelier$/, `escopo largo demais: ${d}`)
+  }
+  // E nenhuma outra chave de permissão foi inventada pelo caminho.
+  assert.deepEqual(Object.keys(cfg.permissions), ['additionalDirectories'])
+})
+
+test('sem diretório de skill, a chave permissions NÃO aparece', () => {
+  // Um settings que declarasse `additionalDirectories: []` seria uma afirmação
+  // sobre as permissões do usuário onde não há nada a afirmar.
+  const cfg = JSON.parse(agentSettings({ artisan: false, skillDirs: [] }))
+  assert.ok(!('permissions' in cfg), 'declarou permissions vazio')
+  assert.deepEqual(Object.keys(cfg), ['statusLine', 'hooks'])
+})
+
+test('a permissão da skill não muda os hooks nem a statusLine', () => {
+  const sem = JSON.parse(agentSettings({ artisan: false }))
+  const com = JSON.parse(agentSettings({ artisan: false, skillDirs: ['/x/skills/atelier'] }))
+  assert.deepEqual(sem.hooks, com.hooks)
+  assert.deepEqual(sem.statusLine, com.statusLine)
+})
+
 test('Artesão e nó comum têm os MESMOS hooks — o que difere é o brief', () => {
   const comum = JSON.parse(agentSettings({ artisan: false }))
   const artesao = JSON.parse(agentSettings({ artisan: true }))

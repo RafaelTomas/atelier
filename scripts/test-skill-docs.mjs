@@ -39,6 +39,7 @@ await esbuild.build({
   stdin: {
     contents: `
       export { SKILL_MD, REFERENCES, SKILL_DESCRIPTION, installSkillsIfNeeded } from './src/main/core/connection/skill-injector.ts'
+      export { withAgentSettings } from './src/main/core/terminal/agent-settings.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -52,7 +53,7 @@ await esbuild.build({
   alias: { '@shared': join(ROOT, 'src/shared') }
 })
 
-const { SKILL_MD, REFERENCES, SKILL_DESCRIPTION, installSkillsIfNeeded } = await import(
+const { SKILL_MD, REFERENCES, SKILL_DESCRIPTION, installSkillsIfNeeded, withAgentSettings } = await import(
   pathToFileURL(outfile).href
 )
 
@@ -265,6 +266,53 @@ await testAsync('references órfãs de uma versão anterior são removidas', asy
   } finally {
     process.env.HOME = fakeHome
     await rm(home2, { recursive: true, force: true })
+  }
+})
+
+await testAsync(
+  'o settings do nó aponta para o diretório que o instalador REALMENTE criou',
+  async () => {
+    // O acoplamento que este teste protege: `agent-settings.ts` monta o caminho
+    // da skill por conta própria (importar o injector traria o SKILL.md inteiro
+    // para um módulo carregado no spawn de todo nó), e um dos dois lados pode
+    // mudar de diretório sem o outro saber. O sintoma seria mudo: o diálogo
+    // `Allow reads outside the working directories?` de volta, e o agente
+    // parando ao abrir uma reference.
+    await installSkillsIfNeeded()
+    const instalado = join(fakeHome, '.claude', 'skills', 'atelier')
+    // Pré-condição: o instalador escreveu onde este teste acha que escreveu.
+    await readFile(join(instalado, 'SKILL.md'), 'utf8')
+
+    const { command } = await withAgentSettings('claude', '11111111-2222-3333-4444-555555555555')
+    const arquivo = command.match(/--settings "([^"]+)"/)[1]
+    const cfg = JSON.parse(await readFile(arquivo, 'utf8'))
+
+    assert.ok(cfg.permissions, 'o settings do nó não declarou permissão nenhuma')
+    assert.ok(
+      cfg.permissions.additionalDirectories.includes(instalado),
+      `o settings aponta para ${JSON.stringify(cfg.permissions.additionalDirectories)}, e a skill está em ${instalado}`
+    )
+  }
+)
+
+await testAsync('diretório de skill que não existe fica FORA da lista', async () => {
+  // Declarar caminho inexistente é pedir um erro num lugar onde o sintoma seria
+  // "o nó não sobe". A conta aqui não tem skill instalada.
+  const semSkill = await mkdtemp(join(tmpdir(), 'atelier-conta-sem-skill-'))
+  try {
+    const { command } = await withAgentSettings(
+      'claude',
+      '66666666-7777-8888-9999-aaaaaaaaaaaa',
+      { claudeConfigDir: semSkill }
+    )
+    const cfg = JSON.parse(await readFile(command.match(/--settings "([^"]+)"/)[1], 'utf8'))
+    const dirs = cfg.permissions?.additionalDirectories ?? []
+    assert.ok(
+      !dirs.some((d) => d.startsWith(semSkill)),
+      `entrou um diretório inexistente: ${JSON.stringify(dirs)}`
+    )
+  } finally {
+    await rm(semSkill, { recursive: true, force: true })
   }
 })
 

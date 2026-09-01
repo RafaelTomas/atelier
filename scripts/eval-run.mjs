@@ -612,7 +612,14 @@ async function main() {
     `Ciclo ${opts.cycle}: ${total.yes}/${total.applicable} = ${(total.pct * 100).toFixed(1)}%`,
     `Corridas: ${total.scored} pontuadas, ${total.nullified} nulas, ${total.skipped} puladas`,
     'Por critério:',
-    ...Object.entries(total.byCriterion).map(([id, b]) => `  ${id}  ${b.yes}/${b.applicable}`)
+    ...Object.entries(total.byCriterion).map(([id, b]) => `  ${id}  ${b.yes}/${b.applicable}`),
+    // A MEDIDA sem teto, ao lado dos critérios com teto. Ver `effortByScenario`:
+    // quatro critérios saturaram no ciclo 0, e uma mutação da skill não teria
+    // onde aparecer. Aqui ela aparece, e sem inventar nota de corte.
+    'Chamadas até concluir (mediana, faixa) — comparável DENTRO do cenário:',
+    ...Object.entries(total.effort).map(
+      ([id, e]) => `  ${id}  mediana ${e.median}  faixa ${e.min}–${e.max}  (${e.calls.join(', ')})`
+    )
   ].join('\n')
   console.log(summary)
   writeFileSync(join(outDir, 'summary.txt'), `${summary}\n`, 'utf8')

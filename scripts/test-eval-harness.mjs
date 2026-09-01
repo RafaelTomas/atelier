@@ -21,6 +21,7 @@ import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 import {
+  effortByScenario,
   benchFor,
   sessionIdFromScreen,
   toolTrail,
@@ -688,6 +689,89 @@ test('a rubrica escrita cobre todo critério que algum cenário aplica', () => {
       assert.ok(naRubrica.has(id), `${s.id} aplica ${id}, que não está na rubrica`)
     }
   }
+})
+
+// ─── A medida sem teto: chamadas até concluir ─────────────────────────────────
+
+test('o esforço é agrupado por cenário, e nunca somado entre cenários', () => {
+  // S3 é ler um portal; S4 é fazer uma tarefa inteira e anotá-la. Uma média dos
+  // dois não descreveria corrida nenhuma.
+  const recs = [
+    { outcome: 'scored', scenario: { id: 'S3' }, toolCalls: 3 },
+    { outcome: 'scored', scenario: { id: 'S3' }, toolCalls: 5 },
+    { outcome: 'scored', scenario: { id: 'S4' }, toolCalls: 41 }
+  ]
+  const e = effortByScenario(recs)
+  assert.deepEqual(Object.keys(e).sort(), ['S3', 'S4'])
+  assert.equal(e.S3.median, 4)
+  assert.equal(e.S3.min, 3)
+  assert.equal(e.S3.max, 5)
+  assert.equal(e.S4.runs, 1)
+  assert.equal(e.S4.median, 41)
+})
+
+test('mediana ímpar é o do meio; par é a média dos dois do meio', () => {
+  const um = effortByScenario([{ outcome: 'scored', scenario: { id: 'X' }, toolCalls: 7 }])
+  assert.equal(um.X.median, 7)
+  const dois = effortByScenario([
+    { outcome: 'scored', scenario: { id: 'X' }, toolCalls: 10 },
+    { outcome: 'scored', scenario: { id: 'X' }, toolCalls: 15 }
+  ])
+  assert.equal(dois.X.median, 12.5)
+  // A ordem de entrada não muda nada — a lista é ordenada antes.
+  const fora = effortByScenario([
+    { outcome: 'scored', scenario: { id: 'X' }, toolCalls: 15 },
+    { outcome: 'scored', scenario: { id: 'X' }, toolCalls: 3 },
+    { outcome: 'scored', scenario: { id: 'X' }, toolCalls: 9 }
+  ])
+  assert.equal(fora.X.median, 9)
+  assert.deepEqual(fora.X.calls, [3, 9, 15])
+})
+
+test('corrida sem contagem de chamadas fica FORA da medida', () => {
+  // `toolCalls` é null quando a trilha veio da tela — e a tela COLAPSA as
+  // chamadas (`ran 3 shell commands`). Contar aquilo como esforço inventaria um
+  // número baixo justamente na corrida menos confiável.
+  const e = effortByScenario([
+    { outcome: 'scored', scenario: { id: 'S3' }, toolCalls: null },
+    { outcome: 'scored', scenario: { id: 'S3' } },
+    { outcome: 'scored', scenario: { id: 'S3' }, toolCalls: 4 }
+  ])
+  assert.equal(e.S3.runs, 1)
+  assert.deepEqual(e.S3.calls, [4])
+})
+
+test('aggregate publica o esforço junto com os critérios, e só das pontuadas', () => {
+  const recs = [
+    {
+      outcome: 'scored',
+      scenario: { id: 'S3', applicable: ['E-03'] },
+      score: { yes: 0, applicable: 1 },
+      verdicts: { 'E-03': 'não' },
+      toolCalls: 5
+    },
+    // Nula não entra em nada: nem no score, nem no esforço.
+    { outcome: 'null', scenario: { id: 'S3', applicable: ['E-03'] }, toolCalls: 99 }
+  ]
+  const t = aggregate(recs)
+  assert.equal(t.scored, 1)
+  assert.equal(t.nullified, 1)
+  assert.deepEqual(t.effort.S3.calls, [5], 'a corrida nula entrou no esforço')
+})
+
+test('a linha de base do ciclo 0 continua reproduzível', () => {
+  // Os números reais de 01/09, para uma mudança no cálculo não passar calada.
+  const ciclo0 = [
+    ['S2', 13], ['S2', 13], ['S2', 14],
+    ['S3', 3], ['S3', 4], ['S3', 5],
+    ['S4', 15], ['S4', 16], ['S4', 41]
+  ].map(([id, n]) => ({ outcome: 'scored', scenario: { id }, toolCalls: n }))
+  const e = effortByScenario(ciclo0)
+  assert.equal(e.S2.median, 13)
+  assert.equal(e.S3.median, 4)
+  assert.equal(e.S4.median, 16)
+  // A faixa do S4 é o sujeito que percebeu os cartões fictícios (cartão C7E1E1C4).
+  assert.equal(e.S4.max, 41)
 })
 
 console.log(`\n${passed} passaram, ${failed} falharam\n`)

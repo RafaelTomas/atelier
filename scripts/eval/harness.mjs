@@ -258,8 +258,65 @@ export function aggregate(records) {
     yes,
     applicable,
     pct: applicable ? yes / applicable : 0,
-    byCriterion
+    byCriterion,
+    effort: effortByScenario(scored)
   }
+}
+
+/**
+ * Quantas chamadas cada cenário custou, por corrida.
+ *
+ * ─── Por que isto existe, e por que não é um critério ───
+ *
+ * O ciclo 0 saturou: E-01 9/9, E-02 9/9, E-04 9/9, E-05 6/6. Quatro critérios no
+ * teto não têm como melhorar, então uma mutação da skill devolveria o MESMO
+ * número e ninguém saberia se ela foi boa, ruim ou indiferente. Um eval sem folga
+ * não mede progresso, só confirma que nada regrediu.
+ *
+ * A variância dos dados estava toda fora dos critérios, no total de chamadas:
+ *
+ *     S3:  3, 4, 5        S2:  13, 13, 14        S4:  15, 16, 41
+ *
+ * Cinco vezes de diferença entre cenários, e o número já era gravado por corrida
+ * (`record.toolCalls`) — só não era reportado nem usado. É a metade do título do
+ * projeto que não estava sendo medida: "aderência e VELOCIDADE".
+ *
+ * É MEDIDA, não critério, e a distinção é deliberada. Um sim/não sobre "gastou
+ * pouco" precisaria de um teto arbitrário, e um teto arbitrário é como E-03 deu
+ * 0/9. Aqui não há aprovação: há mediana e faixa, comparáveis entre ciclos do
+ * mesmo cenário. Quem decide se 13 chamadas para publicar uma tabela é muito é o
+ * usuário, olhando dois ciclos lado a lado.
+ *
+ * Comparável só DENTRO do cenário: S3 é ler um portal, S4 é fazer uma tarefa
+ * inteira e anotá-la. Somar os dois num número só produziria uma média que não
+ * descreve corrida nenhuma.
+ */
+export function effortByScenario(scored) {
+  const porCenario = {}
+  for (const r of scored) {
+    const n = r.toolCalls
+    if (typeof n !== 'number') continue
+    ;(porCenario[r.scenario.id] ??= []).push(n)
+  }
+  const saida = {}
+  for (const [id, valores] of Object.entries(porCenario)) {
+    const ordenado = [...valores].sort((a, b) => a - b)
+    saida[id] = {
+      runs: ordenado.length,
+      min: ordenado[0],
+      max: ordenado[ordenado.length - 1],
+      median: median(ordenado),
+      calls: ordenado
+    }
+  }
+  return saida
+}
+
+/** Mediana de uma lista JÁ ordenada. Par: média dos dois do meio. */
+function median(ordenado) {
+  if (ordenado.length === 0) return null
+  const meio = Math.floor(ordenado.length / 2)
+  return ordenado.length % 2 ? ordenado[meio] : (ordenado[meio - 1] + ordenado[meio]) / 2
 }
 
 /**

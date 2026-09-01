@@ -45,6 +45,7 @@ import {
   dismissRefusedBusy,
   sessionIdFromScreen,
   toolTrail,
+  evaluatorText,
   renderToolTrail,
   promptStuck,
   screenSettled,
@@ -303,7 +304,7 @@ function trailFor(name, accountLabel) {
   return { text, source: 'transcript', calls: calls.length }
 }
 
-async function evaluate(evaluator, scn, trailPath, deadline) {
+async function evaluate(evaluator, scn, trailPath, deadline, accountLabel) {
   const criteria = scn.applicable.join(', ')
   // A forma pedida — `VER <id> <veredito>` — não aparece escrita neste
   // enunciado, e é de propósito: `ask` devolve a TELA do avaliador, e a tela
@@ -325,7 +326,29 @@ async function evaluate(evaluator, scn, trailPath, deadline) {
     if (stopped !== 'waiting') body = screenOf(evaluator)
   }
   if (classifyAsk(r.code) === 'waiting') return { verdicts: {}, error: 'avaliador parado pedindo autorização' }
-  return { verdicts: parseVerdicts(body), error: null, raw: body }
+
+  // O VEREDITO VEM DO TRANSCRIPT, e a tela é só o reserva.
+  //
+  // `body` acima é a tela do avaliador, e a tela do TUI reescreve linhas e come
+  // caracteres: no ciclo 0 de 01/09 um `VER E-04 sim` virou `4` e a corrida foi
+  // anulada duas vezes por "avaliador não julgou" — sobre um avaliador que
+  // havia julgado certo. Ver `evaluatorText`.
+  const path = transcriptFor(sessionIdFromScreen(screenOf(evaluator)), accountLabel)
+  let source = 'screen'
+  if (path) {
+    try {
+      const doTranscript = parseVerdicts(evaluatorText(readFileSync(path, 'utf8')))
+      // Só troca se o transcript de fato julgou algo. Um transcript que ainda
+      // não tem a resposta (escrita em voo) não deve apagar o que a tela viu.
+      if (Object.keys(doTranscript).length > 0) {
+        return { verdicts: doTranscript, error: null, raw: body, source: 'transcript' }
+      }
+    } catch {
+      // ilegível: fica com a tela, e a linha abaixo diz isso.
+    }
+  }
+  console.log(`  (veredito de '${evaluator}' veio da TELA: o transcript não respondeu — a tela colapsa vereditos)`)
+  return { verdicts: parseVerdicts(body), error: null, raw: body, source }
 }
 
 async function runOnce(scn, run, opts, outDir, evaluator) {
@@ -404,7 +427,13 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
     record.trailSource = captured.source
     record.toolCalls = captured.calls ?? null
 
-    const { verdicts, error, raw } = await evaluate(evaluator, scn, trailPath, Date.now() + opts.runTimeoutMs)
+    const { verdicts, error, raw, source: verdictSource } = await evaluate(
+      evaluator,
+      scn,
+      trailPath,
+      Date.now() + opts.runTimeoutMs,
+      opts.account
+    )
     if (error) return { ...record, outcome: 'null', reason: error, trailPath }
 
     const score = scoreRun(scn, verdicts)
@@ -414,6 +443,7 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
       outcome: score.complete ? 'scored' : 'null',
       reason: score.complete ? null : `avaliador não julgou ${score.missing.join(', ')}`,
       trailPath,
+      verdictSource,
       verdicts,
       score,
       evaluatorRaw: raw?.slice(-800)

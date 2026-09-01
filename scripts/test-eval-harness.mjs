@@ -30,6 +30,7 @@ import {
   missingNeeds,
   classifyAsk,
   parseVerdicts,
+  evaluatorText,
   promptStuck,
   screenSettled,
   scoreRun,
@@ -520,6 +521,113 @@ if (existsSync(DOC)) {
 } else {
   console.log('  --  docs/eval-aderencia-agentes.md ausente (docs/ é gitignored): comparação com o documento pulada')
 }
+
+// ─── O veredito vem do transcript, não da tela ────────────────────────────────
+
+test('evaluatorText lê só o texto do ASSISTENTE', () => {
+  // As mensagens de USUÁRIO do transcript contêm o ENUNCIADO, e o enunciado
+  // nomeia os critérios. Ler as duas faria o pedido voltar como veredito — foi
+  // o que aconteceu na primeira corrida de fumaça de 01/09.
+  const jsonl = [
+    JSON.stringify({
+      message: {
+        role: 'user',
+        content: 'Only these criteria apply to this trail: E-01, E-02, E-03. Answer VER then the id.'
+      }
+    }),
+    JSON.stringify({
+      message: { role: 'assistant', content: [{ type: 'text', text: 'VER E-01 sim\nVER E-02 não' }] }
+    })
+  ].join('\n')
+
+  const texto = evaluatorText(jsonl)
+  assert.ok(!texto.includes('Only these criteria'), 'o enunciado entrou na leitura')
+  assert.deepEqual(parseVerdicts(texto), { 'E-01': 'sim', 'E-02': 'não' })
+
+  // A prova de que a defesa importa: lendo o jsonl INTEIRO, o enunciado
+  // contribuiria ids sem veredito e a corrida mudaria de resultado.
+  assert.ok(jsonl.includes('E-03'), 'o enunciado desta fixture cita E-03')
+  assert.ok(!('E-03' in parseVerdicts(texto)), 'E-03 veio do enunciado, não do avaliador')
+})
+
+test('o veredito que a TELA perdeu, o transcript devolve', () => {
+  // Capturado ao vivo no ciclo 0 de 01/09: o avaliador respondendo sobre
+  // trail-S2-1, e a mesma resposta depois de o TUI reescrever a linha.
+  const daTela = 'VER E-01 simVERE-02sim 3não45sim'
+  const doTranscript = JSON.stringify({
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'VER E-01 sim\nVER E-02 sim\nVER E-03 não\nVER E-04 sim\nVER E-05 sim' }]
+    }
+  })
+
+  // `VER E-04 sim` virou `4` e `VER E-05 sim` virou `5sim`: nenhum dos dois casa,
+  // porque parseVerdicts exige o `E-` antes do número. A corrida foi anulada por
+  // "avaliador não julgou" DUAS vezes, sobre um avaliador que julgou certo.
+  const perdidos = parseVerdicts(daTela)
+  assert.ok(!('E-04' in perdidos), 'a fixture da tela não reproduz mais o colapso')
+  assert.ok(!('E-05' in perdidos), 'a fixture da tela não reproduz mais o colapso')
+
+  assert.deepEqual(parseVerdicts(evaluatorText(doTranscript)), {
+    'E-01': 'sim',
+    'E-02': 'sim',
+    'E-03': 'não',
+    'E-04': 'sim',
+    'E-05': 'sim'
+  })
+})
+
+test('transcript sem resposta do assistente não apaga o que a tela viu', () => {
+  // O transcript é escrito em voo. Um arquivo que ainda não tem a resposta
+  // devolve vazio, e vazio NÃO é veredito — o driver fica com a tela e diz isso
+  // na saída.
+  const soUsuario = JSON.stringify({ message: { role: 'user', content: 'VER E-01 sim' } })
+  assert.equal(evaluatorText(soUsuario), '')
+  assert.deepEqual(parseVerdicts(evaluatorText(soUsuario)), {})
+})
+
+test('evaluatorText aguenta content string, linha torta e jsonl vazio', () => {
+  assert.equal(evaluatorText(''), '')
+  assert.equal(evaluatorText('{nao é json}\n'), '')
+  const misto = [
+    '{quebrado',
+    JSON.stringify({ message: { role: 'assistant', content: 'VER E-01 sim' } }),
+    JSON.stringify({ type: 'summary' }),
+    JSON.stringify({ message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'VER E-09 não' }] } })
+  ].join('\n')
+  // O bloco de raciocínio NÃO entra: o avaliador pensando alto sobre um critério
+  // não é o veredito dele.
+  assert.deepEqual(parseVerdicts(evaluatorText(misto)), { 'E-01': 'sim' })
+})
+
+test('o avaliador é REUSADO, e só a última rodada conta', () => {
+  // O transcript do avaliador do ciclo 0 de 01/09 tinha CINCO avaliações
+  // completas no mesmo arquivo. Lendo o arquivo inteiro, os últimos vereditos
+  // vencem — e se a resposta da corrida atual ainda não estiver escrita, os
+  // últimos são os da corrida ANTERIOR. Uma corrida pontuada com o veredito de
+  // outra, e nada na saída acusando.
+  const rodada = (pedido, resposta) =>
+    [
+      JSON.stringify({ message: { role: 'user', content: pedido } }),
+      ...(resposta
+        ? [JSON.stringify({ message: { role: 'assistant', content: [{ type: 'text', text: resposta }] } })]
+        : [])
+    ].join('\n')
+
+  const anterior = rodada('Read the agent trail in trail-S3-0.txt', 'VER E-01 sim\nVER E-02 sim')
+
+  // A corrida de AGORA já respondeu: vale o que ela disse.
+  const respondida = [anterior, rodada('Read the agent trail in trail-S3-1.txt', 'VER E-01 não\nVER E-02 não')].join('\n')
+  assert.deepEqual(parseVerdicts(evaluatorText(respondida)), { 'E-01': 'não', 'E-02': 'não' })
+
+  // A corrida de AGORA ainda NÃO respondeu: vazio, não o veredito da anterior.
+  const emVoo = [anterior, rodada('Read the agent trail in trail-S3-1.txt', null)].join('\n')
+  assert.deepEqual(
+    parseVerdicts(evaluatorText(emVoo)),
+    {},
+    'o veredito da corrida anterior vazou para a corrida atual'
+  )
+})
 
 console.log(`\n${passed} passaram, ${failed} falharam\n`)
 process.exit(failed === 0 ? 0 : 1)

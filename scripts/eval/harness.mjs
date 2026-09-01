@@ -322,6 +322,79 @@ export function toolTrail(jsonl) {
   return calls
 }
 
+/**
+ * O que o AVALIADOR respondeu, lido do transcript dele.
+ *
+ * A resposta do avaliador vinha da TELA, e a tela do TUI reescreve linhas e come
+ * caracteres. Capturado ao vivo no ciclo 0 de 01/09, na mesma tela e no mesmo
+ * instante, o avaliador respondendo sobre `trail-S2-1`:
+ *
+ *     VER E-01 sim  VER E-02 sim  VER E-03 não  VER E-04 sim     ← o que ele disse
+ *     VER E-01 simVERE-02sim 3não45sim                           ← o que a tela virou
+ *
+ * `VER E-04 sim` virou `4`, e `VER E-05 sim` virou `5sim`. Nenhum dos dois casa
+ * em `parseVerdicts`, que exige o `E-` antes do número — e a corrida foi ANULADA
+ * por "avaliador não julgou", duas vezes seguidas, sobre um avaliador que tinha
+ * julgado certo. Cada anulação repete uma corrida, e repetir é cota.
+ *
+ * É a terceira aparição da mesma classe de defeito nesta suíte, e a terceira vez
+ * que a saída é a mesma: quando existe transcript, ele é a fonte; a tela é
+ * contexto. A primeira foi o score inflado do sujeito (a tela colapsava as
+ * chamadas em `ran 3 shell commands`), a segunda o diálogo já respondido que
+ * continuava casando no scrollback.
+ *
+ * Só o texto do ASSISTENTE entra, e é aqui que está a defesa contra a armadilha
+ * conhecida: o enunciado do avaliador contém os ids dos critérios, e as
+ * mensagens de USUÁRIO do transcript contêm o enunciado. Ler as duas faria o
+ * pedido voltar como veredito — foi o que aconteceu na primeira corrida de
+ * fumaça de 01/09, quando o enunciado ainda trazia um exemplo literal.
+ *
+ * E só a ÚLTIMA RODADA entra, que é a segunda armadilha e a mais silenciosa. O
+ * avaliador é REUSADO entre corridas, então o transcript dele acumula: o de
+ * 01/09 tinha cinco avaliações completas no mesmo arquivo, todas com os cinco
+ * vereditos. Lendo o arquivo inteiro, `parseVerdicts` sobrescreve por id e fica
+ * com os últimos — e se a avaliação da corrida ATUAL ainda não estiver escrita
+ * (o transcript é escrito em voo), os últimos são os da corrida ANTERIOR. O
+ * resultado seria uma corrida pontuada com o veredito de outra, sem nada na
+ * saída acusando. Cortar na última mensagem de usuário — o enunciado que acabou
+ * de ser enviado — isola a rodada de agora, e um transcript que ainda não tem a
+ * resposta devolve VAZIO em vez de mentir.
+ */
+export function evaluatorText(jsonl) {
+  const entries = []
+  for (const line of String(jsonl).split('\n')) {
+    if (!line.trim()) continue
+    try {
+      entries.push(JSON.parse(line))
+    } catch {
+      // linha torta: o transcript é escrito em voo e a última pode estar parcial
+    }
+  }
+
+  let inicio = 0
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i]?.message?.role === 'user') {
+      inicio = i + 1
+      break
+    }
+  }
+
+  const partes = []
+  for (const entry of entries.slice(inicio)) {
+    if (entry?.message?.role !== 'assistant') continue
+    const content = entry.message.content
+    if (typeof content === 'string') {
+      partes.push(content)
+      continue
+    }
+    if (!Array.isArray(content)) continue
+    for (const part of content) {
+      if (part?.type === 'text' && typeof part.text === 'string') partes.push(part.text)
+    }
+  }
+  return partes.join('\n')
+}
+
 /** O transcript vira texto numerado — é o que o avaliador lê. */
 export function renderToolTrail(calls) {
   if (calls.length === 0) return '(nenhuma chamada de ferramenta no transcript)'

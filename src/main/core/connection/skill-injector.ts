@@ -8,7 +8,7 @@
  * A skill vive sob o nome `atelier`, separada da skill que o app nativo injeta.
  * As duas podem coexistir: um agente lê a que corresponde ao app onde está.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { UUID } from '@shared/types'
 import { log } from '../logger'
@@ -17,6 +17,7 @@ import { terminals } from '../terminal/terminal-manager'
 import { notifyRenderer } from '../../ipc/notify'
 
 const SKILL_NAME = 'atelier'
+const REFERENCES_DIR = 'references'
 
 /**
  * Marca de propriedade: só sobrescrevemos arquivos que nós mesmos escrevemos.
@@ -25,17 +26,50 @@ const SKILL_NAME = 'atelier'
  */
 const OWNER_MARKER = '<!-- installed-by: atelier -->'
 
-const SKILL_MD = `---
+/**
+ * Descrição do frontmatter (M2). Dez recursos, cada um com o gatilho em
+ * linguagem de usuário — a colaboração entre agentes é UM dos casos, não o
+ * único. Mudar esta description é a divergência explicitamente registrada em
+ * docs/eval-aderencia-agentes.md: a antiga só declarava colaboração entre
+ * agentes, e por isso excluía nota, portal, editor, cofre, tabela, imagem,
+ * botão, quadro de TODO e projetos do gatilho da skill.
+ */
+export const SKILL_DESCRIPTION =
+  "Use when the user's intent touches anything cabled on the Atelier canvas. " +
+  "That includes: talking to or recruiting another agent ('ask X to...', " +
+  "'tell X to...', 'check on X', 'recruit/open another agent'); tracking work " +
+  "on a TODO board ('move this to doing', \"what's next on the board\", 'mark " +
+  "this done'); reading or writing a sticky note ('write this down', 'what " +
+  "does the note say'); reading or driving a connected browser portal ('what " +
+  "page am I looking at', \"what's broken on this page\", 'open " +
+  "localhost:5173'); reading the file or selection open in a connected code " +
+  "editor ('what file is this', 'explain/refactor this selection'); reading a " +
+  "secret or logging into a page from a connected vault ('use the API key', " +
+  "'log into this site'); publishing a SQL/query result as a table node on " +
+  "the canvas ('show this result on the canvas'); publishing an image, chart " +
+  "or screenshot as a node ('put this chart on the canvas'); creating a " +
+  "button that repeats a command ('make a button for this'); and looking up " +
+  "or describing the user's indexed development projects ('describe this " +
+  "project', 'what projects do I have'). Collaborating with another agent on " +
+  'the canvas is one of these cases, not the only one.'
+
+/**
+ * SKILL.md curto (M3/M4/M6): descoberta, o mapa recurso→verbo, as cinco regras
+ * duras e os contra-exemplos. Tudo que é específico de um recurso mora em
+ * `references/<recurso>.md`, citado pelo nome do arquivo — lido só quando o
+ * agente de fato vai usar aquele recurso.
+ */
+export const SKILL_MD = `---
 name: atelier
-description: Send messages to connected AI agents on the Atelier canvas and get their responses, or recruit a new agent as a terminal node already cabled to you. Also read and write connected sticky notes, open and read connected browser portals (the pages the user is looking at), read the file the user has open in a connected code editor node (including unsaved changes and the lines they selected), publish SQL/query results as a table node on the canvas, publish an image (chart, screenshot, diagram) as a node on the canvas, create a button on the canvas that runs a command the user repeats, read secrets from a connected vault (including logging into a page without ever seeing the password), and read or describe the user's indexed development projects. Use when the user's intent is to collaborate with another agent on the canvas. Look for actions like 'ask [name] to...', 'tell [name] to...', 'check on [name]', 'open/recruit another agent', 'create/update a note', 'open/read a page in a portal', 'what file am I looking at', 'explain/refactor this selection', 'show this query result on the canvas', 'put this image on the canvas', 'make a button for this command', or 'describe the projects'.
+description: ${SKILL_DESCRIPTION}
 ---
 
 ${OWNER_MARKER}
 
-# Atelier inter-agent collaboration
+# Atelier: the canvas CLI
 
-Connected agents exchange prompts and responses through the \`atelier\` CLI.
-Connected notes can be read and written through the same CLI.
+Everything below is reached through the \`atelier\` CLI. It only ever acts on
+what is CABLED to your node — never on the whole canvas.
 
 ## Discover what you are connected to
 
@@ -43,7 +77,33 @@ Connected notes can be read and written through the same CLI.
 atelier list
 \`\`\`
 
-Always run this first — it gives the exact agent and note names to use.
+Always run this first — it gives the exact agent, note, portal, editor, vault,
+table, board and project names to use. Never guess a name.
+
+## Resource → verb map
+
+| The user wants... | The verb is... |
+|---|---|
+| talk to another agent, hand off work | \`atelier ask\` |
+| check an agent's progress / read what it did | \`atelier check\` |
+| a new agent, already cabled to you | \`atelier recruit\` |
+| to close an agent you recruited | \`atelier dismiss\` |
+| to create, read or edit a sticky note | \`atelier note\` |
+| to read or drive a browser page on the canvas | \`atelier portal\` |
+| to know what file/selection is open in an editor | \`atelier editor\` |
+| a secret, or to log into a page unseen | \`atelier vault\` |
+| a SQL/query result shown on the canvas | \`atelier table\` |
+| a chart, screenshot or diagram on the canvas | \`atelier image\` |
+| a one-click repeatable command | \`atelier button\` |
+| to track or move work on a plan board | \`atelier todo\` |
+| to look up or describe an indexed dev project | \`atelier projects\` |
+| to see everything cabled to them | \`atelier list\` |
+| to see their own responsibility on this canvas | \`atelier role\` |
+
+Details, syntax and the rules for each resource are in \`references/\`:
+\`recruit.md\`, \`portal.md\`, \`editor.md\`, \`vault.md\`, \`table.md\`,
+\`image.md\`, \`button.md\`, \`todo.md\`, \`projects.md\`. Read the one you need,
+not all of them — that is the whole point of this file being short.
 
 ## Talk to another agent
 
@@ -52,9 +112,78 @@ atelier ask "Agent Name" "your prompt"
 atelier check "Agent Name" 40
 \`\`\`
 
-\`ask\` blocks until the other agent goes idle. If it times out, do NOT re-send
-the prompt — run \`check\` to see progress and wait again. Never interrupt an
-agent that is still working, and do not edit files another agent is modifying.
+` +
+  // Esta frase descreve o comportamento PRETENDIDO de "ask", não o medido: hoje
+  // `agentIdleTimeoutMs` é 2000ms e `isIdle` é só "sem saída nova há 2s", então
+  // um agente com TUI animado nunca esfria e `ask` sempre roda até o timeout, e
+  // um agente parado num prompt de permissão esfria em 2s e parece pronto. Isto
+  // é o M7 de docs/2026-09-01-PLANO-aderencia-dos-agentes.md. NÃO reescreva esta
+  // frase antes do M7 entrar — descrever o comportamento novo cedo demais faz a
+  // doc mentir na direção oposta; espere o código mudar e só então corrija aqui.
+  `\`ask\` blocks until the other agent goes idle. For recruiting a new agent,
+model choice, the Artisan rules and what to do if you wake up with no memory
+of your own work, see \`references/recruit.md\`.
+
+## Notes
+
+\`\`\`
+atelier note create ["content"]
+atelier note read "Note Name" [offset] [limit]
+atelier note write "Note Name" "content"
+atelier note edit "Note Name" "old text" "new text"
+\`\`\`
+
+## Your own responsibility
+
+\`atelier role\` prints what you are responsible for on this canvas, when one
+is assigned to your terminal. Run it before starting work.
+
+## Five hard rules
+
+1. **Never write under an editor with unsaved changes.** Ask the user to save
+   first — writing the file under it destroys work nobody reviewed.
+2. **Never re-send \`ask\` after a timeout.** Run \`check\` to see progress and
+   wait again; never interrupt an agent still working.
+3. **Never propose a destructive button** (\`rm\`, \`drop\`, \`reset --hard\`,
+   deploy) — one click is not enough deliberation for something irreversible.
+4. **Never echo a secret** into the screen, a file, or another agent's prompt.
+   Prefer the injected environment variable, or \`portal login\`.
+5. **Only \`dismiss\` an agent you recruited yourself** — never the user's own
+   terminal, never a colleague's, even one you are cabled to.
+
+## Commands that do not exist, on purpose
+
+- \`editor write\` — you edit with your own tools instead. They have the diff,
+  the permission prompt and the history this CLI does not.
+- \`portal eval\` — there is no JavaScript interpreter. These sessions are
+  often logged in as the user; permission opens click/type/key, not \`eval\`.
+- \`todo delete\` — removing a card is the user's gesture, in the node.
+- \`vault delete\` — same line as the board: you create, the user destroys.
+
+Trying one of these is always wrong, never a missing feature to work around.
+
+## Troubleshooting
+
+` +
+  // Esta nota trata o PATH resetado como caso exótico, mas o cartão
+  // "Investigar PATH" (quadro do plano) já mediu que nesta máquina é o caso
+  // PADRÃO: bootArgs sobe o PTY com -i -c ..., o -i carrega o ~/.bashrc do
+  // usuário, e o ~/.bashrc faz export PATH=<lista absoluta>, apagando o bin
+  // do Atelier — confirmado nos dois processos (o PTY tem o bin, o claude
+  // que ele abre não tem). A correção é no boot, não aqui. NÃO reescreva esta
+  // nota antes da correção: depois dela a nota volta a ser verdadeira como
+  // está — hoje reescrevê-la faria a doc mentir sobre a causa.
+  `\`atelier debug\` prints server, terminal and platform info. The CLI is on
+PATH inside Atelier terminals; if a custom shell resets PATH, use
+\`"$ATELIER_CLI"\`, which always holds the full path.
+`
+
+/**
+ * Um arquivo por recurso, escrito em `references/`. A chave é o nome do
+ * arquivo — é por esse nome que o SKILL.md aponta para cada um.
+ */
+export const REFERENCES: Record<string, string> = {
+  'recruit.md': `# Recruiting and delegating to other agents
 
 ## Recruit another agent
 
@@ -80,6 +209,20 @@ the right icon, colour and agent type, and those are what the canvas uses to kno
 what is running. \`--command\` exists for the case that has no preset — bringing an
 agent back on a session that already has context.
 
+## Dismiss an agent you recruited
+
+\`\`\`
+atelier dismiss "Name" [--force]
+\`\`\`
+
+Kills the process and removes the node from the canvas. You can only dismiss an
+agent YOU recruited — never the user's own terminal, and never a colleague's,
+even when you are cabled to it. Dismissing an agent that is still working is
+refused; run \`check\` first, and pass \`--force\` only when you are sure killing
+it mid-task is what you want. Dismiss when the work you handed over is finished
+and the node would just sit there; leave it alone if the user might still want
+to read its screen.
+
 ## If you wake up with no memory of your own work
 
 A restart of the app — a crash, or the dev watcher noticing a file change —
@@ -92,7 +235,7 @@ anything: read the files, run \`git status\` and \`git diff\`, check the test su
 Assume the previous you got further than you remember, and verify instead of
 starting over — redoing finished work is how a restart turns into a regression.
 
-### Pick the model for the work, not the biggest one
+## Pick the model for the work, not the biggest one
 
 Before recruiting, run \`atelier list\`. Reuse a connected agent whose role
 already covers the work; do not create a duplicate. Recruit only when the task
@@ -139,118 +282,8 @@ So delegate with \`recruit\` + \`ask\` + \`check\`, keep the board honest if one
 cabled to you, and \`dismiss\` what you opened once its work is verified. The rules
 above still apply, especially the first one: run \`atelier list\` and reuse before
 you recruit.
-
-## Dismiss an agent you recruited
-
-\`\`\`
-atelier dismiss "Name" [--force]
-\`\`\`
-
-Kills the process and removes the node from the canvas. You can only dismiss an
-agent YOU recruited — never the user's own terminal, and never a colleague's,
-even when you are cabled to it. Dismissing an agent that is still working is
-refused; run \`check\` first, and pass \`--force\` only when you are sure killing
-it mid-task is what you want. Dismiss when the work you handed over is finished
-and the node would just sit there; leave it alone if the user might still want
-to read its screen.
-
-## Your own responsibility
-
-\`\`\`
-atelier role
-atelier role list
-\`\`\`
-
-If a role is assigned to your terminal, \`atelier role\` prints what you are
-responsible for on this canvas. Run it before starting work — it scopes what you
-should and should not touch. \`atelier list\` shows the roles of the agents you
-are connected to.
-
-## Notes
-
-\`\`\`
-atelier note create ["content"]
-atelier note read "Note Name" [offset] [limit]
-atelier note write "Note Name" "content"
-atelier note edit "Note Name" "old text" "new text"
-\`\`\`
-
-## TODO board
-
-A board is the work plan of this canvas, with columns and status. It is what
-lets the user WATCH a card move from *Fazendo* to *Feito* while you work,
-without you having to tell them anything.
-
-\`\`\`
-atelier todo list ["Board"] [--status doing] [--mine]
-atelier todo add "Board" "title" [--status todo] [--assign "Name"] [--notes "…"]
-atelier todo move "Board" <id|"title prefix"> <status>
-atelier todo done "Board" <id|"title prefix">
-atelier todo show "Board" <id|"title prefix">
-atelier todo create "Title" [column…]
-atelier todo plan "Board" <id|"title prefix"> [--title "…"] [--objective "…"] [--step "…"]…
-atelier todo step "Board" <id|"title prefix"> <step number> <pending|in_progress|done|blocked|skipped>
-\`\`\`
-
-Only boards CABLED to you, like everything else here. \`create\` makes one already
-connected to you. Name the board only when more than one is connected.
-
-Address a card by id or by a prefix of its title — an ambiguous prefix is an
-error listing the candidates, never "the first one".
-
-A card may also carry a **plan** — how the work will be done. \`plan\` with
-\`--step\` creates it, or REVISES it into a new version with the old one kept in
-the history; \`plan\` with no flags just shows it. \`step\` marks one step and
-creates no version — that is what keeps the history readable.
-
-**Mark \`done\` when you FINISH, not when you start.** A board that says a card is
-done when it is merely begun is worse than no board: the user stops checking it.
-Move it to the middle column when you pick it up, and to the last one when the
-work is actually verified.
-
-\`--mine\` filters by \`assignee\` matching YOUR terminal name, which is how the
-board distributes work between agents: each one asks what is theirs.
-
-There is no \`delete\`. Removing a card is the user's gesture, in the node — the
-same line as the vault, where you create but do not destroy.
-
-## Code editors
-
-A code editor node is a file open on the canvas — usually the file the user is
-looking at right now. The cable answers the three things you cannot get from
-disk: **which** file it is, **what** the user selected, and whether the buffer
-has changes that were never saved.
-
-\`\`\`
-atelier editor list
-atelier editor open <absolute path>
-atelier editor read "File" [offset] [limit] [--selection]
-atelier editor close "File"
-\`\`\`
-
-\`list\` prints the ABSOLUTE PATH of every connected editor, plus the cursor line
-and the selected line range. That path is the point of the cable: **read here,
-but edit the file with your own tools** — your \`Edit\`/\`Write\` have the diff,
-the permission prompt and the history that this CLI does not, the file is the
-same file, and the node reloads by itself afterwards. There is deliberately no
-\`editor write\`.
-
-\`read\` gives the buffer when it differs from disk (prefixed with
-\`# unsaved changes — not on disk\`), otherwise the file. \`offset\`/\`limit\` are
-in lines, like \`note read\`. \`--selection\` returns only the lines the user
-selected, which is what answers "explain THIS" or "refactor THIS method"; with
-nothing selected it is an error, never a guessed range.
-
-**An editor with unsaved changes is one you do not touch.** Writing the file
-under it destroys work nobody has reviewed — ask the user to save first, then
-edit. \`close\` refuses a dirty editor for the same reason.
-
-\`open\` creates the node already cabled to you, and only for a path under an
-indexed project, the workspace working directory or a file-tree root. A path
-already open in another node gives you THAT node back instead of a second buffer
-fighting over the same file.
-
-## Portals
+`,
+  'portal.md': `# Portals
 
 A portal is a browser inside the canvas. Connected ones are yours to read — they
 are usually the page the user is looking at right now. With the user's
@@ -280,7 +313,7 @@ A portal that is off-screen or zoomed out is woken up for the read, so the first
 one may take a second. You cannot run arbitrary JavaScript in a portal: these
 sessions are often logged in as the user.
 
-### Acting in a page
+## Acting in a page
 
 \`\`\`
 atelier portal map "Portal" [--all]
@@ -325,8 +358,44 @@ After a click that loads something, run \`portal wait "Portal" --idle\` before
 reading. Every action reports what changed (new URL, new title) so you can tell
 whether it landed without spending a \`shot\`, and every action is logged in the
 portal node where the user can see it.
+`,
+  'editor.md': `# Code editors
 
-## Secrets / vault
+A code editor node is a file open on the canvas — usually the file the user is
+looking at right now. The cable answers the three things you cannot get from
+disk: **which** file it is, **what** the user selected, and whether the buffer
+has changes that were never saved.
+
+\`\`\`
+atelier editor list
+atelier editor open <absolute path>
+atelier editor read "File" [offset] [limit] [--selection]
+atelier editor close "File"
+\`\`\`
+
+\`list\` prints the ABSOLUTE PATH of every connected editor, plus the cursor line
+and the selected line range. That path is the point of the cable: **read here,
+but edit the file with your own tools** — your \`Edit\`/\`Write\` have the diff,
+the permission prompt and the history that this CLI does not, the file is the
+same file, and the node reloads by itself afterwards. There is deliberately no
+\`editor write\`.
+
+\`read\` gives the buffer when it differs from disk (prefixed with
+\`# unsaved changes — not on disk\`), otherwise the file. \`offset\`/\`limit\` are
+in lines, like \`note read\`. \`--selection\` returns only the lines the user
+selected, which is what answers "explain THIS" or "refactor THIS method"; with
+nothing selected it is an error, never a guessed range.
+
+**An editor with unsaved changes is one you do not touch.** Writing the file
+under it destroys work nobody has reviewed — ask the user to save first, then
+edit. \`close\` refuses a dirty editor for the same reason.
+
+\`open\` creates the node already cabled to you, and only for a path under an
+indexed project, the workspace working directory or a file-tree root. A path
+already open in another node gives you THAT node back instead of a second buffer
+fighting over the same file.
+`,
+  'vault.md': `# Secrets / vault
 
 A vault node holds secrets encrypted on disk. You can read the names of the keys
 in the vaults cabled to you, and one value at a time when you really need it.
@@ -354,8 +423,8 @@ the terminal, into a file, or into another agent's prompt.
 A key only becomes an environment variable from the NEXT boot of this terminal
 after the cable was drawn, so if \`$KEY\` is empty right after connecting a
 vault, ask the user to reload the terminal.
-
-## SQL / query results
+`,
+  'table.md': `# SQL / query results
 
 Run the query yourself with whatever tool fits (\`psql\`, \`sqlite3\`, \`mysql\`,
 …) and publish the RESULT as a table node, connected to you. The Atelier never
@@ -378,8 +447,8 @@ Good inputs come straight from the client: \`sqlite3 -json db "SELECT …"\` or
 truncated, and the reply says so. \`append\` adds rows to an existing table but
 refuses if the columns differ — a schema change between calls is an error, not
 a merge.
-
-## Images
+`,
+  'image.md': `# Images
 
 Publish an image as a node on the canvas, connected to you — a chart you
 generated, a screenshot, a diagram. Pass the PATH to an image file (absolute);
@@ -389,8 +458,8 @@ PNG, JPEG, GIF, WebP, AVIF, SVG and BMP are accepted, up to 25 MB.
 atelier image create "Title" /abs/path/to/image.png [--alt "description"]
 atelier image list
 \`\`\`
-
-## Buttons
+`,
+  'button.md': `# Buttons
 
 A button is a small node on the canvas that runs something with one click — a
 command in a terminal, a prompt to an agent, or a URL in a portal.
@@ -413,8 +482,47 @@ Every button you propose arrives PENDING and does nothing until the user presses
 Accept on the node — that is where they read the exact command. Say so when you
 report back, or they will click a button that is not armed yet and think it is
 broken. \`remove\` only works on a pending button you proposed yourself.
+`,
+  'todo.md': `# TODO board
 
-## Projects
+A board is the work plan of this canvas, with columns and status. It is what
+lets the user WATCH a card move from *Fazendo* to *Feito* while you work,
+without you having to tell them anything.
+
+\`\`\`
+atelier todo list ["Board"] [--status doing] [--mine]
+atelier todo add "Board" "title" [--status todo] [--assign "Name"] [--notes "…"]
+atelier todo move "Board" <id|"title prefix"> <status>
+atelier todo done "Board" <id|"title prefix">
+atelier todo show "Board" <id|"title prefix">
+atelier todo create "Title" [column…]
+atelier todo plan "Board" <id|"title prefix"> [--title "…"] [--objective "…"] [--step "…"]…
+atelier todo step "Board" <id|"title prefix"> <step number> <pending|in_progress|done|blocked|skipped>
+\`\`\`
+
+Only boards CABLED to you, like everything else here. \`create\` makes one already
+connected to you. Name the board only when more than one is connected.
+
+Address a card by id or by a prefix of its title — an ambiguous prefix is an
+error listing the candidates, never "the first one".
+
+A card may also carry a **plan** — how the work will be done. \`plan\` with
+\`--step\` creates it, or REVISES it into a new version with the old one kept in
+the history; \`plan\` with no flags just shows it. \`step\` marks one step and
+creates no version — that is what keeps the history readable.
+
+**Mark \`done\` when you FINISH, not when you start.** A board that says a card is
+done when it is merely begun is worse than no board: the user stops checking it.
+Move it to the middle column when you pick it up, and to the last one when the
+work is actually verified.
+
+\`--mine\` filters by \`assignee\` matching YOUR terminal name, which is how the
+board distributes work between agents: each one asks what is theirs.
+
+There is no \`delete\`. Removing a card is the user's gesture, in the node — the
+same line as the vault, where you create but do not destroy.
+`,
+  'projects.md': `# Projects
 
 The user's indexed development projects, found by the Scan button. Unlike the
 commands above, this index is GLOBAL: it is not limited to what you are
@@ -434,16 +542,8 @@ given the "Scanner de projetos" role, that listing is your work queue: take the
 first one, inspect the folder yourself, report with \`describe\`, repeat.
 
 Never modify anything inside a project while describing it.
-
-## Troubleshooting
-
-\`\`\`
-atelier debug
-\`\`\`
-
-The CLI is on PATH inside Atelier terminals. If a custom shell resets PATH, use
-\`"$ATELIER_CLI"\` — that variable always holds the full path.
 `
+}
 
 let installed = false
 
@@ -459,6 +559,7 @@ export async function installSkillsIfNeeded(): Promise<void> {
   try {
     const dir = join(claudeSkillsDir(), SKILL_NAME)
     const file = join(dir, 'SKILL.md')
+    const refsDir = join(dir, REFERENCES_DIR)
 
     // Vazio não é de ninguém: um SKILL.md de 0 byte é sempre resto de escrita
     // interrompida (uma instância morta no meio do writeFile), e a checagem de
@@ -471,8 +572,25 @@ export async function installSkillsIfNeeded(): Promise<void> {
       return
     }
 
-    await mkdir(dir, { recursive: true })
+    await mkdir(refsDir, { recursive: true })
     await writeFile(file, SKILL_MD, 'utf8')
+    for (const [name, content] of Object.entries(REFERENCES)) {
+      await writeFile(join(refsDir, name), content, 'utf8')
+    }
+
+    // A posse (OWNER_MARKER) vale pelo DIRETÓRIO inteiro, não só pelo
+    // SKILL.md: sem esta limpeza, um `references/<recurso>.md` de uma versão
+    // anterior — um recurso removido, ou uma reference renomeada — nunca seria
+    // apagado por nenhum boot seguinte, porque nada além deste laço volta a
+    // olhar para o que já está em disco.
+    const presentes = await readdir(refsDir).catch(() => [])
+    const esperados = new Set(Object.keys(REFERENCES))
+    for (const nome of presentes) {
+      if (!esperados.has(nome)) {
+        await unlink(join(refsDir, nome)).catch(() => {})
+      }
+    }
+
     installed = true
     log.info('skill', `skill instalada em ${dir}`)
   } catch (err) {

@@ -35,6 +35,7 @@ import {
   parseVerdicts,
   evaluatorText,
   promptStuck,
+  quotaWall,
   screenSettled,
   scoreRun,
   aggregate,
@@ -98,6 +99,20 @@ Connected vaults:
   Use 'atelier vault list' for the key names.`
 
 const inv = parseList(LIST)
+
+test('a parede de cota é reconhecida na tela do nó', () => {
+  const tela = "❯ roda a query\n\nYou've hit your session limit · resets 7:50pm (America/Recife)"
+  assert.equal(quotaWall(tela), true)
+})
+
+test('a parede de cota não confunde trilha que só FALA de limite', () => {
+  // Uma corrida legítima pode discutir limites sem ter batido em nenhum: o que
+  // marca a parede é a frase do produto, não a palavra.
+  assert.equal(quotaWall('Bash(grep -n "rate limit" src/api.ts)'), false)
+  assert.equal(quotaWall('o teste cobre o limite de 30s do timeout'), false)
+  assert.equal(quotaWall(''), false)
+  assert.equal(quotaWall(null), false)
+})
 
 test('parseList separa os agentes com estado, detalhe e id', () => {
   assert.equal(inv.agents.length, 3)

@@ -51,6 +51,7 @@ import {
   evaluatorText,
   renderToolTrail,
   promptStuck,
+  quotaWall,
   screenSettled,
   scoreRun,
   aggregate,
@@ -494,6 +495,18 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
     if (promptStuck(captured.text, scn.prompt)) {
       return { ...record, outcome: 'null', reason: 'o prompt ficou na caixa de entrada — o agente não o recebeu' }
     }
+    // A PAREDE DE COTA vem antes do detector de transcript vazio, e a ordem é o
+    // ponto: uma corrida barrada pelo limite da conta chega com zero chamadas e
+    // seria acusada de delegar a subagente interno — foi o que aconteceu no
+    // ciclo 1 de 01/09. Ela não se repete: ver `quotaWall`.
+    if (quotaWall(captured.text)) {
+      return {
+        ...record,
+        outcome: 'null',
+        quota: true,
+        reason: 'a conta bateu no limite de uso — a corrida não chegou a acontecer'
+      }
+    }
     // Transcript encontrado e VAZIO é trilha inútil, não trilha de agente
     // parado. Aconteceu em 01/09: o sujeito de S5 delegou para um subagente
     // interno (`Agent(fork)`), as chamadas foram para outra sessão, e o nó ficou
@@ -616,7 +629,7 @@ async function main() {
 
   const records = []
   try {
-    for (const { scenario: s, missing } of plan) {
+    cenarios: for (const { scenario: s, missing } of plan) {
       if (missing.length) {
         records.push({ scenario: { id: s.id, applicable: s.applicable }, outcome: 'skipped', reason: `canvas sem ${missing.join('; ')}` })
         continue
@@ -648,17 +661,28 @@ async function main() {
               )
             }
           }
-          const willRetry = record.outcome === 'null' && attempt < opts.maxNull
+          const willRetry = record.outcome === 'null' && !record.quota && attempt < opts.maxNull
           if (record.outcome === 'null') {
             console.log(`  ${s.id} run ${run}: NULA (${record.reason})${willRetry ? ` — repetindo ${attempt + 1}/${opts.maxNull}` : ' — sem repetição restante'}`)
           }
           attempt += 1
-        } while (record.outcome === 'null' && attempt <= opts.maxNull)
+        } while (record.outcome === 'null' && !record.quota && attempt <= opts.maxNull)
 
         records.push(record)
         appendFileSync(jsonl, `${JSON.stringify({ cycle: opts.cycle, ...record })}\n`, 'utf8')
         const s10 = record.score
         console.log(`  ${s.id} run ${run}: ${record.outcome}${s10 ? ` ${s10.yes}/${s10.applicable}` : ''}${record.reason ? ` — ${record.reason}` : ''}`)
+        // PARADA, não repetição: nada nesta conta vai passar até o reset, e o
+        // relatório parcial vale mais que uma fila de nulas. O `break` é
+        // rotulado para sair também do laço de cenários — o `finally` dispensa o
+        // avaliador, e o resumo é escrito com o que já foi medido.
+        if (record.quota) {
+          console.log(
+            `\n  PAREDE DE COTA na conta ${opts.account ?? 'deste nó'}: a onda para aqui. ` +
+              'Espere o reset ou rode com --account de outra conta.'
+          )
+          break cenarios
+        }
       }
     }
   } finally {

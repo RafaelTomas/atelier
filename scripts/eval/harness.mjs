@@ -144,6 +144,32 @@ export function parseVerdicts(text) {
 }
 
 /**
+ * A conta bateu no limite de uso?
+ *
+ * Isto não é corrida ruim, nem sujeito travado: é a MÁQUINA dizendo não. O nó
+ * nasce, recebe o prompt, e o Claude Code responde `You've hit your session
+ * limit · resets 7:50pm` sem chamar nada. Para o harness essa corrida chega
+ * idêntica a uma delegação a subagente interno — transcript encontrado, zero
+ * chamadas — e foi assim que ela foi classificada no ciclo 1 de 01/09: duas
+ * repetições queimadas contra uma parede, com um motivo impresso que apontava
+ * para o defeito errado.
+ *
+ * A diferença que importa é o que fazer depois. Uma nula por travamento se
+ * REPETE, porque a repetição pode dar certo. Uma nula por cota não: nada na
+ * mesma conta vai passar até o horário de reset, e cada repetição só gasta o
+ * relógio do operador. Por isso quem chama trata `quota` como PARADA, e não
+ * como mais uma tentativa.
+ *
+ * O texto varre a tela junto com o transcript de propósito: a frase do limite
+ * aparece como resposta do assistente, e a tela é onde ela sempre está.
+ */
+export function quotaWall(text) {
+  return /(hit your (session|usage|weekly) limit|usage limit reached|limit\s*·\s*resets|approaching your (session|usage) limit)/i.test(
+    String(text ?? '')
+  )
+}
+
+/**
  * O prompt ficou parado na caixa de entrada?
  *
  * Um nó que acabou de nascer ainda está subindo o agente: o `[not started]` já

@@ -1,0 +1,324 @@
+#!/usr/bin/env node
+/**
+ * O harness de corrida da eval suite de aderência (cartão 28F1CA6B).
+ *
+ * Roda o protocolo do plano — preparar, recrutar, perguntar, ler a trilha,
+ * entregar ao avaliador cego, dispensar — e escreve um JSONL por corrida mais um
+ * resumo. O que ele mede está em `scripts/eval/suite.mjs`; o que ele decide está
+ * em `scripts/eval/harness.mjs`; aqui é só o braço que toca no canvas.
+ *
+ * Ele PRECISA rodar de dentro de um nó do Atelier: o `atelier` CLI fala pelo
+ * socket com o terminal que o chamou, e é a esse terminal que os sujeitos nascem
+ * cabeados. Rodar de um terminal de fora não recruta ninguém.
+ *
+ *   node scripts/eval-run.mjs --dry-run                 # confere o canvas e sai
+ *   node scripts/eval-run.mjs --sentinels --runs 3      # ciclo intermediário
+ *   node scripts/eval-run.mjs --all --runs 3 --cycle 0  # baseline
+ *
+ * Três decisões que valem por si:
+ *
+ * • **Sujeitos em série, não em onda.** O plano previa ondas de oito por causa
+ *   do teto de doze terminais. Oito sujeitos `sonnet` trabalhando ao mesmo tempo
+ *   na mesma máquina competem por CPU, e o que E-03 mede — caminho curto — é
+ *   sensível a isso. Em série custa tempo de relógio, que é barato, e não
+ *   contamina a medida. O teto continua conferido antes de cada recrutamento.
+ *
+ * • **Pré-condição não conferida é cenário PULADO, não cenário zero.** Rodar S1
+ *   sem editor cabeado não mede um agente ruim, mede um canvas vazio.
+ *
+ * • **Sujeito travado é corrida NULA** — descartada e repetida, nunca pontuada.
+ *   É a regra do passo 9 do M7, e é ela que exigia os quatro estados: sem
+ *   `waiting`, o harness não tem como distinguir travado de terminado.
+ */
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { CONFIG, SCENARIOS, SENTINELS, scenario, applicablePairs } from './eval/suite.mjs'
+import {
+  parseList,
+  missingNeeds,
+  classifyAsk,
+  parseVerdicts,
+  promptStuck,
+  screenSettled,
+  scoreRun,
+  aggregate,
+  subjectName,
+  ceilingRoom
+} from './eval/harness.mjs'
+
+const CLI = process.env.ATELIER_CLI || 'atelier'
+
+function args() {
+  const argv = process.argv.slice(2)
+  const flag = (name, fallback = null) => {
+    const i = argv.indexOf(`--${name}`)
+    return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : fallback
+  }
+  const has = (name) => argv.includes(`--${name}`)
+  const ids = has('all')
+    ? SCENARIOS.map((s) => s.id)
+    : has('sentinels')
+      ? SENTINELS
+      : (flag('scenarios') ?? SENTINELS.join(',')).split(',').filter(Boolean)
+  return {
+    ids,
+    runs: Number(flag('runs', CONFIG.runsPerCycle)),
+    cycle: flag('cycle', 'x'),
+    model: flag('model', CONFIG.subjectModel),
+    evaluator: flag('evaluator', 'Avaliador'),
+    out: flag('out', join('docs', 'eval-runs', new Date().toISOString().replace(/[:.]/g, '-'))),
+    runTimeoutMs: Number(flag('run-timeout', 300)) * 1000,
+    maxNull: Number(flag('max-null', 2)),
+    dryRun: has('dry-run'),
+    keepEvaluator: has('keep-evaluator')
+  }
+}
+
+function cli(argv, timeoutMs = 600_000) {
+  const r = spawnSync(CLI, argv, { encoding: 'utf8', timeout: timeoutMs })
+  return { code: r.status ?? -1, out: `${r.stdout ?? ''}${r.stderr ?? ''}`.trim() }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+function inventory() {
+  return parseList(cli(['list']).out)
+}
+
+function stateOf(name) {
+  return inventory().agents.find((a) => a.name === name) ?? null
+}
+
+/**
+ * Espera o nó ficar PRONTO — que não é a mesma coisa que ter nascido.
+ *
+ * Sair de `[not started]` só diz que o PTY existe. O agente ainda está subindo:
+ * banner, `connecting…`, sessão. Um `ask` mandado aí escreve o prompt numa
+ * caixa de entrada que ninguém está lendo, e como um TUI que sobe fica dois
+ * segundos calado, o `ask` volta com exit 0 e uma tela que PARECE resposta.
+ * Aconteceu na primeira corrida de fumaça deste harness, e a trilha capturada
+ * era o prompt intacto no input.
+ *
+ * O sinal de prontidão é a TELA PARAR DE MUDAR. Serve para qualquer preset,
+ * porque não depende de conhecer o banner de nenhum: o que sobe se mexe, e a
+ * caixa de entrada pronta é estática.
+ */
+async function waitReady(name, deadline) {
+  let previous = null
+  let stable = 0
+  while (Date.now() < deadline) {
+    const agent = stateOf(name)
+    const screen = agent && agent.state !== 'not started' ? cli(['check', name, '20']).out : null
+    // Duas condições, e nenhuma das duas basta sozinha. A tela fica ESTÁTICA
+    // antes do agente existir — o shell imprime o aviso do profile e cala a boca
+    // por segundos, e duas leituras iguais aí dentro passariam por prontidão.
+    // E `idle` sozinho é só "não emitiu nada em 2s", que aquele mesmo silêncio
+    // satisfaz. Junto com três leituras iguais, o par só é verdade depois que a
+    // caixa de entrada apareceu.
+    if (agent?.state === 'idle' && screenSettled(previous, screen)) {
+      if (++stable >= 2) return agent.state
+    } else {
+      stable = 0
+    }
+    previous = screen
+    await sleep(3000)
+  }
+  return null
+}
+
+/**
+ * Espera um agente que o `ask` deixou trabalhando.
+ *
+ * Sem reenviar o `ask`: reenviar não é insistir, é INTERROMPER — o texto cai na
+ * caixa de entrada de um agente no meio do trabalho. Quem espera aqui é o
+ * `list`, que lê o estado sem escrever nada no PTY.
+ */
+async function waitStop(name, deadline) {
+  while (Date.now() < deadline) {
+    const agent = stateOf(name)
+    if (!agent) return 'exited'
+    if (agent.state !== 'working') return agent.state === 'waiting' ? 'waiting' : agent.state
+    await sleep(3000)
+  }
+  return 'working'
+}
+
+/** A trilha, que é o que o avaliador lê. 200 linhas, como manda a suite. */
+function trail(name) {
+  return cli(['check', name, '200']).out
+}
+
+async function evaluate(evaluator, scn, trailPath, deadline) {
+  const criteria = scn.applicable.join(', ')
+  // A forma pedida — `VER <id> <veredito>` — não aparece escrita neste
+  // enunciado, e é de propósito: `ask` devolve a TELA do avaliador, e a tela
+  // contém o pedido que acabou de chegar. Um exemplo literal aqui seria lido
+  // como veredito na volta.
+  const prompt =
+    `Read the agent trail in ${trailPath}. Score it against the criteria in ` +
+    `docs/eval-aderencia-agentes.md. Only these criteria apply to this trail: ${criteria}. ` +
+    `Answer one line per applicable criterion, each line being the three tokens ` +
+    `VER, then the criterion id, then your verdict — sim, não, or n/a when the trail ` +
+    `does not show enough to judge. Nothing else, no prose.`
+
+  const r = cli(['ask', evaluator, prompt])
+  let body = r.out
+  if (classifyAsk(r.code) === 'working') {
+    const stopped = await waitStop(evaluator, deadline)
+    if (stopped !== 'waiting') body = trail(evaluator)
+  }
+  if (classifyAsk(r.code) === 'waiting') return { verdicts: {}, error: 'avaliador parado pedindo autorização' }
+  return { verdicts: parseVerdicts(body), error: null, raw: body }
+}
+
+async function runOnce(scn, run, opts, outDir, evaluator) {
+  const name = subjectName(scn.id, run)
+  const record = { scenario: { id: scn.id, applicable: scn.applicable }, run, subject: name, startedAt: new Date().toISOString() }
+
+  const room = ceilingRoom(inventory(), CONFIG.terminalCeiling)
+  if (room < 1) return { ...record, outcome: 'skipped', reason: 'canvas no teto de terminais' }
+
+  const recruited = cli(['recruit', name, '--model', opts.model])
+  if (recruited.code !== 0) return { ...record, outcome: 'skipped', reason: `recruit falhou: ${recruited.out}` }
+
+  try {
+    const deadline = Date.now() + opts.runTimeoutMs
+    const booted = await waitReady(name, Math.min(deadline, Date.now() + 180_000))
+    if (!booted) return { ...record, outcome: 'null', reason: 'o nó não ficou pronto a tempo' }
+
+    const asked = cli(['ask', name, scn.prompt])
+    let outcome = classifyAsk(asked.code)
+    if (outcome === 'working') outcome = (await waitStop(name, deadline)) === 'waiting' ? 'waiting' : 'answered'
+    if (outcome === 'waiting') {
+      return { ...record, outcome: 'null', reason: `sujeito parado pedindo autorização: ${stateOf(name)?.detail ?? '?'}` }
+    }
+    if (outcome === 'failed') return { ...record, outcome: 'null', reason: `ask falhou: ${asked.out}` }
+
+    // A trilha vai para arquivo com nome CEGO — sem ciclo, sem versão. É o
+    // avaliador quem vai abrir isso, e ele não pode saber o que está julgando.
+    const trailPath = join(outDir, `trail-${scn.id}-${run}.txt`)
+    const captured = trail(name)
+    // O prompt parado na caixa de entrada é corrida NULA, e não corrida ruim: o
+    // sujeito nunca leu a pergunta. Sem esta guarda, a trilha vai para o
+    // avaliador e ele pontua um agente que não agiu.
+    if (promptStuck(captured, scn.prompt)) {
+      return { ...record, outcome: 'null', reason: 'o prompt ficou na caixa de entrada — o agente não o recebeu' }
+    }
+    writeFileSync(trailPath, captured, 'utf8')
+
+    const { verdicts, error, raw } = await evaluate(evaluator, scn, trailPath, Date.now() + opts.runTimeoutMs)
+    if (error) return { ...record, outcome: 'null', reason: error, trailPath }
+
+    const score = scoreRun(scn, verdicts)
+    return {
+      ...record,
+      endedAt: new Date().toISOString(),
+      outcome: score.complete ? 'scored' : 'null',
+      reason: score.complete ? null : `avaliador não julgou ${score.missing.join(', ')}`,
+      trailPath,
+      verdicts,
+      score,
+      evaluatorRaw: raw?.slice(-800)
+    }
+  } finally {
+    // Sempre. Um sujeito esquecido no canvas come uma vaga do teto da próxima
+    // corrida, e o M7c fez o `dismiss` parar de recusar quem está só travado.
+    cli(['dismiss', name])
+  }
+}
+
+async function main() {
+  const opts = args()
+  const chosen = opts.ids.map(scenario).filter(Boolean)
+  if (chosen.length === 0) {
+    console.error('nenhum cenário: use --all, --sentinels ou --scenarios S1,S2')
+    process.exit(1)
+  }
+
+  const inv = inventory()
+  const plan = chosen.map((s) => ({ scenario: s, missing: missingNeeds(s, inv) }))
+
+  console.log(`Harness da eval suite — ciclo ${opts.cycle}, ${opts.runs} run(s) por cenário`)
+  console.log(`Cenários: ${chosen.map((s) => s.id).join(', ')}  (${applicablePairs(chosen.map((s) => s.id))} pares por run completa)`)
+  console.log(`Canvas: ${inv.agents.length} agente(s), ${inv.editors.length} editor(es), ${inv.portals.length} portal(is), ${inv.notes.length} nota(s), ${inv.boards.length} quadro(s), ${inv.vaults.length} cofre(s)`)
+  console.log('')
+  for (const { scenario: s, missing } of plan) {
+    const mark = missing.length ? `PULADO — falta ${missing.join('; ')}` : 'pronto'
+    console.log(`  ${s.id}  ${mark}`)
+    if (!missing.length && s.manual) console.log(`        confira à mão: ${s.manual}`)
+  }
+  console.log('')
+
+  if (opts.dryRun) {
+    console.log('--dry-run: nada foi recrutado.')
+    return
+  }
+
+  const outDir = opts.out
+  mkdirSync(outDir, { recursive: true })
+  const jsonl = join(outDir, 'runs.jsonl')
+
+  // O avaliador nasce uma vez e vive a onda inteira: ele é CEGO ao ciclo e à
+  // versão, e o que o mantém cego é o prompt, não a ignorância — por isso ele
+  // pode ser reusado sem contaminar a medida, desde que ninguém lhe conte.
+  const existing = inv.agents.find((a) => a.name === opts.evaluator)
+  if (!existing) {
+    const r = cli(['recruit', opts.evaluator, '--model', CONFIG.evaluatorModel])
+    if (r.code !== 0) {
+      console.error(`não consegui recrutar o avaliador: ${r.out}`)
+      process.exit(1)
+    }
+    await waitReady(opts.evaluator, Date.now() + 180_000)
+  }
+
+  const records = []
+  try {
+    for (const { scenario: s, missing } of plan) {
+      if (missing.length) {
+        records.push({ scenario: { id: s.id, applicable: s.applicable }, outcome: 'skipped', reason: `canvas sem ${missing.join('; ')}` })
+        continue
+      }
+      for (let run = 0; run < opts.runs; run++) {
+        // Uma corrida nula é DESCARTADA E REPETIDA — nunca pontuada. O teto de
+        // repetições existe para o harness não girar para sempre num canvas em
+        // que o defeito é da máquina, e não do sujeito.
+        let attempt = 0
+        let record
+        do {
+          record = await runOnce(s, run, opts, outDir, opts.evaluator)
+          const willRetry = record.outcome === 'null' && attempt < opts.maxNull
+          if (record.outcome === 'null') {
+            console.log(`  ${s.id} run ${run}: NULA (${record.reason})${willRetry ? ` — repetindo ${attempt + 1}/${opts.maxNull}` : ' — sem repetição restante'}`)
+          }
+          attempt += 1
+        } while (record.outcome === 'null' && attempt <= opts.maxNull)
+
+        records.push(record)
+        appendFileSync(jsonl, `${JSON.stringify({ cycle: opts.cycle, ...record })}\n`, 'utf8')
+        const s10 = record.score
+        console.log(`  ${s.id} run ${run}: ${record.outcome}${s10 ? ` ${s10.yes}/${s10.applicable}` : ''}${record.reason ? ` — ${record.reason}` : ''}`)
+      }
+    }
+  } finally {
+    if (!opts.keepEvaluator && !existing) cli(['dismiss', opts.evaluator])
+  }
+
+  const total = aggregate(records)
+  const summary = [
+    '',
+    `Ciclo ${opts.cycle}: ${total.yes}/${total.applicable} = ${(total.pct * 100).toFixed(1)}%`,
+    `Corridas: ${total.scored} pontuadas, ${total.nullified} nulas, ${total.skipped} puladas`,
+    'Por critério:',
+    ...Object.entries(total.byCriterion).map(([id, b]) => `  ${id}  ${b.yes}/${b.applicable}`)
+  ].join('\n')
+  console.log(summary)
+  writeFileSync(join(outDir, 'summary.txt'), `${summary}\n`, 'utf8')
+  writeFileSync(join(outDir, 'summary.json'), `${JSON.stringify({ cycle: opts.cycle, ...total }, null, 2)}\n`, 'utf8')
+  console.log(`\nEscrito em ${outDir}`)
+}
+
+main().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})

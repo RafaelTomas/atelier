@@ -406,7 +406,8 @@ in the vaults cabled to you, and one value at a time when you really need it.
 atelier vault list
 atelier vault get "Vault" <key>
 atelier vault set "Vault" <KEY> <value>
-atelier vault env "Vault"
+atelier vault env ["Vault"]
+eval "$(atelier vault env --export)"
 \`\`\`
 
 \`set\` CREATES a key, and that is the only write you have. It refuses a key that
@@ -422,9 +423,19 @@ set — and prefer \`atelier portal login\` when the secret is going into a web
 form, because there the value never reaches you at all. Never echo a secret into
 the terminal, into a file, or into another agent's prompt.
 
-A key only becomes an environment variable from the NEXT boot of this terminal
-after the cable was drawn, so if \`$KEY\` is empty right after connecting a
-vault, ask the user to reload the terminal.
+A key becomes an environment variable at the BOOT of this terminal, so a vault
+cabled after you started is not in your \`$KEY\` — a cable cannot reach a process
+that is already running. Do not ask the user to reload for that, and do not fall
+back to \`get\`: load them yourself, with no value crossing the screen.
+
+\`\`\`
+eval "$(atelier vault env --export)"
+\`\`\`
+
+Exactly like that, inside \`$( )\`. Alone it refuses: printing secrets to a
+terminal puts them in the scrollback, where you read them back and the user sees
+them. After it, \`$KEY\` is set for the rest of your shell session and the value
+never entered your context.
 `,
   'table.md': `# SQL / query results
 

@@ -42,6 +42,8 @@ Commands:
   todo <list|add|move|done|show|create|plan|step>
                                     Manage todo board items and plans
   vault <list|get|set|env>          Secrets from connected vaults (set creates only, never overwrites)
+                                    env --export loads them into your shell without printing:
+                                    eval "$(atelier vault env --export)"
   button <propose|list|remove>      Propose buttons (pending until user accepts); remove only your pending ones
   role [list]                       Your assigned responsibility
   projects <list|info|describe>     The user's indexed projects
@@ -394,6 +396,22 @@ function sendWaiting(payload) {
   socket.on('close', done)
 }
 
+/**
+ * `vault env --export` imprime SEGREDO, e a decisão de recusar mora aqui.
+ *
+ * Ele existe para ser comido por um shell — `eval "$(atelier vault env
+ * --export)"` — e nessa forma a saída é um cano. Quando a saída é a TELA, o
+ * mesmo comando só serviria para despejar as senhas no scrollback do nó, onde o
+ * agente as lê de volta e o usuário as vê.
+ *
+ * A guarda mora no CLI, e não no app, porque só aqui se sabe para onde a saída
+ * vai: o app responde por um socket e não tem como saber se do outro lado há um
+ * terminal.
+ */
+function refusesExportToTTY(command, argv, isTTY) {
+  return command === 'vault' && argv.includes('--export') && Boolean(isTTY)
+}
+
 // ─── Despacho ─────────────────────────────────────────────────────────────────
 
 function main() {
@@ -448,6 +466,23 @@ function main() {
     return
   }
 
+  // `vault env --export` imprime SEGREDO. Ele existe para ser comido por um
+  // shell — `eval "$(atelier vault env --export)"` —, e nessa forma a saída é um
+  // cano, não a tela. Quando a saída É a tela, o mesmo comando só serviria para
+  // despejar as senhas no scrollback do nó, onde o agente as lê de volta e o
+  // usuário as vê. Então ali ele não roda.
+  //
+  // A guarda mora no CLI porque só aqui se sabe para onde a saída vai: o app
+  // responde por um socket e não tem como saber se do outro lado há um terminal.
+  if (refusesExportToTTY(command, args, process.stdout.isTTY)) {
+    process.stderr.write(
+      'error: refusing to print secrets to a terminal.\n' +
+        'This prints export lines meant to be loaded, never read. Use:\n' +
+        '  eval "$(atelier vault env --export)"\n'
+    )
+    process.exit(1)
+  }
+
   sendCommand(args)
 }
 
@@ -456,5 +491,12 @@ function main() {
 if (require.main === module) {
   main()
 } else {
-  module.exports = { ARTISAN_REFUSAL, artisanGuardResponse, artisanBriefResponse, OUTCOMES, exitCodeFor }
+  module.exports = {
+    ARTISAN_REFUSAL,
+    artisanGuardResponse,
+    artisanBriefResponse,
+    OUTCOMES,
+    exitCodeFor,
+    refusesExportToTTY
+  }
 }

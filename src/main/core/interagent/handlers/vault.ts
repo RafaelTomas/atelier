@@ -17,6 +17,7 @@ import type { UUID } from '@shared/types'
 import {
   connectedVaults,
   createSecret,
+  envExportForTerminal,
   envForTerminal,
   findConnectedVault,
   getSecret,
@@ -24,7 +25,9 @@ import {
 } from '../../vault/vault-manager'
 import { requireTerminalId } from './context'
 
-const USAGE = 'error: usage: atelier vault <list|get|set|env> …'
+const USAGE =
+  'error: usage: atelier vault <list|get|set|env> …\n' +
+  '  env [--export]   key names, or export lines to eval into your shell'
 
 export async function handleVault(args: string[], terminalId: UUID | null): Promise<string> {
   const tid = requireTerminalId(terminalId)
@@ -131,7 +134,29 @@ async function setValue(args: string[], tid: UUID): Promise<string> {
  * variável só existirá no próximo boot do terminal.
  */
 async function listEnv(args: string[], tid: UUID): Promise<string> {
-  const name = args[2]
+  const wantsExport = args.includes('--export')
+  const name = args.slice(2).find((a) => !a.startsWith('--'))
+
+  // `--export` CARREGA as chaves no shell de quem chama, em vez de listar
+  // nomes. É o único caminho que existe para um cofre cabeado DEPOIS do boot do
+  // PTY: o ambiente do processo já nasceu, e um cabo novo não alcança processo
+  // vivo. Sem isto, sobrava `vault get`, que traz o segredo para o contexto do
+  // agente — exatamente o que a skill desaconselha.
+  //
+  // O valor não passa pela tela: quem imprime é um `$( )`, e o CLI recusa
+  // quando a saída é um terminal (ver resources/atelier.cjs).
+  if (wantsExport) {
+    const result = await envExportForTerminal(tid)
+    if (result.error) return `error: ${result.error}`
+    if (!result.script) {
+      return (
+        '# no vault keys are exposed to this terminal\n' +
+        '# a key only exports when its "in env" toggle is on in the vault node'
+      )
+    }
+    return result.script
+  }
+
   const result = await envForTerminal(tid)
   if (result.error) return `error: ${result.error}`
 
@@ -144,7 +169,14 @@ async function listEnv(args: string[], tid: UUID): Promise<string> {
       'and only from the next terminal boot after the cable was drawn.'
     )
   }
-  return ['Vault keys in this environment:', ...scoped.map((k) => `  $${k}`)].join('\n')
+  return [
+    'Vault keys in this environment:',
+    ...scoped.map((k) => `  $${k}`),
+    // A dica só aparece quando ela resolve algo: as chaves existem no cofre mas
+    // podem não estar NESTE processo, porque o cabo veio depois do boot.
+    'If they are not set in your shell, the cable came after this terminal booted.',
+    'Load them without printing any value:  eval "$(atelier vault env --export)"'
+  ].join('\n')
 }
 
 async function keysOfNamed(tid: UUID, name: string): Promise<string[] | string> {

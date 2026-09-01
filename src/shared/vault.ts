@@ -205,3 +205,20 @@ export function sameOrigin(a: string | null | undefined, b: string | null | unde
   if (!oa || !ob) return false
   return oa === ob
 }
+
+/**
+ * Uma linha `export KEY='valor'` para o shell do agente comer.
+ *
+ * Mora aqui, ao lado do `maskSecrets` e do `isValidKeyName`, porque é da mesma
+ * espécie: é uma TRAVA, não um utilitário. O valor de um cofre é texto
+ * arbitrário — senha com `$`, com espaço, com aspas, com quebra de linha — e a
+ * citação errada não falha, ela obedece: um valor com `$(...)` dentro de aspas
+ * duplas VIRA EXECUÇÃO DE COMANDO no shell que fizer o `eval`.
+ *
+ * Aspas simples resolvem tudo isso de uma vez, porque dentro delas o shell não
+ * expande nada. A única coisa que não cabe lá dentro é a própria aspa simples, e
+ * o jeito de colocá-la é fechar, escapar e reabrir: `'` vira `'\''`.
+ */
+export function exportLine(key: string, value: string): string {
+  return `export ${key}='${value.split("'").join("'\\''")}'`
+}

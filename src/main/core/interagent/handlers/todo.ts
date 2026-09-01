@@ -90,6 +90,38 @@ function boardTitle(node: CanvasNode): string {
 }
 
 /**
+ * O usage de um verbo que EXIGE o quadro, com os quadros cabeados no fim.
+ *
+ * A assinatura sozinha não basta, e o ciclo 2 da eval mediu quanto ela custa:
+ * dois sujeitos do S4 chamaram `atelier todo move <id> doing`, sem o quadro, e
+ * receberam de volta a linha de uso e nada mais. Os dois acertaram na tentativa
+ * seguinte — e os dois perderam E-02, que pergunta se o primeiro verbo sobre o
+ * recurso saiu certo de primeira. Uma chamada por corrida, mais um critério.
+ *
+ * `findBoard` já sabia dizer a coisa certa (`several boards are connected
+ * ('Tarefas', 'Rascunho eval')`), mas o argumento que falta é posicional: com
+ * dois argumentos o handler cai no usage e nunca chega a `findBoard`. Então é o
+ * usage que precisa carregar a lista.
+ *
+ * Sem quadro nenhum cabeado a lista some e sobra o convite a criar um: mandar
+ * nomear um quadro que não existe é pior que a mensagem curta.
+ */
+export function boardUsage(signature: string, titles: string[]): string {
+  if (titles.length === 0) {
+    return `error: usage: ${signature}. No board is connected to this terminal — create one with 'atelier todo create "Title"'.`
+  }
+  const names = titles.map((t) => `'${t}'`).join(', ')
+  return `error: usage: ${signature}. Connected board${titles.length > 1 ? 's' : ''}: ${names}.`
+}
+
+function usageForBoardVerb(tid: UUID, signature: string): string {
+  return boardUsage(
+    signature,
+    boardNodes(tid).map((n) => boardTitle(n))
+  )
+}
+
+/**
  * O quadro pedido pelo nome, ou o ÚNICO cabeado quando o nome é omitido.
  *
  * Omitir o nome com dois quadros ligados é erro: adivinhar qual deles faria o
@@ -236,7 +268,7 @@ async function addItem(argv: string[], tid: UUID): Promise<string> {
   const boardName = rest[2]
   const title = rest[3]
   if (!boardName || !title) {
-    return 'error: usage: atelier todo add "Board" "title" [--status doing] [--assign "Name"] [--notes "…"]'
+    return usageForBoardVerb(tid, 'atelier todo add "Board" "title" [--status doing] [--assign "Name"] [--notes "…"]')
   }
 
   const node = findBoard(tid, boardName)
@@ -269,7 +301,7 @@ async function moveItem(argv: string[], tid: UUID): Promise<string> {
   const { rest } = takeFlags(argv)
   const [, , boardName, needle, status] = rest
   if (!boardName || !needle || !status) {
-    return 'error: usage: atelier todo move "Board" <id|"title prefix"> <status>'
+    return usageForBoardVerb(tid, 'atelier todo move "Board" <id|"title prefix"> <status>')
   }
   return moveTo(tid, boardName, needle, status)
 }
@@ -278,7 +310,7 @@ async function doneItem(argv: string[], tid: UUID): Promise<string> {
   const { rest } = takeFlags(argv)
   const [, , boardName, needle] = rest
   if (!boardName || !needle) {
-    return 'error: usage: atelier todo done "Board" <id|"title prefix">'
+    return usageForBoardVerb(tid, 'atelier todo done "Board" <id|"title prefix">')
   }
   const node = findBoard(tid, boardName)
   if (typeof node === 'string') return node
@@ -315,7 +347,7 @@ async function moveTo(tid: UUID, boardName: string, needle: string, status: stri
 async function showItem(argv: string[], tid: UUID): Promise<string> {
   const { rest } = takeFlags(argv)
   const [, , boardName, needle] = rest
-  if (!boardName || !needle) return 'error: usage: atelier todo show "Board" <id|"title prefix">'
+  if (!boardName || !needle) return usageForBoardVerb(tid, 'atelier todo show "Board" <id|"title prefix">')
 
   const node = findBoard(tid, boardName)
   if (typeof node === 'string') return node
@@ -368,7 +400,7 @@ async function planCommand(argv: string[], tid: UUID): Promise<string> {
   const { rest, flags, steps } = takeFlags(argv)
   const [, , boardName, needle] = rest
   if (!boardName || !needle) {
-    return 'error: usage: atelier todo plan "Board" <id|"title prefix"> [--title "…"] [--objective "…"] [--step "…"]…'
+    return usageForBoardVerb(tid, 'atelier todo plan "Board" <id|"title prefix"> [--title "…"] [--objective "…"] [--step "…"]…')
   }
 
   const found = await locate(tid, boardName, needle)
@@ -442,7 +474,7 @@ async function stepCommand(argv: string[], tid: UUID): Promise<string> {
   const { rest } = takeFlags(argv)
   const [, , boardName, needle, which, status] = rest
   if (!boardName || !needle || !which || !status) {
-    return 'error: usage: atelier todo step "Board" <id|"title prefix"> <step number|"step prefix"> <pending|in_progress|done|blocked|skipped>'
+    return usageForBoardVerb(tid, 'atelier todo step "Board" <id|"title prefix"> <step number|"step prefix"> <pending|in_progress|done|blocked|skipped>')
   }
   if (!(PLAN_STEP_STATUSES as string[]).includes(status)) {
     return `error: unknown step status '${status}'. Valid: ${PLAN_STEP_STATUSES.join(', ')}.`

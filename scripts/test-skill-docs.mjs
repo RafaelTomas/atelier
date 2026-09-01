@@ -289,6 +289,20 @@ test('a reference de table não recomenda flag de psql que quebra o CSV', () => 
   )
 })
 
+test('a reference de todo diz que o quadro é o PRIMEIRO argumento, sempre', () => {
+  // A frase antiga — "Name the board only when more than one is connected" —
+  // vale para `list` e para mais nenhum verbo: `todo move <id> doing` é erro de
+  // uso mesmo com um quadro só, porque o argumento é posicional. Dois sujeitos
+  // do S4 leram a permissão de omitir e perderam E-02 no ciclo 2.
+  const todo = REFERENCES['todo.md']
+  assert.ok(todo, 'a reference de todo desapareceu')
+  assert.match(todo, /takes the board as its FIRST argument/, 'o aviso do posicional saiu')
+  assert.ok(
+    !/Name the board only when more than one is connected/.test(todo),
+    'a frase que autorizava omitir o quadro voltou'
+  )
+})
+
 test('a reference de portal diz que `go` mexe na tela do usuário, e dá a saída', () => {
   // Medido no ciclo 1: o sujeito do S3 leu o portal, quis saber se o servidor
   // estava no ar ou se só a rota tinha quebrado, e foi de `curl` na raiz —

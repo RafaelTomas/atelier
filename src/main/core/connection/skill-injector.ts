@@ -532,7 +532,10 @@ atelier todo step "Board" <id|"title prefix"> <step number> <pending|in_progress
 \`\`\`
 
 Only boards CABLED to you, like everything else here. \`create\` makes one already
-connected to you. Name the board only when more than one is connected.
+connected to you. **Every verb but \`list\` takes the board as its FIRST argument,
+always** — \`todo move <id> doing\` is not a shorter form, it is a usage error, and
+with two boards connected there is nothing to fall back to. Only \`list\` may omit
+it, and only while a single board is connected.
 
 Address a card by id or by a prefix of its title — an ambiguous prefix is an
 error listing the candidates, never "the first one".

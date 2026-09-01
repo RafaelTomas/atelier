@@ -131,7 +131,12 @@ export function makePreferences(): Preferences {
     railPlacement: formatPlacement(RAIL_PLACEMENT_DEFAULT),
     monitorPlacement: formatPlacement(MONITOR_PLACEMENT_DEFAULT),
     monitorDockVisible: true,
-    monitorDockAccountId: ''
+    monitorDockAccountId: '',
+    terminalThemeId: 'system',
+    terminalFontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    terminalFontSize: 13,
+    scanRoots: [],
+    scanMaxDepth: 6
   }
 }
 
@@ -159,6 +164,24 @@ function decodeRopeColor(value: unknown): string | null {
     return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`
   }
   return null
+}
+
+/**
+ * Corpo de fonte do terminal. Fora de 8..32 é ilegível ou não cabe, e um
+ * `fontSize: 0` vindo de um arquivo editado à mão apagaria o terminal — então
+ * o intervalo é grampeado aqui, não conferido no renderer.
+ */
+function clampFontSize(value: unknown, fallback: number): number {
+  const n = num(value, fallback)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(32, Math.max(8, Math.round(n)))
+}
+
+/** Profundidade da varredura. Fora de 1..12 volta ao padrão do diálogo. */
+function clampScanDepth(value: unknown, fallback: number): number {
+  const n = num(value, fallback)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(12, Math.max(1, Math.round(n)))
 }
 
 export function decodePreferences(value: unknown): Preferences {
@@ -202,6 +225,19 @@ export function decodePreferences(value: unknown): Preferences {
     monitorDockVisible: bool(o.monitorDockVisible, base.monitorDockVisible),
     // Ausente em preferences.json escrito antes do seletor de conta da tira, e
     // apagada por um save do app nativo. Cai em `''` — a conta automática.
-    monitorDockAccountId: str(o.monitorDockAccountId, base.monitorDockAccountId)
+    monitorDockAccountId: str(o.monitorDockAccountId, base.monitorDockAccountId),
+    // Ausentes em preferences.json escrito antes dos padrões de terminal, e
+    // apagadas por um save do app nativo. Caem no padrão pelo mesmo caminho: um
+    // tema que não existe mais vira `system` em `resolveTheme`, então aqui
+    // basta não propagar lixo.
+    terminalThemeId: str(o.terminalThemeId, base.terminalThemeId),
+    terminalFontFamily: str(o.terminalFontFamily, base.terminalFontFamily),
+    terminalFontSize: clampFontSize(o.terminalFontSize, base.terminalFontSize),
+    // Lista vazia é o padrão e significa a home do usuário. Uma entrada que não
+    // seja string cai fora sozinha — perder uma raiz é melhor que perder todas.
+    scanRoots: Array.isArray(o.scanRoots)
+      ? o.scanRoots.filter((r): r is string => typeof r === 'string' && r.trim() !== '')
+      : base.scanRoots,
+    scanMaxDepth: clampScanDepth(o.scanMaxDepth, base.scanMaxDepth)
   }
 }

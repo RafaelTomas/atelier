@@ -703,6 +703,54 @@ test('makePreferences nasce com a posição histórica das duas peças', () => {
   assert.equal(base.monitorDockVisible, true)
 })
 
+// ─── preferences.json: padrões de terminal e varredura ───────────────────────
+//
+// Mesmo contrato das chaves acima: são deste binário, o save do app nativo as
+// apaga, e a perda tem de devolver o padrão — nunca um terminal sem fonte nem
+// uma varredura de profundidade zero.
+
+test('sem as chaves de terminal, os padrões do terminal novo aparecem', () => {
+  const prefs = decodePreferences({ theme: 'dark' })
+  assert.equal(prefs.terminalThemeId, 'system')
+  assert.equal(prefs.terminalFontSize, 13)
+  assert.ok(prefs.terminalFontFamily.includes('ui-monospace'))
+})
+
+test('corpo de fonte do terminal é grampeado em 8..32', () => {
+  assert.equal(decodePreferences({ terminalFontSize: 0 }).terminalFontSize, 8)
+  assert.equal(decodePreferences({ terminalFontSize: 999 }).terminalFontSize, 32)
+  assert.equal(decodePreferences({ terminalFontSize: 15.6 }).terminalFontSize, 16)
+  for (const lixo of ['grande', null, {}, NaN]) {
+    assert.equal(decodePreferences({ terminalFontSize: lixo }).terminalFontSize, 13,
+      `${JSON.stringify(lixo)} passou`)
+  }
+})
+
+test('id de tema desconhecido ATRAVESSA — quem resolve é resolveTheme', () => {
+  // Não é descuido: o tema pode ter sido apagado nesta sessão e recriado na
+  // próxima. Zerar aqui perderia a escolha; `resolveTheme` já cai em `system`.
+  assert.equal(decodePreferences({ terminalThemeId: 'fantasma' }).terminalThemeId, 'fantasma')
+  assert.equal(decodePreferences({ terminalThemeId: 42 }).terminalThemeId, 'system')
+})
+
+test('sem as chaves de varredura, ela nasce na home com profundidade 6', () => {
+  const prefs = decodePreferences({ theme: 'dark' })
+  assert.deepEqual(prefs.scanRoots, [])
+  assert.equal(prefs.scanMaxDepth, 6)
+})
+
+test('raiz que não é string cai fora sozinha, sem levar as outras', () => {
+  const prefs = decodePreferences({ scanRoots: ['/a', 42, '', null, '/b'] })
+  assert.deepEqual(prefs.scanRoots, ['/a', '/b'])
+  assert.deepEqual(decodePreferences({ scanRoots: 'nao-e-lista' }).scanRoots, [])
+})
+
+test('profundidade da varredura é grampeada em 1..12', () => {
+  assert.equal(decodePreferences({ scanMaxDepth: 0 }).scanMaxDepth, 1)
+  assert.equal(decodePreferences({ scanMaxDepth: 99 }).scanMaxDepth, 12)
+  assert.equal(decodePreferences({ scanMaxDepth: 'fundo' }).scanMaxDepth, 6)
+})
+
 // ─── Widget (v6) ─────────────────────────────────────────────────────────────
 // O caso de enum que hospeda painéis no canvas. O que estes testes protegem não
 // é a renderização — é o formato: um `kind` que este binário não conhece tem de

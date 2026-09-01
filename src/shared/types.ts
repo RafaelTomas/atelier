@@ -1322,6 +1322,34 @@ export interface Preferences {
    * sem explicação.
    */
   monitorDockAccountId: string
+  /**
+   * Padrões do terminal NOVO — tema, família e corpo da fonte. São o que o
+   * diálogo de terminal pré-seleciona; um nó já criado guarda a escolha dele e
+   * não é afetado por mudar isto depois.
+   *
+   * Chaves DESTE binário: o app nativo Swift não as conhece e um save de lá as
+   * apaga. Ausente ou com lixo dentro cai no padrão SEMPRE — `system` para o
+   * tema (que segue o tema do app), a monoespaçada do sistema para a fonte, 13
+   * para o corpo. Um id de tema apagado também cai em `system`, porque
+   * `resolveTheme` já trata id desconhecido.
+   */
+  terminalThemeId: string
+  terminalFontFamily: string
+  terminalFontSize: number
+  /**
+   * Onde a varredura de projetos procura, e até que profundidade.
+   *
+   * Antes disto a escolha só existia como argumento de `project:scan-start`,
+   * passado pelo `scan-dialog` e esquecido na hora seguinte. Persistir não muda
+   * o que a varredura faz — muda quantas vezes o usuário precisa redizê-lo.
+   *
+   * Lista VAZIA não é falta de configuração: é o padrão, e significa a home do
+   * usuário, que é onde a varredura sempre começou. Entrada que não seja string
+   * é descartada uma a uma, e não invalida a lista inteira.
+   */
+  scanRoots: string[]
+  /** Profundidade da varredura. Fora de 1..12 cai em 6, o padrão do diálogo. */
+  scanMaxDepth: number
 }
 
 // ─── Posição das pílulas flutuantes ───────────────────────────────────────────

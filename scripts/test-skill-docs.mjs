@@ -289,6 +289,22 @@ test('a reference de table não recomenda flag de psql que quebra o CSV', () => 
   )
 })
 
+test('a reference de portal diz que `go` mexe na tela do usuário, e dá a saída', () => {
+  // Medido no ciclo 1: o sujeito do S3 leu o portal, quis saber se o servidor
+  // estava no ar ou se só a rota tinha quebrado, e foi de `curl` na raiz —
+  // perdendo E-05 duas vezes em três corridas. A leitura do avaliador estava
+  // certa pelo enunciado antigo e ERRADA pelo que se quer do agente: `portal go`
+  // teria levado a página que o USUÁRIO está olhando para outro lugar.
+  //
+  // A reference passou a dizer as duas coisas — que `go` move a tela do usuário,
+  // e que buscar outra url por fora é a saída educada — e o E-05 deixou de
+  // contar esse caso como desvio.
+  const portal = REFERENCES['portal.md']
+  assert.ok(portal, 'a reference de portal desapareceu')
+  assert.match(portal, /moves the page the user is looking at/, 'o aviso sobre `go` saiu')
+  assert.match(portal, /curl/, 'a saída educada saiu da reference')
+})
+
 await testAsync(
   'o settings do nó aponta para o diretório que o instalador REALMENTE criou',
   async () => {

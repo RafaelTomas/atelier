@@ -315,6 +315,14 @@ A portal that is off-screen or zoomed out is woken up for the read, so the first
 one may take a second. You cannot run arbitrary JavaScript in a portal: these
 sessions are often logged in as the user.
 
+**\`go\` moves the page the user is looking at.** A connected portal is their
+screen, not your browser tab: navigating it away to check something is like
+grabbing someone's mouse. So when you need ANOTHER url — the site root to tell a
+broken route from a dead server, an API endpoint, a status page — fetch it
+yourself with \`curl\` and leave the portal where it is. That is not going around
+the cable; it is the polite way past it. Use \`go\` when the user asked to be
+taken somewhere, or when you are the one who opened that portal.
+
 ## Acting in a page
 
 \`\`\`

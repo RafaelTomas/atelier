@@ -777,6 +777,12 @@ export function buildTerminalEnv(params: {
 
   const bin = atelierBinDir()
   env.ATELIER_CLI = bin.cliPath
+  // O DIRETÓRIO, não o arquivo. Prepender o bin aqui não basta: `bootArgs` sobe
+  // o PTY com `-i`, o shell carrega o profile do usuário, e um profile que faz
+  // `export PATH=<lista absoluta>` — o desta máquina faz — apaga o que
+  // prependamos. Quem repõe é o próprio comando de boot, depois do profile ter
+  // rodado, e para isso ele precisa do diretório no ambiente. Ver boot-command.ts.
+  env.ATELIER_BIN = bin.dir
   // O bin do Atelier entra na frente; o PATH herdado (onde mora `claude`,
   // `codex`, `npm`…) continua inteiro graças ao `childEnv` acima.
   prependPath(env, bin.dir)

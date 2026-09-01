@@ -165,17 +165,19 @@ Trying one of these is always wrong, never a missing feature to work around.
 ## Troubleshooting
 
 ` +
-  // Esta nota trata o PATH resetado como caso exótico, mas o cartão
-  // "Investigar PATH" (quadro do plano) já mediu que nesta máquina é o caso
-  // PADRÃO: bootArgs sobe o PTY com -i -c ..., o -i carrega o ~/.bashrc do
-  // usuário, e o ~/.bashrc faz export PATH=<lista absoluta>, apagando o bin
-  // do Atelier — confirmado nos dois processos (o PTY tem o bin, o claude
-  // que ele abre não tem). A correção é no boot, não aqui. NÃO reescreva esta
-  // nota antes da correção: depois dela a nota volta a ser verdadeira como
-  // está — hoje reescrevê-la faria a doc mentir sobre a causa.
-  `\`atelier debug\` prints server, terminal and platform info. The CLI is on
-PATH inside Atelier terminals; if a custom shell resets PATH, use
-\`"$ATELIER_CLI"\`, which always holds the full path.
+  // A nota agora descreve o mecanismo real. O PATH resetado pelo profile do
+  // usuário não é caso exótico — é o padrão em máquina gerenciada, e era por
+  // ele que `atelier` caía no launcher do app. Quem repõe é o prefixo do
+  // comando de boot (boot-command.ts), que roda depois do profile. O
+  // `"$ATELIER_CLI"` continua documentado como piso: ele vale para qualquer
+  // preset e para o shell que o usuário abre à mão dentro do nó.
+  `\`atelier debug\` prints server, terminal and platform info.
+
+The CLI is on PATH inside Atelier terminals: the node's boot line puts
+\`$ATELIER_BIN\` back in front after your shell profile has run, so a profile
+that rewrites PATH does not hide it. If \`atelier\` still does not resolve —
+another shell, another preset, a PATH you changed yourself — use
+\`"$ATELIER_CLI"\`, which always holds the full path to the CLI.
 `
 
 /**

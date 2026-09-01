@@ -30,6 +30,14 @@ const ROOT = resolve(import.meta.dirname, '..')
 const home = await mkdtemp(join(tmpdir(), 'atelier-accounts-home-'))
 process.env.ATELIER_HOME = home
 
+// E CLAUDE_CONFIG_DIR fora do processo: `buildTerminalEnv` herda o `process.env`,
+// então rodar este teste de dentro de um nó do Atelier que já está numa conta
+// faz a variável existir antes da primeira asserção — a conta padrão parece
+// definir a variável, e o cofre parece não conseguir injetá-la. Os dois são
+// falsos negativos do ambiente, e só aparecem para quem roda a suíte de dentro
+// do app.
+delete process.env.CLAUDE_CONFIG_DIR
+
 const outdir = await mkdtemp(join(tmpdir(), 'atelier-accounts-'))
 const outfile = join(outdir, 'accounts.mjs')
 await esbuild.build({

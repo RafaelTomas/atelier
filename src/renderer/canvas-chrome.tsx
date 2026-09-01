@@ -11,7 +11,8 @@
  */
 import { useEffect, useState } from 'react'
 import { ROPE_THICKNESS_MAX, ROPE_THICKNESS_MIN } from '@shared/types'
-import { ROPE_STYLES, geometryPath, ropeLayers } from './canvas/rope-shapes'
+import { ROPE_COLORS, ROPE_STYLES } from './canvas/rope-shapes'
+import { RopeStylePreview } from './canvas/rope-style-preview'
 import { dialToZoom, nodesBounds, viewport, zoomToDial } from './canvas/viewport'
 import { useTopChromeBand } from './floating/chrome-band'
 import { store, useStore } from './state/store'
@@ -23,15 +24,6 @@ const THEMES: { id: ThemeMode; icon: string; label: string }[] = [
   { id: 'system', icon: '◑', label: 'Sistema' },
   { id: 'light', icon: '☀', label: 'Claro' },
   { id: 'dark', icon: '☾', label: 'Escuro' }
-]
-
-/** Cores decorativas para o repouso; verde, vermelho e âmbar seguem reservados aos estados. */
-const ROPE_COLORS: { value: string; label: string }[] = [
-  { value: '#007aff', label: 'Azul' },
-  { value: '#5856d6', label: 'Índigo' },
-  { value: '#af52de', label: 'Violeta' },
-  { value: '#e0245e', label: 'Rosa' },
-  { value: '#1abc9c', label: 'Turquesa' }
 ]
 
 export function CanvasChrome(): JSX.Element {
@@ -312,62 +304,6 @@ function ViewControls({
       </div>
     </div>
   )
-}
-
-/** Amostra curta, pintada pelas mesmas classes usadas no canvas. */
-function RopeStylePreview({
-  id,
-  compact = false
-}: {
-  id: (typeof ROPE_STYLES)[number]['id']
-  compact?: boolean
-}): JSX.Element {
-  return (
-    <svg
-      className={`rope-style-preview${compact ? ' rope-picker-button-preview' : ''}`}
-      viewBox="0 0 28 14"
-      aria-hidden="true"
-    >
-      {ropeLayers(id).map((layer) => (
-        <path
-          key={layer.name || 'single'}
-          className={`rope rope-shape-${id}${layer.name ? ` rope-layer-${layer.name}` : ''} rope-idle`}
-          d={
-            layer.geometry === 'center'
-              ? ropeStylePreviewPath(id)
-              : geometryPath(layer.geometry, SWATCH_POINTS, SWATCH_SCALE)
-          }
-        />
-      ))}
-    </svg>
-  )
-}
-
-/**
- * A amostra do seletor é pequena demais para a hélice de canvas: a corda vai a
- * 4.5 de corpo no CSS, e o gomo acompanha pela mesma fração.
- */
-const SWATCH_SCALE = 0.45
-/** A mesma curva de `ropeStylePreviewPath`, amostrada — a hélice quer pontos. */
-const SWATCH_POINTS = Array.from({ length: 24 }, (_, i) => {
-  const t = i / 23
-  const u = 1 - t
-  return {
-    x: u * u * u * 2 + 3 * u * u * t * 8 + 3 * u * t * t * 20 + t * t * t * 26,
-    y: u * u * u * 5 + 3 * u * u * t * 12 + 3 * u * t * t * 12 + t * t * t * 5
-  }
-})
-
-function ropeStylePreviewPath(id: (typeof ROPE_STYLES)[number]['id']): string {
-  if (id === 'line') return 'M 2 7 H 26'
-  if (id === 'circuit') return 'M 2 10 H 10 V 4 H 18 V 7 H 26'
-  // Os desenhos em camadas TÊM de usar esta curva: é a mesma que o
-  // `SWATCH_POINTS` amostra para a geometria derivada. Devolver outra aqui
-  // colocaria a sombra da trança num traçado diferente do dos fios dela.
-  if (id === 'dotted' || id === 'rope' || id === 'chain' || id === 'braid') {
-    return 'M 2 5 C 8 12, 20 12, 26 5'
-  }
-  return 'M 2 7 C 8 2, 20 12, 26 7'
 }
 
 /** "da nota" / "do terminal" — o rótulo do item vem sem artigo. */

@@ -35,7 +35,8 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { CONFIG, SCENARIOS, SENTINELS, scenario, applicablePairs } from './eval/suite.mjs'
+import {
+  CRITERIA, CONFIG, SCENARIOS, SENTINELS, scenario, applicablePairs } from './eval/suite.mjs'
 import {
   parseList,
   missingNeeds,
@@ -304,7 +305,35 @@ function trailFor(name, accountLabel) {
   return { text, source: 'transcript', calls: calls.length }
 }
 
-async function evaluate(evaluator, scn, trailPath, deadline, accountLabel) {
+/**
+ * A RUBRICA, escrita no diretório da corrida a partir do dado.
+ *
+ * O avaliador era mandado ler `docs/eval-aderencia-agentes.md`, e `docs/` está no
+ * `.gitignore`: numa máquina recém-clonada ele abriria um arquivo inexistente, e
+ * um avaliador sem rubrica responde `n/a` em tudo — que o harness anula, e anular
+ * é repetir. Escrever daqui também garante que a rubrica julgada é a mesma que os
+ * testes conferem.
+ *
+ * Vai para ARQUIVO, e não para dentro do prompt, pelo motivo de sempre nesta
+ * suíte: o texto do pedido volta na tela do avaliador, e a rubrica contém os ids
+ * dos critérios ao lado das palavras `sim` e `não`. No prompt, ela seria lida de
+ * volta como veredito.
+ */
+function writeRubric(outDir) {
+  const path = join(outDir, 'criterios.md')
+  const linhas = [
+    '# Critérios da eval suite do Atelier',
+    '',
+    'Julgue cada critério aplicável com `sim`, `não`, ou `n/a` quando a trilha não',
+    'mostrar o suficiente para julgar.',
+    '',
+    ...CRITERIA.flatMap((c) => [`## ${c.id} — ${c.short}`, '', c.question, ''])
+  ]
+  writeFileSync(path, linhas.join('\n'), 'utf8')
+  return path
+}
+
+async function evaluate(evaluator, scn, trailPath, deadline, accountLabel, rubricPath) {
   const criteria = scn.applicable.join(', ')
   // A forma pedida — `VER <id> <veredito>` — não aparece escrita neste
   // enunciado, e é de propósito: `ask` devolve a TELA do avaliador, e a tela
@@ -312,7 +341,7 @@ async function evaluate(evaluator, scn, trailPath, deadline, accountLabel) {
   // como veredito na volta.
   const prompt =
     `Read the agent trail in ${trailPath}. Score it against the criteria in ` +
-    `docs/eval-aderencia-agentes.md. Only these criteria apply to this trail: ${criteria}. ` +
+    `${rubricPath}. Only these criteria apply to this trail: ${criteria}. ` +
     `The trail has two parts: the tool calls in order (what the agent actually did) ` +
     `and the node screen. Judge by the tool calls; the screen is context. ` +
     `Answer one line per applicable criterion, each line being the three tokens ` +
@@ -432,6 +461,9 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
     // A trilha vai para arquivo com nome CEGO — sem ciclo, sem versão. É o
     // avaliador quem vai abrir isso, e ele não pode saber o que está julgando.
     const trailPath = join(outDir, `trail-${scn.id}-${run}.txt`)
+    // A rubrica é a mesma para toda corrida; reescrevê-la é idempotente e barato,
+    // e garante que ela exista mesmo numa corrida avulsa.
+    const rubricPath = writeRubric(outDir)
     const captured = trailFor(name, opts.account)
     // O prompt parado na caixa de entrada é corrida NULA, e não corrida ruim: o
     // sujeito nunca leu a pergunta. Sem esta guarda, a trilha vai para o
@@ -456,7 +488,8 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
       scn,
       trailPath,
       Date.now() + opts.runTimeoutMs,
-      opts.account
+      opts.account,
+      rubricPath
     )
     if (error) return { ...record, outcome: 'null', reason: error, trailPath }
 

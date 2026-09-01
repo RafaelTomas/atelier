@@ -494,6 +494,23 @@ test('os sentinelas são S1–S4, e valem um terço do custo', () => {
 const DOC = join(ROOT, 'docs/eval-aderencia-agentes.md')
 if (existsSync(DOC)) {
   const md = await readFile(DOC, 'utf8')
+  test('a rubrica do dado é a rubrica do documento', () => {
+    // O avaliador julga pelo DADO (criterios.md, gerado de suite.mjs); o
+    // documento é para humano. Divergir significa que a pessoa que decide a
+    // suíte e o agente que a aplica leem coisas diferentes — e ninguém avisa.
+    for (const c of CRITERIA) {
+      const row = md.split('\n').find((l) => l.startsWith(`| ${c.id} |`))
+      if (!row) continue
+      const doDoc = row.split('|')[3]?.trim()
+      assert.ok(doDoc, `${c.id}: o documento não traz a pergunta`)
+      assert.equal(
+        doDoc,
+        c.question,
+        `${c.id}: a pergunta do documento divergiu do dado`
+      )
+    }
+  })
+
   test('a matriz do dado bate com a matriz do documento', () => {
     // `docs/` está no .gitignore: numa máquina recém-clonada este teste não
     // roda, e é por isso que a matriz vive no .mjs e não é lida de lá.
@@ -627,6 +644,50 @@ test('o avaliador é REUSADO, e só a última rodada conta', () => {
     {},
     'o veredito da corrida anterior vazou para a corrida atual'
   )
+})
+
+// ─── A rubrica: o que o avaliador realmente lê ────────────────────────────────
+
+test('todo critério tem pergunta, e a pergunta é julgável', () => {
+  // A rubrica morava só em docs/, que está no .gitignore: numa máquina
+  // recém-clonada o avaliador abria um arquivo inexistente, e um avaliador sem
+  // rubrica responde n/a em tudo — que o harness anula, e anular é repetir.
+  for (const c of CRITERIA) {
+    assert.ok(c.question, `${c.id} sem pergunta`)
+    assert.ok(c.question.length > 40, `${c.id}: pergunta curta demais para julgar`)
+    assert.ok(c.question.trim().endsWith('?') || c.question.includes('?'), `${c.id}: não é pergunta`)
+  }
+  assert.equal(CRITERIA.length, 10)
+})
+
+test('E-03 diz o que conta, e onde a contagem para', () => {
+  // A redação antiga comportava duas leituras e a diferença valia 60 pontos: o
+  // avaliador do ciclo 0 contou o TOTAL de chamadas e reprovou 9 de 9; contando
+  // até a primeira ação, seis das nove passariam. E a chamada com que o Claude
+  // Code carrega a skill entrava na conta, o que tornava o critério impossível —
+  // caminho mínimo de três contra teto de dois.
+  const q = CRITERIA.find((c) => c.id === 'E-03').question
+  assert.match(q, /PARANDO na primeira chamada/, 'não diz onde a contagem para')
+  assert.match(q, /NÃO conte o carregamento da skill/, 'a carga da skill voltou para a conta')
+  assert.match(q, /Skill/, 'não nomeia a ferramenta que não conta')
+  assert.match(q, /duas chamadas ou menos/, 'perdeu o teto')
+  // E não voltou a ser a frase ambígua de antes.
+  assert.ok(
+    !/contadas do prompt do usuário/.test(q),
+    'a redação ambígua do ciclo 0 voltou'
+  )
+})
+
+test('a rubrica escrita cobre todo critério que algum cenário aplica', () => {
+  // O avaliador recebe a lista de ids aplicáveis e a rubrica; um id aplicável
+  // sem verbete na rubrica é um `n/a` garantido, e um `n/a` num aplicável é o
+  // que anula a corrida.
+  const naRubrica = new Set(CRITERIA.map((c) => c.id))
+  for (const s of SCENARIOS) {
+    for (const id of s.applicable) {
+      assert.ok(naRubrica.has(id), `${s.id} aplica ${id}, que não está na rubrica`)
+    }
+  }
 })
 
 console.log(`\n${passed} passaram, ${failed} falharam\n`)

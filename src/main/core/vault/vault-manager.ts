@@ -23,7 +23,7 @@
 import type { CanvasNode, SecretVaultContent, UUID } from '@shared/types'
 import { notifyRenderer } from '../../ipc/notify'
 import type { VaultEntry, VaultFile } from '@shared/vault'
-import { isValidKeyName, sameOrigin, withNewEntry } from '@shared/vault'
+import { isValidKeyName, sameOrigin, withNewEntry, exportLine } from '@shared/vault'
 import { nodeDisplayName } from '../models/node-content'
 import { persistence } from '../persistence/persistence-manager'
 import { appState } from '../state/app-state'
@@ -298,6 +298,52 @@ export async function envForTerminal(terminalId: UUID): Promise<EnvResult> {
     }
   }
   return { env, keys }
+}
+
+/**
+ * O mesmo ambiente, em forma de `export` para o shell do agente comer.
+ *
+ * Existe porque o cabo de cofre injeta as chaves **no boot do PTY**, e um cabo
+ * ligado depois disso não alcança processo vivo: medido em 01/09, o
+ * `/proc/<pid>/environ` de um nó recém-cabeado não tinha nenhuma das chaves. Até
+ * aqui a única saída era `vault get`, que traz o segredo para o CONTEXTO do
+ * agente — o caminho que a própria skill desaconselha.
+ *
+ * Com isto o valor vai para o AMBIENTE do processo sem passar pela tela:
+ *
+ *   eval "$(atelier vault env --export)"
+ *
+ * Três coisas seguram a diferença entre isso e um `echo` da senha:
+ *
+ *   - o CLI **recusa** quando a saída é a tela (ver resources/atelier.cjs). O
+ *     `$( )` é um cano, e é assim que o comando faz sentido; digitado sozinho
+ *     num terminal ele só imprimiria segredo, e aí não roda.
+ *   - o valor entra no mascaramento do terminal, como no `get`: se reaparecer
+ *     no scrollback depois, sai mascarado.
+ *   - fica na trilha de auditoria do cofre, chave por chave, como todo acesso.
+ *
+ * A citação é aspas simples com o truque de sempre (`'` vira `'\''`), porque
+ * senha com `$`, espaço ou aspas é comum e um export mal citado vira variável
+ * truncada — ou, pior, execução de comando.
+ */
+export async function envExportForTerminal(
+  terminalId: UUID
+): Promise<{ script: string; keys: string[]; error?: string }> {
+  const result = await envForTerminal(terminalId)
+  if (result.error) return { script: '', keys: [], error: result.error }
+
+  const lines: string[] = []
+  for (const vault of connectedVaults(terminalId)) {
+    const file = await fileOf(vault)
+    if (!file) continue
+    for (const entry of file.entries) {
+      if (!entry.inEnv) continue
+      rememberSecret(terminalId, entry.value)
+      await logAccess(vault, terminalId, `env --export ${entry.key}`)
+      lines.push(exportLine(entry.key, entry.value))
+    }
+  }
+  return { script: lines.join('\n'), keys: result.keys }
 }
 
 /**

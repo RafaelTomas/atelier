@@ -1,10 +1,19 @@
 /**
  * `atelier ask "Agent" "prompt"` — porte de AskHandler.swift.
  *
- * Escreve o prompt no PTY do destinatário e bloqueia até ele ficar ocioso
- * (sem saída nova por agentIdleTimeoutMs) ou estourar o timeout.
+ * Escreve o prompt no PTY do destinatário e bloqueia até ele PARAR — e a graça
+ * do M7 é que "parar" agora tem três desfechos diferentes, que antes eram um só:
+ *
+ *   • o agente terminou            → exit 0, a resposta dele
+ *   • o agente parou para PEDIR    → exit 3, dizendo o que ele pede
+ *   • o tempo acabou e ele trabalha → exit 2, e a resposta é parcial
+ *
+ * Antes, os três saíam com exit 0, e o do meio era indistinguível do primeiro.
+ * Pior: como um TUI animado nunca fica 2s calado, o desfecho NORMAL de um
+ * agente Claude Code trabalhando era o terceiro — `ask` estourava o timeout
+ * SEMPRE, e com exit 0, o que treinava quem chama a ignorar o código de saída.
  */
-import type { UUID } from '@shared/types'
+import type { AgentLifecycle, UUID } from '@shared/types'
 import { Constants } from '../../constants'
 import { log } from '../../logger'
 import { nodeDisplayName } from '../../models/node-content'
@@ -41,11 +50,27 @@ export async function handleAsk(args: string[], terminalId: UUID | null): Promis
   await writePrompt(target.id, prompt)
   log.debug('ask', `prompt enviado a ${target.id.slice(0, 8)}: ${prompt.slice(0, 50)}`)
 
-  const output = await waitForIdle(target.id, baseline, prompt)
+  const output = await waitForStop(target.id, baseline, prompt)
   if (connection) setConnectionStatus(connection.id, 'idle')
 
-  return output.trim() || '(agent produced no output)'
+  return output || '(agent produced no output)'
 }
+
+/**
+ * As linhas que dizem ao CLI com que código sair.
+ *
+ * O protocolo do socket carrega TEXTO, e só. Em vez de alargá-lo para um campo
+ * de status — que obrigaria a atualizar o `atelier` já instalado no PATH de
+ * todo mundo — o desfecho viaja como a ÚLTIMA linha da resposta, num formato
+ * que ninguém escreve por acaso.
+ *
+ * Estas constantes têm um par literal em resources/atelier.cjs, e
+ * scripts/test-ask.mjs falha se as duas se separarem: um CLI que deixe de
+ * reconhecer a linha volta a sair com 0 em silêncio, que é exatamente o defeito
+ * que isto conserta.
+ */
+export const ASK_TIMEOUT_LINE = '[atelier: timed out — agent still working]'
+export const ASK_WAITING_LINE = '[atelier: agent stopped and is asking the user]'
 
 /**
  * Pausa entre o texto e o Enter. Mesmo valor do comando inicial do PTY
@@ -79,29 +104,58 @@ async function writePrompt(id: UUID, prompt: string): Promise<void> {
 }
 
 /**
- * Espera o agente parar de produzir saída. Sonda a cada 250 ms: barato e
- * suficiente, já que a condição de parada é temporal.
+ * Espera o agente PARAR — de qualquer um dos jeitos. Sonda a cada 250 ms:
+ * barato, e a condição de parada muda em escala de segundos.
+ *
+ * Sair por `waiting` é a diferença que paga o M7. Antes, um agente que parava
+ * num diálogo de permissão prendia quem chamou até o timeout inteiro, e
+ * devolvia exit 0 com uma tela de diálogo no corpo — o coordenador lia aquilo
+ * como resposta e seguia em frente. Agora ele volta na hora, dizendo o que
+ * falta.
  */
-async function waitForIdle(id: UUID, baseline: number, prompt: string): Promise<string> {
+async function waitForStop(id: UUID, baseline: number, prompt: string): Promise<string> {
   const deadline = Date.now() + Constants.askResponseTimeoutMs
-  // Dá tempo do agente começar a responder antes de medir ociosidade
+  // Dá tempo do agente começar a responder antes de medir a parada
   await sleep(400)
 
+  let state: AgentLifecycle = 'working'
+  let asked: string | null = null
   while (Date.now() < deadline) {
-    if (terminals.isIdle(id)) break
+    const now = terminals.agentState(id)
+    state = now.state
+    asked = now.waiting?.detail ?? null
+    if (state !== 'working') break
     await sleep(250)
   }
 
   const session = terminals.get(id)
   if (!session) return 'error: agent terminal disappeared'
 
-  const fresh = session.buffer.slice(baseline)
-  const timedOut = Date.now() >= deadline
-  const body = stripPrompt(fresh, prompt)
+  const body = stripPrompt(session.buffer.slice(baseline), prompt)
 
-  return timedOut
-    ? `${body}\n\n(timed out after ${Constants.askResponseTimeoutMs / 1000}s — agent may still be working; use 'atelier check')`
-    : body
+  // A linha-sentinela é sempre a ÚLTIMA: é assim que o CLI a acha sem se
+  // arriscar a confundi-la com uma linha da resposta do agente.
+  if (state === 'waiting') {
+    return [
+      body,
+      '',
+      asked ? `It is asking: ${asked}` : 'It did not say what it is asking.',
+      'Answer in the node — another ask would interrupt it, not unblock it.',
+      ASK_WAITING_LINE
+    ].join('\n')
+  }
+
+  if (Date.now() >= deadline) {
+    return [
+      body,
+      '',
+      `No answer after ${Constants.askResponseTimeoutMs / 1000}s, and it is still working.`,
+      "Use 'atelier check' to watch it. Do NOT ask again — that interrupts it.",
+      ASK_TIMEOUT_LINE
+    ].join('\n')
+  }
+
+  return body
 }
 
 /**

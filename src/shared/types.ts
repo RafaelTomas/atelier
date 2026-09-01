@@ -822,6 +822,19 @@ export interface AgentStatus {
   limits: UsageLimit[]
 }
 
+/**
+ * Os quatro estados que o coordenador precisa distinguir para agir.
+ *
+ * Antes eram três, e o do meio mentia: `idle` significava tanto "terminou"
+ * quanto "está parado te esperando", porque o único critério era "a tela não
+ * muda há 2s". As duas leituras pedem ações OPOSTAS — uma é ler a resposta, a
+ * outra é destravar o agente — e confundi-las custou duas leituras erradas na
+ * sessão que abriu o cartão. `waiting` é a separação.
+ *
+ * Quem calcula é `terminals.agentState` (terminal/terminal-manager.ts).
+ */
+export type AgentLifecycle = 'working' | 'waiting' | 'idle' | 'exited'
+
 export type AgentUsageSource = 'statusline' | 'app-server' | 'screen' | 'none'
 export type AgentProvider = 'claude' | 'codex'
 

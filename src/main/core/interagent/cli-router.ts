@@ -7,6 +7,8 @@
 import type { UUID } from '@shared/types'
 import { handleArtesao } from './handlers/artesao'
 import { handleAsk } from './handlers/ask'
+import { handleBrief } from './handlers/brief'
+import { handleConnect } from './handlers/connect'
 import { handleButton } from './handlers/button'
 import { handleCheck } from './handlers/check'
 import { handleDismiss } from './handlers/dismiss'
@@ -21,6 +23,7 @@ import { handleRole } from './handlers/role'
 import { handleStatusLine } from './handlers/statusline'
 import { handleTable } from './handlers/table'
 import { handleTodo } from './handlers/todo'
+import { handleWaiting } from './handlers/waiting'
 import { handleVault } from './handlers/vault'
 import { interAgentServer } from './server'
 
@@ -73,11 +76,30 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
     // Oferecê-lo no help daria ao agente um verbo que não faz nada na mão dele.
     case 'artesao':
       return handleArtesao(args, terminalId)
+    // Fora de COMMANDS pelo mesmo motivo: não é um verbo que um agente digita.
+    // Quem chama é o hook `SessionStart` que o Atelier instala para TODO nó
+    // Claude Code, e o boot do PTY, que grava a mesma resposta em
+    // `ATELIER_BRIEF` para os presets sem hook (ver terminal-manager.ts e
+    // terminal/agent-settings.ts).
+    case 'brief':
+      return handleBrief(args, terminalId)
+    // Também fora de COMMANDS: quem chama é o hook `Notification`, e um agente
+    // que pudesse digitá-lo anunciaria uma espera que não existe.
+    case 'waiting':
+      return handleWaiting(args, terminalId)
     case 'debug':
       return buildDebugInfo(terminalId)
 
-    // Ainda não portados — respondem com mensagem honesta em vez de falhar mudo
+    // Fora de COMMANDS, e não por não estar pronto: quem cabeia o canvas é o
+    // USUÁRIO. Os cabos são a estrutura que ele desenhou, e um agente que
+    // pudesse religá-los mudaria o que os outros enxergam sem ninguém ver.
+    // Existe para o harness do eval montar a bancada de cada sujeito, e para um
+    // coordenador que sabe o que está fazendo — os dois lados precisam já estar
+    // cabeados a quem chama.
     case 'connect':
+      return handleConnect(args, terminalId)
+
+    // Ainda não portados — respondem com mensagem honesta em vez de falhar mudo
     case 'preset':
       return `error: '${command}' ainda não implementado neste porte Electron. Disponíveis: ${COMMANDS}`
 

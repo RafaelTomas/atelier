@@ -7,20 +7,23 @@
  * SwiftTerm → node-pty (ConPTY no Windows, forkpty no resto).
  */
 import { EventEmitter } from 'node:events'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { IPty } from 'node-pty'
-import type { AgentStatus, TerminalSpawnOptions, UUID } from '@shared/types'
+import type { AgentLifecycle, AgentStatus, TerminalSpawnOptions, UUID } from '@shared/types'
 import { Constants } from '../constants'
 import { log } from '../logger'
 import { defaultShell } from '../models/node-content'
 import { atelierBinDir } from '../interagent/cli-install'
+import { handleBrief } from '../interagent/handlers/brief'
 import { persistence } from '../persistence/persistence-manager'
-import { ipcSocketPath } from '../persistence/paths'
+import { dataDir, ipcSocketPath } from '../persistence/paths'
 import { childEnv, prependPath } from '../subprocess-env'
 import { forgetTerminalSecrets, hasSecrets, maskForTerminal } from '../vault/masking'
 import { uuid } from '../coding'
-import { scanAgentStatus } from './agent-status'
+import { detectWaiting, scanAgentStatus } from './agent-status'
+import type { WaitingReason } from './agent-status'
 import { bootArgs } from './boot-command'
 import { SpawnRegistry } from './spawn-registry'
 import { RESUME_SUPPORT, supportsResume, withSession } from './agent-resume'
@@ -32,6 +35,7 @@ import {
   writeSession
 } from './session-store'
 import { withAgentSettings } from './agent-settings'
+import { withCodexInstructions } from './codex-instructions'
 import { forgetUsage } from './status-line'
 
 /**
@@ -111,6 +115,44 @@ function resolveCwd(opts: TerminalSpawnOptions): string {
   return opts.workingDirectory || process.env.HOME || process.env.USERPROFILE || process.cwd()
 }
 
+/**
+ * Onde mora o brief renderizado deste terminal. Mesma pasta do `--settings` —
+ * ela já deixou de ser só a barra de status, ver o cabeçalho de
+ * terminal/agent-settings.ts.
+ *
+ * Exportada porque `handlers/list.ts` precisa do MESMO caminho para citá-lo no
+ * cabeçalho: `ATELIER_BRIEF` é uma variável do ambiente do PTY, e o processo
+ * main que responde `list` não herda o ambiente do filho — recalcular pela
+ * mesma fórmula é o único jeito de main e PTY concordarem sem passar o valor
+ * por um canal a mais.
+ */
+export function briefFilePath(terminalId: UUID): string {
+  return join(dataDir(), 'agent-settings', `${terminalId}.brief.txt`)
+}
+
+/**
+ * Grava o brief em texto puro e devolve o caminho — o canal universal do M1b
+ * do plano de aderência (docs/2026-09-01-PLANO-aderencia-dos-agentes.md).
+ *
+ * `handleBrief` é a MESMA função que atende `atelier brief` pelo socket: o
+ * texto aqui é idêntico ao que este nó receberia perguntando pelo CLI, só que
+ * já em disco quando o agente sobe — todo preset sabe ler um arquivo, nenhum é
+ * obrigado a ter hook de `SessionStart` (Claude Code é o único que tem).
+ *
+ * `null` na falha, e o boot segue sem `ATELIER_BRIEF`: um brief que não pôde
+ * ser escrito não pode ser motivo para o PTY não subir.
+ */
+async function writeBriefFile(terminalId: UUID): Promise<string | null> {
+  const path = briefFilePath(terminalId)
+  try {
+    await mkdir(join(dataDir(), 'agent-settings'), { recursive: true })
+    await writeFile(path, handleBrief(['brief'], terminalId), 'utf8')
+    return path
+  } catch {
+    return null
+  }
+}
+
 export interface TerminalSession {
   id: UUID
   workspaceId: UUID
@@ -126,6 +168,17 @@ export interface TerminalSession {
   lastOutputAt: number
   lastActiveAt: number
   exited: boolean
+  /**
+   * O último `Notification` que o agente publicou, e ainda não respondido.
+   *
+   * Canal AUTORITATIVO da espera: o Claude Code dispara esse hook quando para
+   * para pedir alguma coisa, e a mensagem chega inteira — ao contrário da tela,
+   * que chega com os espaços comidos. `null` significa "nada pendente que o
+   * agente tenha anunciado", e não "o agente não está esperando": um preset sem
+   * hook nenhum nunca preenche isto, e é para ele que existe o piso de raspagem
+   * em agent-status.ts.
+   */
+  waiting: { at: number; message: string } | null
   /** O que o agente mostra na própria linha de status. */
   status: AgentStatus
   lastStatusScan: number
@@ -167,7 +220,8 @@ class TerminalManager extends EventEmitter {
     extraEnv?: Record<string, string>,
     claudeConfigDir?: string,
     innerStatusLine?: string | null,
-    isArtisan?: boolean
+    isArtisan?: boolean,
+    briefPath?: string | null
   ): NodeJS.ProcessEnv {
     return buildTerminalEnv({
       terminalId,
@@ -176,7 +230,8 @@ class TerminalManager extends EventEmitter {
       extraEnv,
       claudeConfigDir,
       innerStatusLine,
-      isArtisan
+      isArtisan,
+      briefPath
     })
   }
 
@@ -215,9 +270,22 @@ class TerminalManager extends EventEmitter {
       artisan: opts.isArtisan === true
     })
 
+    // O brief, pelo mesmo motivo do settings: precisa estar em disco ANTES do
+    // spawn para o ambiente do PTY já nascer com `ATELIER_BRIEF` apontando
+    // para ele. O nó já existe no workspace neste ponto (quem chama
+    // `terminals.spawn` garante isso — ver ipc/bridge.ts), então
+    // `connectedNodes` enxerga os cabos certos.
+    const briefPath = await writeBriefFile(opts.nodeId)
+
+    // O brief do Codex entra pelo argv, e é aqui que ele entra: o Codex não tem
+    // hook de `SessionStart`, então a única forma de o texto chegar na posição
+    // de contexto de sistema é `-c developer_instructions=`. Num preset que não
+    // é Codex o comando volta intacto — ver terminal/codex-instructions.ts.
+    const command = withCodexInstructions(agent.command, opts.nodeId)
+
     // A sessão do agente, pelo mesmo motivo: as flags entram no comando ANTES
     // de ele ser digitado. Ver terminal/agent-resume.ts e session-store.ts.
-    const plan = await this.planSession(opts, cwd, agent.command)
+    const plan = await this.planSession(opts, cwd, command)
 
     let proc: IPty
     try {
@@ -232,7 +300,8 @@ class TerminalManager extends EventEmitter {
           opts.extraEnv,
           opts.claudeConfigDir,
           agent.innerCommand,
-          opts.isArtisan === true
+          opts.isArtisan === true,
+          briefPath
         ) as Record<string, string>
       })
     } catch (err) {
@@ -253,6 +322,7 @@ class TerminalManager extends EventEmitter {
       lastOutputAt: Date.now(),
       lastActiveAt: 0,
       exited: false,
+      waiting: null,
       status: { tokens: null, contextPct: null, limits: [] },
       lastStatusScan: 0,
       sessionId: plan.sessionId,
@@ -608,6 +678,12 @@ class TerminalManager extends EventEmitter {
   write(id: UUID, data: string): boolean {
     const session = this.sessions.get(id)
     if (!session || session.exited) return false
+    // Escrever é RESPONDER. O Claude Code só sai de um diálogo de permissão
+    // quando alguém digita, então a tecla que entra aqui é o fim da espera que
+    // o hook anunciou — e é este o sinal de baixa, porque nenhum hook avisa que
+    // o diálogo fechou. A tela continua sendo consultada por cima disto (ver
+    // `agentState`): se o diálogo ainda estiver lá, ele vence.
+    session.waiting = null
     session.pty.write(data)
     return true
   }
@@ -657,11 +733,64 @@ class TerminalManager extends EventEmitter {
     return stripAnsi(session.buffer).split('\n').slice(-lines).join('\n')
   }
 
-  /** Está ocioso? Sem saída nova há agentIdleTimeoutMs. */
+  /**
+   * Está ocioso? Sem saída nova há agentIdleTimeoutMs.
+   *
+   * NÃO use isto para decidir se um agente terminou — use `agentState`. Um TUI
+   * animado nunca fica 2s calado, então um agente TRABALHANDO nunca é `isIdle`,
+   * e um agente PARADO num diálogo de permissão (tela estática) é `isIdle` em
+   * 2s, igualzinho a quem acabou. Este predicado responde exatamente o que o
+   * nome diz — "a tela parou de mudar" — e é só um dos ingredientes de lá.
+   */
   isIdle(id: UUID): boolean {
     const session = this.sessions.get(id)
     if (!session) return true
     return Date.now() - session.lastOutputAt > Constants.agentIdleTimeoutMs
+  }
+
+  /** O `Notification` chegou: o agente anunciou que parou para pedir algo. */
+  markWaiting(id: UUID, message: string): void {
+    const session = this.sessions.get(id)
+    if (!session || session.exited) return
+    session.waiting = { at: Date.now(), message }
+  }
+
+  /**
+   * O estado do agente, com os quatro nomes que o coordenador precisa
+   * distinguir — e a razão da espera quando há uma.
+   *
+   * Existe porque `isIdle` sozinho dizia o CONTRÁRIO da verdade nos dois casos
+   * que importam: quem trabalha nunca fica ocioso (o TUI anima), e quem está
+   * travado num diálogo fica ocioso na hora (a tela congela). O resultado é que
+   * `[idle]` significava tanto "terminou" quanto "está te esperando", e as duas
+   * leituras exigem ações opostas do coordenador.
+   *
+   * A ordem das fontes não é arbitrária:
+   *
+   *  1. A TELA vence. Se o diálogo está visível agora, o agente está esperando
+   *     agora — não importa o que qualquer hook disse antes.
+   *  2. O HOOK cobre o resto: o intervalo entre o `Notification` chegar e a tela
+   *     pintar, e os pedidos cuja tela a raspagem não reconhece. Vale até
+   *     alguém escrever no terminal, que é o único sinal de baixa que existe
+   *     (ver `write`).
+   *  3. `isIdle` só é consultado quando ninguém está esperando por nada.
+   *
+   * O `detail` prefere a mensagem do hook: ela chega inteira, enquanto a tela
+   * chega com os espaços comidos pelo redesenho.
+   */
+  agentState(id: UUID): { state: AgentLifecycle; waiting: WaitingReason | null } {
+    const session = this.sessions.get(id)
+    if (!session) return { state: 'exited', waiting: null }
+    if (session.exited) return { state: 'exited', waiting: null }
+
+    const scraped = detectWaiting(session.buffer.slice(-STATUS_WINDOW))
+    const hooked = session.waiting
+    if (scraped || hooked) {
+      const detail = hooked?.message || scraped?.detail || null
+      return { state: 'waiting', waiting: { kind: 'permission', detail } }
+    }
+
+    return { state: this.isIdle(id) ? 'idle' : 'working', waiting: null }
   }
 }
 
@@ -697,6 +826,14 @@ export function buildTerminalEnv(params: {
    * Artesão para um Codex que nunca verá um `SessionStart`.
    */
   isArtisan?: boolean
+  /**
+   * Caminho do brief já renderizado deste terminal, ou `null` se a gravação
+   * falhou. Vira `ATELIER_BRIEF` — o canal universal do M1a/M1b do plano de
+   * aderência: Claude Code recebe o mesmo conteúdo pelo hook `SessionStart`
+   * (`atelier brief`), mas Codex, opencode, antigravity e o shell puro não têm
+   * hook nenhum, e é por isso que o arquivo existe — todo preset sabe ler um.
+   */
+  briefPath?: string | null
 }): NodeJS.ProcessEnv {
   const env = childEnv()
   env.ATELIER_TERMINAL_ID = params.terminalId
@@ -712,12 +849,19 @@ export function buildTerminalEnv(params: {
   }
 
   if (params.isArtisan) env.ATELIER_ARTESAO = '1'
+  if (params.briefPath) env.ATELIER_BRIEF = params.briefPath
 
   if (params.claudeConfigDir) env.CLAUDE_CONFIG_DIR = params.claudeConfigDir
   if (params.innerStatusLine) env.ATELIER_STATUSLINE_INNER = params.innerStatusLine
 
   const bin = atelierBinDir()
   env.ATELIER_CLI = bin.cliPath
+  // O DIRETÓRIO, não o arquivo. Prepender o bin aqui não basta: `bootArgs` sobe
+  // o PTY com `-i`, o shell carrega o profile do usuário, e um profile que faz
+  // `export PATH=<lista absoluta>` — o desta máquina faz — apaga o que
+  // prependamos. Quem repõe é o próprio comando de boot, depois do profile ter
+  // rodado, e para isso ele precisa do diretório no ambiente. Ver boot-command.ts.
+  env.ATELIER_BIN = bin.dir
   // O bin do Atelier entra na frente; o PATH herdado (onde mora `claude`,
   // `codex`, `npm`…) continua inteiro graças ao `childEnv` acima.
   prependPath(env, bin.dir)

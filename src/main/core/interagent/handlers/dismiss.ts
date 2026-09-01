@@ -83,10 +83,17 @@ export async function handleDismiss(argv: string[], terminalId: UUID | null): Pr
   }
   const name = nodeDisplayName(target.content)
 
-  // Ocupado é o agente com processo vivo que ainda não voltou a ficar ocioso;
-  // matá-lo no meio de uma edição de arquivo é o dano que não tem desfazer.
+  // Ocupado é quem está TRABALHANDO — matá-lo no meio de uma edição de arquivo
+  // é o dano que não tem desfazer.
+  //
+  // Um agente parado esperando resposta NÃO é ocupado, e essa distinção é nova:
+  // com `isIdle` sozinho, um nó travado num diálogo de permissão contava como
+  // ocupado (a tela não muda, mas ele também não estava idle no instante certo)
+  // e só saía com `--force`. Ou seja, a leitura invertida não só enganava —
+  // travava a limpeza do canvas, e obrigava a usar a marreta num nó que não
+  // estava fazendo nada. Ver terminal/terminal-manager.ts, `agentState`.
   const session = terminals.get(target.id)
-  const busy = session !== undefined && !session.exited && !terminals.isIdle(target.id)
+  const busy = session !== undefined && terminals.agentState(target.id).state === 'working'
 
   const refusal = dismissRefusal({
     name,

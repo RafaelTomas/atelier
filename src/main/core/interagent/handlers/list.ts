@@ -1,10 +1,17 @@
-/** `atelier list` — agentes, notas e portais conectados ao chamador. */
+/**
+ * `atelier list` — agentes, notas e portais conectados ao chamador.
+ *
+ * Uma leitura mais completa já está em disco antes deste comando rodar: o
+ * caminho em `ATELIER_BRIEF` (variável de ambiente, gravada no boot do PTY —
+ * ver terminal/terminal-manager.ts) tem o mesmo inventário com o verbo que
+ * abre cada recurso, prontos para ler sem rodar nada.
+ */
 import type { CanvasNode, TodoBoard, UUID } from '@shared/types'
 import { editorState } from '../../editor/editor-registry'
 import { nodeDisplayName } from '../../models/node-content'
 import { paths } from '../../persistence/paths'
 import { roles } from '../../state/role-store'
-import { terminals } from '../../terminal/terminal-manager'
+import { briefFilePath, terminals } from '../../terminal/terminal-manager'
 import { readBoard } from '../../todo/todo-store'
 import { artisanBanner } from '../artisan-doctrine'
 import { connectedNodes, requireTerminalId, workspaceForTerminal } from './context'
@@ -24,6 +31,20 @@ function artisanHeader(tid: UUID): string[] {
 }
 
 /**
+ * A linha que aponta para a leitura mais completa: `$ATELIER_BRIEF` (gravado
+ * no boot do PTY, ver terminal/terminal-manager.ts) tem o mesmo inventário com
+ * o verbo que abre cada recurso, sem precisar rodar `list` de novo. Uma linha
+ * só — quem quer o texto lê o arquivo, não este cabeçalho.
+ *
+ * O caminho é recalculado pela mesma fórmula de `briefFilePath`, e não lido
+ * de `process.env`: quem responde `list` é o processo MAIN, que nunca herdou
+ * o ambiente do PTY que fez a pergunta.
+ */
+function briefHint(tid: UUID): string[] {
+  return [`(Full brief with open verbs already in $ATELIER_BRIEF: ${briefFilePath(tid)})`, '']
+}
+
+/**
  * O quadro daquele nó, lido do disco. `null` quando o arquivo não existe ou está
  * corrompido — e aí a linha diz `(unreadable)` em vez de mentir um zero.
  */
@@ -39,7 +60,7 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
   const tid = requireTerminalId(terminalId)
   if (!tid) return 'error: missing terminal ID'
 
-  const header = artisanHeader(tid)
+  const header = [...artisanHeader(tid), ...briefHint(tid)]
 
   const nodes = connectedNodes(tid)
   if (nodes.length === 0) {
@@ -59,11 +80,30 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
     lines.push('Connected agents:')
     for (const node of agents) {
       const session = terminals.get(node.id)
-      const status = session ? (session.exited ? 'exited' : terminals.isIdle(node.id) ? 'idle' : 'working') : 'not started'
+      const { state, waiting } = session
+        ? terminals.agentState(node.id)
+        : { state: 'not started' as const, waiting: null }
+      // O QUE está sendo pedido, quando o agente parou para pedir. Sem isto,
+      // `[waiting]` só troca um rótulo enganoso por um rótulo mudo: o
+      // coordenador ainda teria que rodar `check` e ler a tela crua para
+      // descobrir o que destravar.
+      const asked = waiting?.detail ? `: ${waiting.detail}` : ''
       // A responsabilidade entra aqui para o chamador saber a quem pedir o quê
       const role = node.content.type === 'terminal' ? roles.get(node.content.value.assignedRoleId) : null
       const suffix = role ? `  role: ${role.name}` : ''
-      lines.push(`  ${nodeDisplayName(node.content)}  [${status}]  (${node.id.slice(0, 8)})${suffix}`)
+      lines.push(
+        `  ${nodeDisplayName(node.content)}  [${state}${asked}]  (${node.id.slice(0, 8)})${suffix}`
+      )
+    }
+    // Um agente parado esperando é o único estado que exige AÇÃO do
+    // coordenador, e é o que ele mais erra: antes disto `[idle]` dizia a mesma
+    // coisa para quem terminou e para quem travou. A linha só aparece quando há
+    // alguém nessa situação.
+    if (agents.some((n) => terminals.get(n.id) && terminals.agentState(n.id).state === 'waiting')) {
+      lines.push(
+        '  [waiting] = stopped, asking the USER to answer. It will not move until',
+        '  someone answers in the node — reading its screen again will not unblock it.'
+      )
     }
   }
 

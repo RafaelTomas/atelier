@@ -86,6 +86,23 @@ export function isClaudeCommandLine(command: string): boolean {
   return commandBinary(command) === 'claude'
 }
 
+/**
+ * A linha de comando roda o Codex?
+ *
+ * Irmão de `isClaudeCommandLine`, e mora ao lado dele pelo mesmo motivo: é ele
+ * que decide, no main, se o comando ganha o `-c developer_instructions=` com o
+ * brief do canvas (terminal/codex-instructions.ts). Dois predicados parecidos
+ * em lugares diferentes é a classe de bug em que um marca o que o outro não
+ * grava.
+ *
+ * O teste é sobre o PRIMEIRO token: `codex --model gpt-5.6-luna` continua sendo
+ * Codex, e `npx codex` não é — quem sobe ali é o `npx`, e a flag anexada no fim
+ * iria para o argumento errado.
+ */
+export function isCodexCommandLine(command: string): boolean {
+  return commandBinary(command) === 'codex'
+}
+
 /** O primeiro token do comando, sem diretório e sem extensão. */
 function commandBinary(command: string): string {
   const first = command.trim().split(/\s+/)[0] ?? ''

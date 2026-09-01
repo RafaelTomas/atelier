@@ -111,10 +111,61 @@ console.log('\nartesao\n')
 
 // ─── O settings gerado ────────────────────────────────────────────────────────
 
-test('sem Artesão o settings é exatamente o de antes', () => {
+test('sem Artesão a statusLine fica intacta e os quatro blocos entram', () => {
   const cfg = JSON.parse(agentSettings({ artisan: false }))
-  assert.deepEqual(Object.keys(cfg), ['statusLine'])
+  assert.deepEqual(Object.keys(cfg), ['statusLine', 'hooks'], 'o Atelier mexeu em outra chave do usuário')
   assertCliCommand(cfg.statusLine.command, 'statusline')
+
+  const start = cfg.hooks.SessionStart[0].hooks[0]
+  assertCliCommand(start.command, 'brief', 'todo nó Claude Code devia ganhar o SessionStart do brief')
+
+  // O bloqueio do Task DEIXOU de ser exclusivo do Artesão em 01/09. O que mudou
+  // de ideia foi ver um nó comum abrir um `Agent(fork)` para executar uma tarefa
+  // de canvas: o trabalho aconteceu noutra sessão, sem nó na tela, e o usuário
+  // não teve o que olhar. O argumento nunca foi sobre o papel de quem delega.
+  assertCliCommand(cfg.hooks.PreToolUse[0].hooks[0].command, 'artesao guard')
+  assert.equal(cfg.hooks.PreToolUse[0].matcher, 'Task')
+})
+
+test('a skill entra como diretório de trabalho, e nada além dela', () => {
+  // A skill do Atelier mora fora do cwd do nó, e abrir uma reference dela fazia
+  // o Claude Code perguntar `Allow reads outside the working directories?`. No
+  // ciclo 0 de 01/09 o diálogo apareceu em seis das sete trilhas, e um sujeito
+  // do S4 não saiu dele: o agente para justamente ao ler a instrução de como
+  // usar o recurso que acabou de escolher.
+  const dirs = ['/home/x/.claude/skills/atelier', '/home/x/.atelier/contas/1/skills/atelier']
+  const cfg = JSON.parse(agentSettings({ artisan: false, skillDirs: dirs }))
+  assert.deepEqual(cfg.permissions, { additionalDirectories: dirs })
+
+  // O escopo é o diretório DA SKILL. Nem `~/.claude`, nem `$HOME`, nem uma
+  // regra larga de leitura: o Atelier escreveu aquele texto, e é só ele que o
+  // agente ganha o direito de ler.
+  for (const d of cfg.permissions.additionalDirectories) {
+    assert.match(d, /skills\/atelier$/, `escopo largo demais: ${d}`)
+  }
+  // E nenhuma outra chave de permissão foi inventada pelo caminho.
+  assert.deepEqual(Object.keys(cfg.permissions), ['additionalDirectories'])
+})
+
+test('sem diretório de skill, a chave permissions NÃO aparece', () => {
+  // Um settings que declarasse `additionalDirectories: []` seria uma afirmação
+  // sobre as permissões do usuário onde não há nada a afirmar.
+  const cfg = JSON.parse(agentSettings({ artisan: false, skillDirs: [] }))
+  assert.ok(!('permissions' in cfg), 'declarou permissions vazio')
+  assert.deepEqual(Object.keys(cfg), ['statusLine', 'hooks'])
+})
+
+test('a permissão da skill não muda os hooks nem a statusLine', () => {
+  const sem = JSON.parse(agentSettings({ artisan: false }))
+  const com = JSON.parse(agentSettings({ artisan: false, skillDirs: ['/x/skills/atelier'] }))
+  assert.deepEqual(sem.hooks, com.hooks)
+  assert.deepEqual(sem.statusLine, com.statusLine)
+})
+
+test('Artesão e nó comum têm os MESMOS hooks — o que difere é o brief', () => {
+  const comum = JSON.parse(agentSettings({ artisan: false }))
+  const artesao = JSON.parse(agentSettings({ artisan: true }))
+  assert.deepEqual(comum.hooks, artesao.hooks)
 })
 
 test('sem argumento nenhum o padrão é não-Artesão', () => {
@@ -125,9 +176,12 @@ test('com Artesão os hooks entram e a statusLine FICA', () => {
   const cfg = JSON.parse(agentSettings({ artisan: true }))
   assertCliCommand(cfg.statusLine.command, 'statusline', 'o monitor foi atropelado')
 
+  // Mesmo com Artesão, o SessionStart chama `brief` — não `artesao brief`. A
+  // doutrina entra como BLOCO da resposta de `brief` (handlers/brief.ts), e
+  // não como um segundo hook concorrente.
   const start = cfg.hooks.SessionStart[0].hooks[0]
   assert.equal(start.type, 'command')
-  assertCliCommand(start.command, 'artesao brief')
+  assertCliCommand(start.command, 'brief')
 
   const pre = cfg.hooks.PreToolUse[0]
   assert.equal(pre.matcher, 'Task', 'o bloqueio não está mirando o subagente interno')
@@ -282,7 +336,10 @@ test('o brief é JSON de hook válido', () => {
 
 test('o texto local do CLI serve de doutrina quando o app não responde', () => {
   assert.ok(cli.ARTISAN_REFUSAL.includes('atelier recruit'))
-  assert.ok(cli.ARTISAN_REFUSAL.includes('Artisan'))
+  // Não fala mais em "Artisan": a recusa chega a qualquer nó do canvas, e um
+  // texto que diga "este terminal é um Artesão" para um nó comum mente.
+  assert.ok(cli.ARTISAN_REFUSAL.includes('Atelier canvas'))
+  assert.ok(!cli.ARTISAN_REFUSAL.includes('is an Artisan'))
 })
 
 await rm(outdir, { recursive: true, force: true })

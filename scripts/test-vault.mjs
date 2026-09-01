@@ -55,6 +55,11 @@ const { connectionKindForTypes, CONNECTABLE_TYPES } = mod
 const { decodeWorkspaceDocument, encodeWorkspaceDocument } = mod
 const { decodeNodeContent, encodeNodeContent, makeSecretVaultContent } = mod
 const { migrateWorkspaceDocument, Constants } = mod
+const { exportLine } = mod
+// O CLI é CommonJS e não passa pelo bundle: a guarda de TTY mora nele porque só
+// ele sabe se a saída é a tela.
+const cli = await import(pathToFileURL(join(ROOT, 'resources/atelier.cjs')).href)
+const { refusesExportToTTY } = cli.default ?? cli
 
 let passed = 0
 let failed = 0
@@ -528,6 +533,46 @@ test('um v6 sem a chave secretConnections vira lista vazia, não undefined', () 
   const { payload } = decodeWorkspaceDocument(docV6())
   const back = encodeWorkspaceDocument(payload)
   assert.deepEqual(back.payload.secretConnections, [])
+})
+
+
+// ─── `vault env --export`: o segredo vai para o AMBIENTE, não para a tela ─────
+//
+// O verbo nasceu de uma medição: o cabo de cofre injeta as chaves no BOOT do
+// PTY, e um cabo ligado depois não alcança processo vivo — o
+// `/proc/<pid>/environ` de um nó recém-cabeado não tinha nenhuma delas. Sem
+// isto, sobrava `vault get`, que traz o segredo para o CONTEXTO do agente.
+
+test('exportLine cita com aspas simples — senha com $ não vira expansão', () => {
+  assert.equal(exportLine('K', 'abc'), "export K='abc'")
+  assert.equal(exportLine('PGPASSWORD', 'a$b'), "export PGPASSWORD='a$b'")
+  assert.equal(exportLine('K', 'com espaço'), "export K='com espaço'")
+})
+
+test('exportLine neutraliza `$(...)` — a citação errada não falha, ela OBEDECE', () => {
+  // Em aspas duplas isto viraria execução de comando no shell que faz o eval.
+  const line = exportLine('K', '$(rm -rf /)')
+  assert.equal(line, "export K='$(rm -rf /)'")
+  assert.ok(!line.includes('"'), 'aspas duplas em nenhum lugar')
+})
+
+test('exportLine fecha, escapa e reabre a aspa simples', () => {
+  // A única coisa que não cabe dentro de aspas simples é a própria aspa.
+  assert.equal(exportLine('K', "ab'cd"), "export K='ab'\\''cd'")
+})
+
+test('exportLine sobrevive a quebra de linha no valor', () => {
+  const line = exportLine('K', 'linha1\nlinha2')
+  assert.ok(line.startsWith("export K='linha1\nlinha2'"), line)
+})
+
+test('o CLI recusa imprimir segredo quando a saída é a TELA', () => {
+  // A guarda mora no CLI porque só ele sabe para onde a saída vai: o app
+  // responde por socket e não enxerga o outro lado.
+  assert.equal(refusesExportToTTY('vault', ['vault', 'env', '--export'], true), true)
+  assert.equal(refusesExportToTTY('vault', ['vault', 'env', '--export'], false), false, 'num $( ) ele PRECISA rodar')
+  assert.equal(refusesExportToTTY('vault', ['vault', 'env'], true), false, 'listar nomes nunca foi problema')
+  assert.equal(refusesExportToTTY('list', ['list'], true), false)
 })
 
 await rm(outdir, { recursive: true, force: true })

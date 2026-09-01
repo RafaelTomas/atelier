@@ -791,6 +791,21 @@ test('a linha de base do ciclo 0 continua reproduzível', () => {
   assert.equal(e.S4.max, 41)
 })
 
+test('a medida do ciclo 1 continua reproduzível, e o S2 é a mutação medida', () => {
+  // 01/09, conta ETS. O S2 é o único cenário que as duas mutações do ciclo
+  // tocaram — a reference de `table` com `--csv` e o `POSTGRES_HOST` no cofre —
+  // e a previsão registrada antes da corrida era 13 → ~9.
+  const ciclo1 = [
+    ['S2', 8], ['S2', 9], ['S2', 9],
+    ['S3', 6], ['S3', 13], ['S3', 7],
+    ['S4', 11], ['S4', 12], ['S4', 12]
+  ].map(([id, n]) => ({ outcome: 'scored', scenario: { id }, toolCalls: n }))
+  const e = effortByScenario(ciclo1)
+  assert.equal(e.S2.median, 9, 'a queda medida do S2 mudou')
+  assert.equal(e.S3.median, 7)
+  assert.equal(e.S4.median, 12)
+})
+
 // ─── A árvore: atribuir o que a corrida mexeu ─────────────────────────────────
 
 test('o porcelain -z é fatiado por NUL, e o renome consome DOIS campos', () => {

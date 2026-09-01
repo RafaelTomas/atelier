@@ -189,16 +189,34 @@ async function waitStop(name, deadline) {
  * uma vaga do teto — e a corrida seguinte o reusava como se fosse limpo. O
  * `--force` no fim é legítimo aqui e só aqui: é um nó que o próprio harness
  * abriu, cujo trabalho terminou, e cuja tela já foi lida.
+ *
+ * QUEM DIZ QUE DISPENSOU É O CANVAS, não a mensagem. A primeira versão desta
+ * função saía com `true` sempre que a recusa não fosse a de `working` — ou seja,
+ * chamava de sucesso qualquer OUTRA falha do `dismiss`. Um `Sujeito S2-a` ficou
+ * no canvas do ciclo 0 exatamente assim, com a corrida marcada 2/2 e nada na
+ * saída avisando: o defeito que o cabeçalho acima diz ter corrigido continuava
+ * de pé pela outra metade. Ler o `atelier list` custa uma chamada e não depende
+ * de reconhecer o texto de nenhuma recusa futura.
  */
 async function dismissNode(name) {
+  const gone = () => !inventory().agents.some((a) => a.name === name)
+
   const first = cli(['dismiss', name])
-  if (!dismissRefusedBusy(first.code, first.out)) return true
+  if (!dismissRefusedBusy(first.code, first.out) && gone()) return true
+
   await sleep(5000)
   const second = cli(['dismiss', name])
-  if (!dismissRefusedBusy(second.code, second.out)) return true
-  const forced = cli(['dismiss', name, '--force'])
-  console.log(`  (dismiss de '${name}' precisou de --force: o nó continuava em [working])`)
-  return forced.code === 0
+  if (!dismissRefusedBusy(second.code, second.out) && gone()) return true
+
+  cli(['dismiss', name, '--force'])
+  if (gone()) {
+    console.log(`  (dismiss de '${name}' precisou de --force)`)
+    return true
+  }
+  // Órfão. Dizer isto alto é o ponto: ele come uma vaga do teto e a corrida
+  // seguinte o reusaria com a tela desta no scrollback.
+  console.log(`  ÓRFÃO: '${name}' continua no canvas depois de --force — dispense à mão`)
+  return false
 }
 
 /** A tela do nó. 200 linhas, como manda a suite. */

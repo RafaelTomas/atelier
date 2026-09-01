@@ -76,7 +76,7 @@ function fail(msg) {
  * Um bloqueio que depende de o app responder não é bloqueio. Se o socket cair,
  * um Artesão tem que continuar Artesão — daí `guard` nunca abrir conexão.
  */
-const ARTISAN_REFUSAL = `This terminal is an Artisan: internal subagents are turned off here.
+const ARTISAN_REFUSAL = `This terminal is a node on an Atelier canvas: internal subagents are off here.
 
 A subagent is invisible on the canvas. It has no node, so the user cannot watch
 it, interrupt it, or read what it cost; it borrows YOUR identity on the atelier

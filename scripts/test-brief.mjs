@@ -96,11 +96,16 @@ function wire(caller, ...targets) {
 
 // ─── Canvas vazio ───────────────────────────────────────────────────────────
 
-await test('canvas vazio: o brief sai em 3 linhas ou menos', async () => {
+await test('canvas vazio: o brief cabe em 6 linhas, e traz a regra do canvas', async () => {
+  // Eram 3 até 01/09. As três linhas a mais são a regra do subagente, e elas
+  // valem também aqui: um nó sem nada cabeado é justamente o que mais parece
+  // convidar a resolver tudo sozinho por dentro. O teto continua existindo
+  // porque o brief custa contexto em TODA sessão.
   const orphan = node(0, { type: 'terminal', value: makeTerminalContent('Sozinho') })
   const out = await routeCLI(['brief'], orphan.id)
-  assert.ok(out.split('\n').length <= 3, `brief vazio cresceu: ${out.split('\n').length} linhas`)
+  assert.ok(out.split('\n').length <= 6, `brief vazio cresceu: ${out.split('\n').length} linhas`)
   assert.match(out, /nothing wired to this node yet/)
+  assert.match(out, /never an internal subagent/)
 })
 
 // ─── Um nó comum, com um pouco de tudo ─────────────────────────────────────

@@ -89,6 +89,17 @@ function notificationHook(): { Notification: object[] } {
 /**
  * O bloqueio do Artesão — só ele ganha isto.
  *
+ * O bloqueio vale para TODO nó Claude Code, e não só para o Artesão.
+ *
+ * Começou exclusivo do Artesão, com o argumento de que ligar o Artesão num nó
+ * não devia mudar o comportamento dos outros. O que mudou de ideia foi ver um nó
+ * comum fazer o que o Artesão é impedido de fazer: um sujeito do eval recebeu
+ * uma tarefa de canvas e abriu um `Agent(fork)` para executá-la. O trabalho
+ * aconteceu, e ficou invisível — outra sessão, outro transcript, nenhum nó na
+ * tela. O argumento da doutrina nunca foi sobre o papel de quem delega, é sobre
+ * o CANVAS: trabalho que acontece fora dele o usuário não vê, não interrompe e
+ * não retoma.
+ *
  * `PreToolUse` com matcher `Task` é o bloqueio, e é ele — não uma regra em
  * `permissions.deny` — porque a recusa precisa ENSINAR: o `atelier artesao
  * guard` responde `deny` com a razão, e a razão é o caminho do canvas
@@ -102,7 +113,7 @@ function notificationHook(): { Notification: object[] } {
  * O matcher também é ESTREITO: com ele instalado, Read, Bash e o resto passam
  * sem tocar no hook.
  */
-function artisanGuardHook(): { PreToolUse: object[] } {
+function taskGuardHook(): { PreToolUse: object[] } {
   return {
     PreToolUse: [
       {
@@ -116,19 +127,20 @@ function artisanGuardHook(): { PreToolUse: object[] } {
 /**
  * O conteúdo do arquivo.
  *
- * `statusLine`, `hooks.SessionStart` (o brief) e `hooks.Notification` (o sinal
- * de espera) valem para TODO nó Claude Code — a asserção que o test-monitor
- * faz hoje é sobre a `statusLine` não ter sido atropelada, não sobre o arquivo
- * estar vazio de hooks. Só
- * `hooks.PreToolUse`, o bloqueio do `Task`, depende de `opts.artisan`: é o que
- * garante que ligar o Artesão num nó não muda o COMPORTAMENTO de nenhum outro,
- * mesmo que todos agora recebam o mesmo hook de boot.
+ * Os quatro blocos valem para TODO nó Claude Code: `statusLine`,
+ * `hooks.SessionStart` (o brief), `hooks.Notification` (o sinal de espera) e
+ * `hooks.PreToolUse` (o bloqueio do subagente).
+ *
+ * O `opts.artisan` sobrevive porque o BRIEF continua diferente — o Artesão
+ * recebe a doutrina inteira —, mas ele não decide mais quem pode abrir
+ * subagente. Ver o comentário do bloqueio: trabalho fora do canvas é trabalho
+ * que o usuário não vê, venha de qual nó vier.
  */
 export function agentSettings(opts: { artisan: boolean } = { artisan: false }): string {
   const hooks = {
     ...sessionStartHook(),
     ...notificationHook(),
-    ...(opts.artisan ? artisanGuardHook() : {})
+    ...taskGuardHook()
   }
   return JSON.stringify({ ...statusLineBlock(), hooks }, null, 2)
 }

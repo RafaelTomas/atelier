@@ -111,14 +111,26 @@ console.log('\nartesao\n')
 
 // ─── O settings gerado ────────────────────────────────────────────────────────
 
-test('sem Artesão a statusLine fica intacta e o brief entra para todo mundo', () => {
+test('sem Artesão a statusLine fica intacta e os quatro blocos entram', () => {
   const cfg = JSON.parse(agentSettings({ artisan: false }))
   assert.deepEqual(Object.keys(cfg), ['statusLine', 'hooks'], 'o Atelier mexeu em outra chave do usuário')
   assertCliCommand(cfg.statusLine.command, 'statusline')
 
   const start = cfg.hooks.SessionStart[0].hooks[0]
   assertCliCommand(start.command, 'brief', 'todo nó Claude Code devia ganhar o SessionStart do brief')
-  assert.equal(cfg.hooks.PreToolUse, undefined, 'o bloqueio do Task vazou para um nó sem Artesão')
+
+  // O bloqueio do Task DEIXOU de ser exclusivo do Artesão em 01/09. O que mudou
+  // de ideia foi ver um nó comum abrir um `Agent(fork)` para executar uma tarefa
+  // de canvas: o trabalho aconteceu noutra sessão, sem nó na tela, e o usuário
+  // não teve o que olhar. O argumento nunca foi sobre o papel de quem delega.
+  assertCliCommand(cfg.hooks.PreToolUse[0].hooks[0].command, 'artesao guard')
+  assert.equal(cfg.hooks.PreToolUse[0].matcher, 'Task')
+})
+
+test('Artesão e nó comum têm os MESMOS hooks — o que difere é o brief', () => {
+  const comum = JSON.parse(agentSettings({ artisan: false }))
+  const artesao = JSON.parse(agentSettings({ artisan: true }))
+  assert.deepEqual(comum.hooks, artesao.hooks)
 })
 
 test('sem argumento nenhum o padrão é não-Artesão', () => {
@@ -289,7 +301,10 @@ test('o brief é JSON de hook válido', () => {
 
 test('o texto local do CLI serve de doutrina quando o app não responde', () => {
   assert.ok(cli.ARTISAN_REFUSAL.includes('atelier recruit'))
-  assert.ok(cli.ARTISAN_REFUSAL.includes('Artisan'))
+  // Não fala mais em "Artisan": a recusa chega a qualquer nó do canvas, e um
+  // texto que diga "este terminal é um Artesão" para um nó comum mente.
+  assert.ok(cli.ARTISAN_REFUSAL.includes('Atelier canvas'))
+  assert.ok(!cli.ARTISAN_REFUSAL.includes('is an Artisan'))
 })
 
 await rm(outdir, { recursive: true, force: true })

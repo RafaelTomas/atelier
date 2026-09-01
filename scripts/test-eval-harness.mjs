@@ -178,6 +178,15 @@ test('toolTrail devolve as chamadas EM ORDEM, que é o que E-01 e E-03 perguntam
     'a ordem é o dado: agir antes de inventariar é E-01 "não"')
 })
 
+test('transcript sem chamada nenhuma é trilha INÚTIL, e o driver anula a corrida', () => {
+  // 01/09: o sujeito de S5 delegou para um subagente interno (`Agent(fork)`),
+  // as chamadas foram para outra sessão, e o nó ficou sem nenhuma. O harness
+  // pontuou 2/3 lendo só a TELA — a fonte que não serve para E-01, E-02 e E-03.
+  // A regra vive no driver; aqui fica a condição que ele testa.
+  assert.equal(toolTrail('').length, 0)
+  assert.equal(renderToolTrail(toolTrail('')), '(nenhuma chamada de ferramenta no transcript)')
+})
+
 test('linha corrompida no transcript não derruba a trilha', () => {
   assert.deepEqual(toolTrail('{'), [])
   assert.equal(renderToolTrail([]), '(nenhuma chamada de ferramenta no transcript)')

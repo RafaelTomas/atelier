@@ -340,8 +340,17 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
     if (promptStuck(captured.text, scn.prompt)) {
       return { ...record, outcome: 'null', reason: 'o prompt ficou na caixa de entrada — o agente não o recebeu' }
     }
+    // Transcript encontrado e VAZIO é trilha inútil, não trilha de agente
+    // parado. Aconteceu em 01/09: o sujeito de S5 delegou para um subagente
+    // interno (`Agent(fork)`), as chamadas foram para outra sessão, e o nó ficou
+    // sem nenhuma — e o harness pontuou 2/3 lendo só a tela, que é justamente a
+    // fonte que não serve para E-01, E-02 e E-03.
+    if (captured.source === 'transcript' && captured.calls === 0) {
+      return { ...record, outcome: 'null', reason: 'transcript do nó sem chamada nenhuma (trabalho delegado a subagente interno?)' }
+    }
     writeFileSync(trailPath, captured.text, 'utf8')
     record.trailSource = captured.source
+    record.toolCalls = captured.calls ?? null
 
     const { verdicts, error, raw } = await evaluate(evaluator, scn, trailPath, Date.now() + opts.runTimeoutMs)
     if (error) return { ...record, outcome: 'null', reason: error, trailPath }

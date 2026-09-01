@@ -1130,11 +1130,13 @@ test('os outros presets ficam de fora — statusLine é do Claude Code', () => {
   }
 })
 
-test('o settings gerado instala a statusLine e o brief, sem o bloqueio do Task', () => {
-  // Sem Artesão a statusLine é exatamente a de sempre, e o `hooks.SessionStart`
-  // do brief chega para TODO nó (ver terminal/agent-settings.ts) — é a
-  // asserção que impede o bloqueio do Task, que É exclusivo do Artesão, de
-  // vazar para os outros nós do canvas.
+test('o settings gerado instala a statusLine, o brief e o bloqueio do Task', () => {
+  // Sem Artesão a statusLine é exatamente a de sempre, e os hooks do brief, da
+  // espera e do bloqueio do Task chegam para TODO nó (ver
+  // terminal/agent-settings.ts). O que o Artesão tem de diferente é o BRIEF, não
+  // os hooks: o bloqueio do subagente deixou de ser exclusivo dele em 01/09,
+  // quando um nó comum abriu um `Agent(fork)` para fazer trabalho de canvas
+  // fora do canvas.
   const cfg = JSON.parse(agentSettings({ artisan: false }))
   assert.deepEqual(Object.keys(cfg), ['statusLine', 'hooks'], 'o Atelier mexeu em outra chave do usuário')
   assert.equal(cfg.statusLine.type, 'command')
@@ -1143,7 +1145,8 @@ test('o settings gerado instala a statusLine e o brief, sem o bloqueio do Task',
   // binário — a falha era silenciosa, e o monitor ficava vazio.
   assert.match(cfg.statusLine.command, /^"[^"]*\/bin\/atelier" statusline$/)
   assert.match(cfg.hooks.SessionStart[0].hooks[0].command, /^"[^"]*\/bin\/atelier" brief$/)
-  assert.equal(cfg.hooks.PreToolUse, undefined, 'o bloqueio do Task vazou sem Artesão')
+  assert.match(cfg.hooks.PreToolUse[0].hooks[0].command, /^"[^"]*\/bin\/atelier" artesao guard$/)
+  assert.equal(cfg.hooks.PreToolUse[0].matcher, 'Task')
 })
 
 // ─── Ref-count do amostrador ──────────────────────────────────────────────────

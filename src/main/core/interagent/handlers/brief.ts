@@ -42,12 +42,29 @@ const EMPTY = [
   'Connect this terminal to another node on the canvas first.'
 ].join('\n')
 
+/**
+ * A regra do canvas, para TODO nó — o Artesão recebe a doutrina inteira em
+ * lugar dela, e diz a mesma coisa com mais palavras.
+ *
+ * Três linhas, e elas custam contexto em toda sessão: entraram porque um nó
+ * comum, com uma tarefa de canvas na mão, abriu um `Agent(fork)` para executá-la
+ * (01/09, sujeito do eval). O trabalho aconteceu numa sessão que não é a dele,
+ * sem nó na tela — e a mesma frase que explica por que o Artesão não faz isso
+ * vale para qualquer nó. O hook `PreToolUse` recusa de fato; isto é o que evita
+ * o agente descobrir a recusa gastando um turno.
+ */
+const CANVAS_RULE = [
+  'Delegation on this canvas is a NODE, never an internal subagent: the Task tool',
+  'is denied in this terminal. A node has a face — the user watches it, interrupts',
+  'it, and picks it up after a crash. Need help? atelier recruit "Name" --model haiku'
+].join('\n')
+
 export function handleBrief(_args: string[], terminalId: UUID | null): string {
   const tid = requireTerminalId(terminalId)
   if (!tid) return EMPTY
 
   const inventory = renderInventory(connectedNodes(tid))
-  if (!isArtisanCaller(tid)) return inventory
+  if (!isArtisanCaller(tid)) return [inventory, '', CANVAS_RULE].join('\n')
 
   return [inventory, '', artisanDoctrine(artisanContextFor(tid))].join('\n')
 }

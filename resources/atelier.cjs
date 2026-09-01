@@ -223,6 +223,33 @@ function sendStatusLine(payload) {
 
 // ─── Todos os outros comandos ─────────────────────────────────────────────────
 
+/**
+ * Os desfechos que viram código de saída, e o par literal deles no app.
+ *
+ * O protocolo do socket carrega TEXTO. Alargá-lo para um campo de status
+ * obrigaria a reinstalar este CLI no PATH de todo mundo a cada mudança, então o
+ * desfecho viaja como a ÚLTIMA LINHA da resposta, num formato que ninguém
+ * escreve por acaso.
+ *
+ * O par vive em src/main/core/interagent/handlers/ask.ts, e scripts/test-ask.mjs
+ * falha se as duas cópias se separarem: um CLI que deixe de reconhecer a linha
+ * volta a sair com 0 em silêncio — o defeito exato que isto conserta.
+ *
+ * Os códigos: 2 = ainda trabalhando, 3 = parado pedindo algo ao usuário. Ambos
+ * diferentes de 0, porque nos dois casos NÃO há resposta para ler.
+ */
+const OUTCOMES = [
+  { line: '[atelier: timed out — agent still working]', code: 2 },
+  { line: '[atelier: agent stopped and is asking the user]', code: 3 }
+]
+
+/** O código que a resposta pede, ou 0 quando ela é uma resposta de verdade. */
+function exitCodeFor(payload) {
+  const last = payload.trimEnd().split('\n').pop() || ''
+  const hit = OUTCOMES.find((o) => last === o.line)
+  return hit ? hit.code : 0
+}
+
 function sendCommand(argv) {
   const body = Buffer.from(JSON.stringify({ args: argv }), 'utf8')
   const socket = net.createConnection(socketPath)
@@ -247,7 +274,7 @@ function sendCommand(argv) {
   socket.on('end', () => {
     const payload = bodyOf(chunks)
     process.stdout.write(payload.endsWith('\n') ? payload : `${payload}\n`)
-    process.exit(0)
+    process.exit(exitCodeFor(payload))
   })
 }
 
@@ -334,6 +361,39 @@ function sendBrief() {
   socket.on('close', () => answer(bodyOf(chunks)))
 }
 
+// ─── waiting ──────────────────────────────────────────────────────────────────
+
+/**
+ * O hook `Notification` de todo nó Claude Code: o agente parou para pedir algo.
+ *
+ * Difere do `brief` e da `statusline` em três pontos, e os três vêm de quem
+ * está do outro lado — alguém já parado, olhando uma tela congelada:
+ *
+ *  - NÃO imprime nada. `Notification` não injeta contexto, então tudo que
+ *    saísse daqui só sujaria a tela de quem está esperando.
+ *  - o payload do stdin vai INTEIRO para o app, que extrai o `message` de lá
+ *    (interagent/handlers/waiting.ts). O CLI não interpreta JSON: se o formato
+ *    do hook mudar, quem se adapta é o app, que dá para atualizar sem reinstalar
+ *    o CLI no PATH do usuário.
+ *  - timeout curto. Um socket pendurado aqui atrasaria o diálogo que o usuário
+ *    está tentando responder, e o estado de espera é uma conveniência do
+ *    coordenador — nunca vale segurar a tela de quem trabalha.
+ */
+function sendWaiting(payload) {
+  const body = Buffer.from(JSON.stringify({ args: ['waiting', payload] }), 'utf8')
+  const socket = net.createConnection(socketPath)
+  socket.setTimeout(2000)
+  const done = () => process.exit(0)
+  socket.on('connect', () => {
+    socket.write(head(body.length))
+    socket.write(body)
+  })
+  socket.on('data', () => undefined)
+  socket.on('timeout', () => socket.destroy())
+  socket.on('error', done)
+  socket.on('close', done)
+}
+
 // ─── Despacho ─────────────────────────────────────────────────────────────────
 
 function main() {
@@ -381,6 +441,13 @@ function main() {
     return
   }
 
+  if (command === 'waiting') {
+    readStdin()
+      .then(sendWaiting)
+      .catch(() => process.exit(0))
+    return
+  }
+
   sendCommand(args)
 }
 
@@ -389,5 +456,5 @@ function main() {
 if (require.main === module) {
   main()
 } else {
-  module.exports = { ARTISAN_REFUSAL, artisanGuardResponse, artisanBriefResponse }
+  module.exports = { ARTISAN_REFUSAL, artisanGuardResponse, artisanBriefResponse, OUTCOMES, exitCodeFor }
 }

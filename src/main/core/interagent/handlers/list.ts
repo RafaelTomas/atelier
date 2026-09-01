@@ -80,11 +80,30 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
     lines.push('Connected agents:')
     for (const node of agents) {
       const session = terminals.get(node.id)
-      const status = session ? (session.exited ? 'exited' : terminals.isIdle(node.id) ? 'idle' : 'working') : 'not started'
+      const { state, waiting } = session
+        ? terminals.agentState(node.id)
+        : { state: 'not started' as const, waiting: null }
+      // O QUE está sendo pedido, quando o agente parou para pedir. Sem isto,
+      // `[waiting]` só troca um rótulo enganoso por um rótulo mudo: o
+      // coordenador ainda teria que rodar `check` e ler a tela crua para
+      // descobrir o que destravar.
+      const asked = waiting?.detail ? `: ${waiting.detail}` : ''
       // A responsabilidade entra aqui para o chamador saber a quem pedir o quê
       const role = node.content.type === 'terminal' ? roles.get(node.content.value.assignedRoleId) : null
       const suffix = role ? `  role: ${role.name}` : ''
-      lines.push(`  ${nodeDisplayName(node.content)}  [${status}]  (${node.id.slice(0, 8)})${suffix}`)
+      lines.push(
+        `  ${nodeDisplayName(node.content)}  [${state}${asked}]  (${node.id.slice(0, 8)})${suffix}`
+      )
+    }
+    // Um agente parado esperando é o único estado que exige AÇÃO do
+    // coordenador, e é o que ele mais erra: antes disto `[idle]` dizia a mesma
+    // coisa para quem terminou e para quem travou. A linha só aparece quando há
+    // alguém nessa situação.
+    if (agents.some((n) => terminals.get(n.id) && terminals.agentState(n.id).state === 'waiting')) {
+      lines.push(
+        '  [waiting] = stopped, asking the USER to answer. It will not move until',
+        '  someone answers in the node — reading its screen again will not unblock it.'
+      )
     }
   }
 

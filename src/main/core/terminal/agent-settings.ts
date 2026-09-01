@@ -66,6 +66,27 @@ function sessionStartHook(): { SessionStart: object[] } {
 }
 
 /**
+ * `Notification` — o sinal AUTORITATIVO de que o agente parou para pedir algo.
+ *
+ * Sem ele, a única fonte é a tela, e a tela mente nos dois sentidos: um TUI
+ * animado nunca fica calado (quem trabalha parece travado) e um diálogo de
+ * permissão congela a tela (quem está travado parece pronto). O Claude Code
+ * publica este evento de propósito quando precisa de atenção, e a mensagem vem
+ * inteira — enquanto a tela chega com os espaços comidos pelo redesenho.
+ *
+ * Vale para TODO nó Claude Code, e não só para o Artesão: quem lê o estado é
+ * quem coordena, mas quem PRODUZ o estado é o nó que parou, seja ele quem for.
+ *
+ * `atelier waiting` não imprime nada (ver handlers/waiting.ts). `Notification`
+ * não injeta contexto, e escrever aqui só sujaria a tela de quem já está parado.
+ */
+function notificationHook(): { Notification: object[] } {
+  return {
+    Notification: [{ hooks: [{ type: 'command', command: cliCommand('waiting') }] }]
+  }
+}
+
+/**
  * O bloqueio do Artesão — só ele ganha isto.
  *
  * `PreToolUse` com matcher `Task` é o bloqueio, e é ele — não uma regra em
@@ -95,15 +116,20 @@ function artisanGuardHook(): { PreToolUse: object[] } {
 /**
  * O conteúdo do arquivo.
  *
- * `statusLine` e `hooks.SessionStart` (o brief) valem para TODO nó Claude
- * Code — a asserção que o test-monitor faz hoje é sobre a `statusLine` não ter
- * sido atropelada, não sobre o arquivo estar vazio de hooks. Só
+ * `statusLine`, `hooks.SessionStart` (o brief) e `hooks.Notification` (o sinal
+ * de espera) valem para TODO nó Claude Code — a asserção que o test-monitor
+ * faz hoje é sobre a `statusLine` não ter sido atropelada, não sobre o arquivo
+ * estar vazio de hooks. Só
  * `hooks.PreToolUse`, o bloqueio do `Task`, depende de `opts.artisan`: é o que
  * garante que ligar o Artesão num nó não muda o COMPORTAMENTO de nenhum outro,
  * mesmo que todos agora recebam o mesmo hook de boot.
  */
 export function agentSettings(opts: { artisan: boolean } = { artisan: false }): string {
-  const hooks = { ...sessionStartHook(), ...(opts.artisan ? artisanGuardHook() : {}) }
+  const hooks = {
+    ...sessionStartHook(),
+    ...notificationHook(),
+    ...(opts.artisan ? artisanGuardHook() : {})
+  }
   return JSON.stringify({ ...statusLineBlock(), hooks }, null, 2)
 }
 

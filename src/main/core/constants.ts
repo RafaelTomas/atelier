@@ -95,6 +95,24 @@ export const Constants = {
   todoListBreakpoint: 420,
   /** Colagens de imagem no terminal com mais que isto (ms) são apagadas no boot. */
   imageTmpMaxAgeMs: 24 * 60 * 60 * 1000,
+  /**
+   * Quanto tempo sem saída nova conta como "a tela parou de mudar".
+   *
+   * Reavaliado quando `waiting` passou a existir (M7), e MANTIDO em 2s — o que
+   * era um valor perigoso virou um valor adequado, sem mudar de número.
+   *
+   * Antes, este era o único critério de parada, e por isso decidia duas coisas
+   * que não se decidem juntas: um agente travado num diálogo o atingia em 2s e
+   * saía como `idle`, indistinguível de quem tinha terminado. Agora `waiting` é
+   * avaliado ANTES (ver `agentState`), então 2s só responde a pergunta estreita
+   * que o nome faz. Para ela, 2s é generoso: um TUI que animou até o fim para
+   * de animar quando termina.
+   *
+   * Aumentar hoje custaria: `ask` demoraria mais para devolver uma resposta que
+   * já está pronta na tela. Diminuir chamaria de ocioso um agente que só
+   * pensou em silêncio. Sem medição de uma corrida real do eval, mexer é chute
+   * — e o ciclo 0 vai produzir exatamente essa medição.
+   */
   agentIdleTimeoutMs: 2000,
   /** Teto de terminais por canvas para o `atelier recruit` — ver handlers/recruit.ts. */
   recruitMaxTerminals: 12,

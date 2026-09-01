@@ -102,3 +102,111 @@ export function scanAgentStatus(chunk: string): AgentStatus {
 
   return { tokens, contextPct, limits }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Detecção de espera — o PISO de M7b.
+ *
+ * O canal autoritativo é o hook `Notification` (terminal/agent-settings.ts):
+ * ele chega estruturado, traz a mensagem, e existe porque o Claude Code o
+ * publica de propósito. Isto aqui é o que sobra para os presets que NÃO têm
+ * hook nenhum — Codex, opencode, antigravity, shell — e para o intervalo entre
+ * o diálogo aparecer na tela e o hook ser processado.
+ *
+ * Piso, e não canal principal, por dois defeitos que a raspagem não resolve:
+ *
+ *   • `atelier check` devolve SCROLLBACK. Um diálogo já respondido continua no
+ *     buffer e continua casando. Por isso tudo aqui olha só a CAUDA — se a
+ *     conversa andou, o diálogo saiu da janela e o casamento morre junto.
+ *   • o TUI COME OS ESPAÇOS ao redesenhar. Na tela real capturada em
+ *     scripts/fixtures/waiting-claude-permission.txt o texto saiu como
+ *     `Doyouwanttoproceed` e `requiresapproval` — um padrão escrito com as
+ *     frases inteiras não casa NUNCA. A saída é comparar sem whitespace
+ *     nenhum, o mesmo truque que `afterLastEcho` (handlers/ask.ts) usa para
+ *     achar o eco de um prompt refluído.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Por que o agente parou. `detail` é o que dá para dizer sobre o pedido, e é
+ * `null` com frequência: a tela chega com os espaços comidos, e um rótulo
+ * adivinhado é pior que rótulo nenhum. Quem preenche `detail` de verdade é o
+ * hook, que recebe a mensagem intacta.
+ */
+export interface WaitingReason {
+  kind: 'permission'
+  detail: string | null
+}
+
+/**
+ * Quantas linhas do fim contam como "a tela agora".
+ *
+ * O diálogo do Claude Code ocupa ~8 linhas e fica coladinho no rodapé. 40 dá
+ * folga para o redesenho parcial espalhar o bloco sem alcançar o diálogo
+ * ANTERIOR, que é justamente o falso positivo que derrubou a primeira
+ * tentativa desta detecção.
+ */
+const SCREEN_LINES = 40
+
+/**
+ * Quebra de linha do PTY é `\r`, `\n` OU `\r\n` — e num TUI é quase sempre a
+ * primeira.
+ *
+ * Medido na tela capturada em scripts/fixtures/: 116 `\r` contra 7 `\n`. Quem
+ * fatiasse só por `\n` veria a tela inteira como OITO linhas, a janela de 40
+ * abaixo pegaria tudo, e a defesa contra o diálogo já respondido — que existe
+ * justamente para olhar só o fim — não defenderia nada.
+ *
+ * Um `\r` solto é o TUI reescrevendo a linha por cima, e não uma linha nova.
+ * Contá-lo como quebra faz a janela ficar MENOR do que a tela real, o que erra
+ * para o lado seguro: no máximo deixamos de reconhecer uma espera, nunca
+ * inventamos uma.
+ */
+const NEWLINE = /\r\n|\r|\n/
+
+/** Sem whitespace e em minúsculas — ver o comentário do bloco sobre o TUI. */
+function dense(text: string): string {
+  return text.replace(/\s+/g, '').toLowerCase()
+}
+
+/**
+ * O agente está parado esperando uma resposta do usuário?
+ *
+ * `null` quando não dá para afirmar, e é a resposta certa para todo preset cuja
+ * tela ainda não foi vista de verdade. Um `waiting` inventado é pior que a
+ * ignorância que ele substitui: faria `ask` desistir de um agente que está
+ * trabalhando.
+ */
+export function detectWaiting(screen: string): WaitingReason | null {
+  const lines = stripAnsi(screen).split(NEWLINE)
+  const tail = lines.slice(-SCREEN_LINES).join('\n')
+  const d = dense(tail)
+
+  // Claude Code. A pergunta sozinha não basta — ela também aparece no texto de
+  // uma conversa QUALQUER sobre permissões. O que a torna um diálogo é a lista
+  // de opções logo abaixo, e é a conjunção que casa.
+  const asks = d.includes('doyouwanttoproceed')
+  const numbered = d.includes('1.yes') || (d.includes('1.') && d.includes('2.'))
+  const escape = d.includes('esctocancel')
+  if (asks && (numbered || escape)) return { kind: 'permission', detail: commandUnderReview(tail) }
+
+  // Os outros presets caem aqui de propósito, até existir tela capturada deles.
+  return null
+}
+
+/**
+ * O comando que o diálogo está pedindo para aprovar, quando ele aparece na
+ * forma que sobrevive ao redesenho.
+ *
+ * O Claude Code ecoa o comando numa linha própria, prefixada por `⎿  $ `, e
+ * essa linha chega íntegra porque não é redesenhada junto com o diálogo. As
+ * outras candidatas (o rótulo `Bash command`, a descrição) vêm com os espaços
+ * comidos e virariam `Verificaocaminhodocomandoatelier` no relatório — daí só
+ * esta ser lida, e o resto voltar `null`.
+ */
+function commandUnderReview(tail: string): string | null {
+  let found: string | null = null
+  for (const line of tail.split('\n')) {
+    const m = /⎿\s+\$\s+(.+?)\s*$/.exec(line)
+    if (m && m[1]) found = m[1]
+  }
+  return found && found.length <= 120 ? found : null
+}

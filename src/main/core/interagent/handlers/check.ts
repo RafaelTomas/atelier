@@ -21,8 +21,21 @@ export async function handleCheck(args: string[], terminalId: UUID | null): Prom
   const session = terminals.get(target.id)
   if (!session) return `error: agent '${nodeDisplayName(target.content)}' has no running terminal.`
 
-  const status = session.exited ? 'exited' : terminals.isIdle(target.id) ? 'idle' : 'working'
+  const { state, waiting } = terminals.agentState(target.id)
   const tail = terminals.tail(target.id, lines)
+  const head = `--- ${nodeDisplayName(target.content)} [${state}] last ${lines} lines ---`
 
-  return [`--- ${nodeDisplayName(target.content)} [${status}] last ${lines} lines ---`, tail].join('\n')
+  // Quando o agente está parado pedindo, a instrução vem ANTES da tela. Ler o
+  // scrollback de um diálogo aberto é justamente o que não resolve, e o que o
+  // coordenador tenta fazer por reflexo — a resposta tem de ser dada no nó.
+  if (state !== 'waiting') return [head, tail].join('\n')
+  const asked = waiting?.detail ? `: ${waiting.detail}` : ''
+  return [
+    head,
+    `[waiting] ${nodeDisplayName(target.content)} stopped and is asking the USER${asked}`,
+    'It will not move until someone answers IN THE NODE. Re-reading this screen,',
+    "or sending another 'ask', will not unblock it — the second one interrupts it.",
+    '',
+    tail
+  ].join('\n')
 }

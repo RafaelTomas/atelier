@@ -22,6 +22,7 @@ import { handleRole } from './handlers/role'
 import { handleStatusLine } from './handlers/statusline'
 import { handleTable } from './handlers/table'
 import { handleTodo } from './handlers/todo'
+import { handleWaiting } from './handlers/waiting'
 import { handleVault } from './handlers/vault'
 import { interAgentServer } from './server'
 
@@ -81,6 +82,10 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
     // terminal/agent-settings.ts).
     case 'brief':
       return handleBrief(args, terminalId)
+    // Também fora de COMMANDS: quem chama é o hook `Notification`, e um agente
+    // que pudesse digitá-lo anunciaria uma espera que não existe.
+    case 'waiting':
+      return handleWaiting(args, terminalId)
     case 'debug':
       return buildDebugInfo(terminalId)
 

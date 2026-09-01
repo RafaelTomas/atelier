@@ -11,7 +11,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { IPty } from 'node-pty'
-import type { AgentStatus, TerminalSpawnOptions, UUID } from '@shared/types'
+import type { AgentLifecycle, AgentStatus, TerminalSpawnOptions, UUID } from '@shared/types'
 import { Constants } from '../constants'
 import { log } from '../logger'
 import { defaultShell } from '../models/node-content'
@@ -22,7 +22,8 @@ import { dataDir, ipcSocketPath } from '../persistence/paths'
 import { childEnv, prependPath } from '../subprocess-env'
 import { forgetTerminalSecrets, hasSecrets, maskForTerminal } from '../vault/masking'
 import { uuid } from '../coding'
-import { scanAgentStatus } from './agent-status'
+import { detectWaiting, scanAgentStatus } from './agent-status'
+import type { WaitingReason } from './agent-status'
 import { bootArgs } from './boot-command'
 import { SpawnRegistry } from './spawn-registry'
 import { RESUME_SUPPORT, supportsResume, withSession } from './agent-resume'
@@ -166,6 +167,17 @@ export interface TerminalSession {
   lastOutputAt: number
   lastActiveAt: number
   exited: boolean
+  /**
+   * O último `Notification` que o agente publicou, e ainda não respondido.
+   *
+   * Canal AUTORITATIVO da espera: o Claude Code dispara esse hook quando para
+   * para pedir alguma coisa, e a mensagem chega inteira — ao contrário da tela,
+   * que chega com os espaços comidos. `null` significa "nada pendente que o
+   * agente tenha anunciado", e não "o agente não está esperando": um preset sem
+   * hook nenhum nunca preenche isto, e é para ele que existe o piso de raspagem
+   * em agent-status.ts.
+   */
+  waiting: { at: number; message: string } | null
   /** O que o agente mostra na própria linha de status. */
   status: AgentStatus
   lastStatusScan: number
@@ -303,6 +315,7 @@ class TerminalManager extends EventEmitter {
       lastOutputAt: Date.now(),
       lastActiveAt: 0,
       exited: false,
+      waiting: null,
       status: { tokens: null, contextPct: null, limits: [] },
       lastStatusScan: 0,
       sessionId: plan.sessionId,
@@ -658,6 +671,12 @@ class TerminalManager extends EventEmitter {
   write(id: UUID, data: string): boolean {
     const session = this.sessions.get(id)
     if (!session || session.exited) return false
+    // Escrever é RESPONDER. O Claude Code só sai de um diálogo de permissão
+    // quando alguém digita, então a tecla que entra aqui é o fim da espera que
+    // o hook anunciou — e é este o sinal de baixa, porque nenhum hook avisa que
+    // o diálogo fechou. A tela continua sendo consultada por cima disto (ver
+    // `agentState`): se o diálogo ainda estiver lá, ele vence.
+    session.waiting = null
     session.pty.write(data)
     return true
   }
@@ -707,11 +726,64 @@ class TerminalManager extends EventEmitter {
     return stripAnsi(session.buffer).split('\n').slice(-lines).join('\n')
   }
 
-  /** Está ocioso? Sem saída nova há agentIdleTimeoutMs. */
+  /**
+   * Está ocioso? Sem saída nova há agentIdleTimeoutMs.
+   *
+   * NÃO use isto para decidir se um agente terminou — use `agentState`. Um TUI
+   * animado nunca fica 2s calado, então um agente TRABALHANDO nunca é `isIdle`,
+   * e um agente PARADO num diálogo de permissão (tela estática) é `isIdle` em
+   * 2s, igualzinho a quem acabou. Este predicado responde exatamente o que o
+   * nome diz — "a tela parou de mudar" — e é só um dos ingredientes de lá.
+   */
   isIdle(id: UUID): boolean {
     const session = this.sessions.get(id)
     if (!session) return true
     return Date.now() - session.lastOutputAt > Constants.agentIdleTimeoutMs
+  }
+
+  /** O `Notification` chegou: o agente anunciou que parou para pedir algo. */
+  markWaiting(id: UUID, message: string): void {
+    const session = this.sessions.get(id)
+    if (!session || session.exited) return
+    session.waiting = { at: Date.now(), message }
+  }
+
+  /**
+   * O estado do agente, com os quatro nomes que o coordenador precisa
+   * distinguir — e a razão da espera quando há uma.
+   *
+   * Existe porque `isIdle` sozinho dizia o CONTRÁRIO da verdade nos dois casos
+   * que importam: quem trabalha nunca fica ocioso (o TUI anima), e quem está
+   * travado num diálogo fica ocioso na hora (a tela congela). O resultado é que
+   * `[idle]` significava tanto "terminou" quanto "está te esperando", e as duas
+   * leituras exigem ações opostas do coordenador.
+   *
+   * A ordem das fontes não é arbitrária:
+   *
+   *  1. A TELA vence. Se o diálogo está visível agora, o agente está esperando
+   *     agora — não importa o que qualquer hook disse antes.
+   *  2. O HOOK cobre o resto: o intervalo entre o `Notification` chegar e a tela
+   *     pintar, e os pedidos cuja tela a raspagem não reconhece. Vale até
+   *     alguém escrever no terminal, que é o único sinal de baixa que existe
+   *     (ver `write`).
+   *  3. `isIdle` só é consultado quando ninguém está esperando por nada.
+   *
+   * O `detail` prefere a mensagem do hook: ela chega inteira, enquanto a tela
+   * chega com os espaços comidos pelo redesenho.
+   */
+  agentState(id: UUID): { state: AgentLifecycle; waiting: WaitingReason | null } {
+    const session = this.sessions.get(id)
+    if (!session) return { state: 'exited', waiting: null }
+    if (session.exited) return { state: 'exited', waiting: null }
+
+    const scraped = detectWaiting(session.buffer.slice(-STATUS_WINDOW))
+    const hooked = session.waiting
+    if (scraped || hooked) {
+      const detail = hooked?.message || scraped?.detail || null
+      return { state: 'waiting', waiting: { kind: 'permission', detail } }
+    }
+
+    return { state: this.isIdle(id) ? 'idle' : 'working', waiting: null }
   }
 }
 

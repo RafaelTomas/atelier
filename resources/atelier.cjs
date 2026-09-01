@@ -31,8 +31,18 @@ Commands:
   list                              List connected agents, notes, portals
   ask "Agent" "prompt"              Send prompt to connected agent
   check "Agent" [lines]             View agent's recent output
-  note <read|write|create>          Read/write connected notes
-  vault <list|get|env>              Secrets from connected vaults (never writes)
+  recruit "Name" [options]          Create a new connected agent node
+  dismiss "Name"                    Close a connected agent
+  note <read|write|edit|create>     Read/write/edit connected notes
+  portal <list|open|go|read|html|shot|close|map|click|type|key|scroll|wait|login>
+                                    Navigate and control web pages (read-only without user approval)
+  editor <list|open|read|close>     View user's open file and selection (no write; edit with your own tools)
+  table <create|append|list>        Publish query results as table nodes (you run the query)
+  image <create|list>               Publish image files as nodes on the canvas
+  todo <list|add|move|done|show|create|plan|step>
+                                    Manage todo board items and plans
+  vault <list|get|set|env>          Secrets from connected vaults (set creates only, never overwrites)
+  button <propose|list|remove>      Propose buttons (pending until user accepts); remove only your pending ones
   role [list]                       Your assigned responsibility
   projects <list|info|describe>     The user's indexed projects
   debug                             Diagnose connection issues
@@ -42,6 +52,7 @@ Environment:
   ATELIER_TERMINAL_ID  Terminal UUID (set by Atelier)
   ATELIER_CLI          Path to this CLI
   ATELIER_ROLE         Name of the assigned responsibility, when there is one
+  ATELIER_ARTESAO      Indicates terminal is an Artisan (when set)
 `
 
 function fail(msg) {
@@ -280,6 +291,49 @@ function sendArtisanBrief() {
   socket.on('close', () => answer(bodyOf(chunks)))
 }
 
+// ─── brief ────────────────────────────────────────────────────────────────────
+
+/**
+ * O hook `SessionStart` de TODO nó Claude Code, não só o Artesão — a resposta
+ * de `atelier brief` (o inventário do canvas, com a doutrina do Artesão como
+ * bloco quando o chamador é um; ver interagent/handlers/brief.ts) embrulhada
+ * no MESMO formato de hook do `artesao brief`, via `artisanBriefResponse` —
+ * a função só precisa do texto e do nome do evento, e os dois são idênticos.
+ *
+ * Sem doutrina de fallback aqui: ao contrário do Artesão, um nó comum sem
+ * resposta do app não perde uma trava de ferramenta, só o atalho — melhor
+ * nenhum contexto extra do que um hook gritando `error:` para dentro da
+ * primeira mensagem da sessão.
+ */
+function sendBrief() {
+  const body = Buffer.from(JSON.stringify({ args: ['brief'] }), 'utf8')
+  const socket = net.createConnection(socketPath)
+  // COM timeout, como a statusline e o artesao brief: roda no boot de cada
+  // sessão, e um socket pendurado seguraria a abertura do agente.
+  socket.setTimeout(5000)
+
+  const chunks = []
+  let answered = false
+  const answer = (text) => {
+    if (answered) return
+    answered = true
+    const brief = text.trim()
+    if (brief && !brief.startsWith('error:')) {
+      process.stdout.write(`${artisanBriefResponse(brief)}\n`)
+    }
+    process.exit(0)
+  }
+
+  socket.on('connect', () => {
+    socket.write(head(body.length))
+    socket.write(body)
+  })
+  socket.on('data', (chunk) => chunks.push(chunk))
+  socket.on('timeout', () => socket.destroy())
+  socket.on('error', () => answer(''))
+  socket.on('close', () => answer(bodyOf(chunks)))
+}
+
 // ─── Despacho ─────────────────────────────────────────────────────────────────
 
 function main() {
@@ -316,6 +370,13 @@ function main() {
   if (command === 'artesao' && args[1] === 'brief') {
     readStdin()
       .then(sendArtisanBrief)
+      .catch(() => process.exit(0))
+    return
+  }
+
+  if (command === 'brief') {
+    readStdin()
+      .then(sendBrief)
       .catch(() => process.exit(0))
     return
   }

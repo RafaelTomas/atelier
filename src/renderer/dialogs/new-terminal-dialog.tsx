@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type {
   AgentRole,
   ClaudeSessionSummary,
+  Preferences,
   TerminalDraft,
   TerminalTheme,
   UUID
@@ -55,7 +56,14 @@ interface Props {
   onCreate: (draft: TerminalDraft) => void
 }
 
-function emptyDraft(workingDirectory: string): TerminalDraft {
+/**
+ * `themeId`/`fontFamily`/`fontSize` nascem dos padrões da tela de
+ * Configurações (grupo Terminais), não das constantes fixas — senão essas três
+ * preferências seriam gravadas e nunca lidas, o defeito que a tela veio
+ * corrigir. Uma vez criado, o nó guarda a própria escolha e não acompanha uma
+ * mudança posterior do padrão.
+ */
+function emptyDraft(workingDirectory: string, defaults: Preferences | null): TerminalDraft {
   return {
     name: '',
     command: '',
@@ -67,9 +75,9 @@ function emptyDraft(workingDirectory: string): TerminalDraft {
     // saber quando o agente ficou ocioso).
     monitorWithOmbro: true,
     isManager: false,
-    themeId: SYSTEM_THEME_ID,
-    fontFamily: null,
-    fontSize: null,
+    themeId: defaults?.terminalThemeId ?? SYSTEM_THEME_ID,
+    fontFamily: defaults?.terminalFontFamily ?? null,
+    fontSize: defaults?.terminalFontSize ?? null,
     assignedRoleId: null,
     claudeAccountId: null,
     resumeSessionId: null,
@@ -89,7 +97,10 @@ export function NewTerminalDialog({
   const editing = initial !== null
   const [tab, setTab] = useState<Tab>('detalhes')
   const [draft, setDraft] = useState<TerminalDraft>(
-    () => initial ?? emptyDraft(defaultWorkingDirectory)
+    // Padrões lidos uma vez, na criação do rascunho: o diálogo não reflete uma
+    // mudança de preferência feita enquanto ele está aberto, como um formulário
+    // com valor de partida não reflete uma mudança de outro lugar.
+    () => initial ?? emptyDraft(defaultWorkingDirectory, prefs)
   )
   /** Preset escolhido só para destacar o cartão — o rascunho é a fonte da verdade. */
   const [quickId, setQuickId] = useState<string | null>(null)

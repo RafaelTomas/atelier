@@ -13,14 +13,29 @@ import { store, useStore } from '../state/store'
 
 type Mode = 'folder' | 'home'
 
-const DEPTHS = [4, 6, 8]
+const BASE_DEPTHS = [4, 6, 8]
 
 export function ScanDialog(): JSX.Element {
-  const { autoDescribe, workspace } = useStore()
+  const { autoDescribe, workspace, prefs } = useStore()
   const [mode, setMode] = useState<Mode>('folder')
   const [path, setPath] = useState('')
-  const [maxDepth, setMaxDepth] = useState(6)
+  // Parte da profundidade configurada em Configurações → Projetos, não de um
+  // 6 fixo — quem já mudou o padrão lá não deveria ter de redizê-lo aqui.
+  const [maxDepth, setMaxDepth] = useState(() => prefs?.scanMaxDepth ?? 6)
   const [error, setError] = useState<string | null>(null)
+
+  // O padrão pode não ter chegado ainda no primeiro render (prefs assíncrono);
+  // quando chegar, e só se o usuário não tiver mexido no segmentado, alinha.
+  const [depthTouched, setDepthTouched] = useState(false)
+  useEffect(() => {
+    if (!depthTouched && prefs) setMaxDepth(prefs.scanMaxDepth)
+  }, [prefs, depthTouched])
+
+  // O valor configurado pode não estar entre os três atalhos comuns — ele
+  // continua selecionável, só que como um quarto segmento.
+  const depths = BASE_DEPTHS.includes(maxDepth)
+    ? BASE_DEPTHS
+    : [...BASE_DEPTHS, maxDepth].sort((a, b) => a - b)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -92,12 +107,15 @@ export function ScanDialog(): JSX.Element {
           <div className="field-row">
             <label className="field-label">Profundidade</label>
             <div className="segmented">
-              {DEPTHS.map((d) => (
+              {depths.map((d) => (
                 <button
                   key={d}
                   type="button"
                   className={d === maxDepth ? 'segment is-active' : 'segment'}
-                  onClick={() => setMaxDepth(d)}
+                  onClick={() => {
+                    setDepthTouched(true)
+                    setMaxDepth(d)
+                  }}
                 >
                   {d} níveis
                 </button>

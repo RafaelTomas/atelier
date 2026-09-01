@@ -45,7 +45,8 @@ const ESPERADA = [
   ['nodes/node-action-bar',  'depois da casca'],
   ['nodes/format-bar',       'depois da casca'],
   ['git',     'sem dependência de ordem com as outras'],
-  ['dialogs', 'sem dependência de ordem com as outras']
+  ['dialogs', 'sem dependência de ordem com as outras'],
+  ['settings','DEPOIS de dialogs: a tela de Configurações é uma variante do modal (`.modal.is-wide`) e ajusta o que herda dele escrevendo só a diferença — a mesma lógica de nodes.css vir antes de nodes/*.']
 ]
 
 // Pares de mesma especificidade que cruzam arquivos e já foram julgados.
@@ -199,7 +200,31 @@ const CONHECIDOS = new Map(([
   ['.group.is-selected|.node.is-selected',
    'elementos distintos: uma moldura de grupo nunca é um nó — mas o par é INTENCIONAL, é o mesmo anel tracejado de seleção nas duas coisas'],
   ['.group.is-dimmed|.node-frame.is-dimmed',
-   'elementos distintos: moldura e nó — mas a opacidade tem de ser a MESMA, senão a moldura de um grupo apagado continuaria chamando atenção']
+   'elementos distintos: moldura e nó — mas a opacidade tem de ser a MESMA, senão a moldura de um grupo apagado continuaria chamando atenção'],
+  ['.modal.is-compact|.modal.is-wide',
+   'PODEM coexistir em tese, e por isso a ordem importa: as duas dizem a largura do MESMO `.modal`. Nenhum diálogo usa as duas classes juntas — compacto é a confirmação de uma frase, largo é a tela de Configurações —, e são os dois extremos da mesma medida, então marcá-las no mesmo elemento nunca teria sentido'],
+  // A tela de Configurações. As páginas da coluna esquerda usam `is-active` e
+  // as amostras usam `is-on`, que são as duas marcas de estado do app — o preço
+  // é este bloco de vereditos, e ele é preferível a inventar uma terceira marca
+  // só para esta tela.
+  ['.settings-group.is-active|.workspace-item.is-active',
+   'elementos distintos: uma página da tela de Configurações não é um item da lista de workspaces'],
+  ['.ghost-btn.is-active|.settings-group.is-active',
+   'elementos distintos: a página da tela não é um botão fantasma de painel'],
+  ['.clock-mode.is-active|.settings-group.is-active',
+   'elementos distintos: a página da tela não é uma aba de modo do relógio'],
+  ['.git-tab.is-active|.settings-group.is-active',
+   'elementos distintos: a página da tela não é uma aba do painel de git'],
+  ['.portal-control.is-on|.settings-rope-option.is-on',
+   'elementos distintos: o desenho de corda escolhido na tela não é o botão de controle do portal'],
+  ['.fb-btn.is-on|.settings-rope-option.is-on',
+   'elementos distintos: o desenho escolhido não é um botão da barra de formatação de texto'],
+  ['.fb-row.is-on|.settings-rope-option.is-on',
+   'elementos distintos: o desenho escolhido não é uma linha da barra de formatação'],
+  ['.fb-swatch.is-on|.settings-rope-option.is-on',
+   'elementos distintos: o desenho escolhido não é uma amostra da barra de formatação'],
+  ['.fb-swatch.is-on|.settings-rope-swatch.is-on',
+   'elementos distintos: a amostra de cor de corda da tela não é a amostra da barra de formatação — as duas marcam a escolhida com um anel, e é o mesmo gesto de propósito']
 ]).map(([par, motivo]) => [par.split('|').sort().join('|'), motivo]))
 
 let falhas = 0

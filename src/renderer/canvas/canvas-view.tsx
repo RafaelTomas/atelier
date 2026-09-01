@@ -1283,6 +1283,17 @@ export function CanvasView(): JSX.Element {
         else void store.undo()
       }
 
+      // Configurações, no atalho de sistema: ⌘, no macOS, Ctrl+, no resto.
+      //
+      // É a MESMA tecla nos dois — a diferença é só o modificador, e o teclado
+      // já diz qual deles chegou. Alterna em vez de só abrir: apertar de novo
+      // fecha, como faz o app que emprestou o atalho.
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault()
+        if (store.getSnapshot().settingsOpen) store.closeSettings()
+        else store.openSettings()
+      }
+
       // Agrupar e desagrupar, no atalho que todo editor de canvas usa.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'g') {
         e.preventDefault()
@@ -1470,7 +1481,12 @@ export function CanvasView(): JSX.Element {
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <CanvasBackground mode="grid" />
+      {/* O fundo vem das preferências. Estava fixo em "grid" desde que a camada
+          nasceu, e `canvasBackground` era uma chave gravada que ninguém lia —
+          a tela de Configurações passou a oferecê-la, e um controle que não
+          muda nada é pior que controle nenhum. Chave ausente ou com lixo dentro
+          cai na grade, que é o fundo histórico. */}
+      <CanvasBackground mode={prefs?.canvasBackground ?? 'grid'} />
 
       <DrawingsLayer
         drawings={drawings}

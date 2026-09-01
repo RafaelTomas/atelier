@@ -24,35 +24,16 @@
  * entre as duas telas.
  */
 import { useEffect, useMemo, useState } from 'react'
-import type { AccountRow, AccountUsage, AgentReading, UsageWindow } from '@shared/agent-usage'
-import {
-  aggregateLimits,
-  agoLabel,
-  activeWindows,
-  groupByAccount,
-  mergeReading,
-  sumCost,
-  untilReset
-} from '@shared/agent-usage'
-import type { ClaudeAccountInfo, UUID } from '@shared/types'
+import type { AccountRow, AgentReading } from '@shared/agent-usage'
+import { aggregateLimits, groupByAccount, mergeReading, sumCost, untilReset } from '@shared/agent-usage'
+import type { UUID } from '@shared/types'
 import { DEFAULT_CLAUDE_ACCOUNT_ID, formatBytes, formatTokens } from '@shared/types'
-import { accountLabel } from '../claude-accounts'
 import { IconPlus, IconReload } from '../icons'
 import { store, useStore } from '../state/store'
 import { DEFAULT_INTERVAL, INTERVALS, useSystemStats } from '../state/use-system-stats'
-import { DANGER_PCT, Donut, Meter, pair } from './monitor-parts'
+import { AccountLine, CodexAccountLine, DANGER_PCT, Meter, pair } from './monitor-parts'
 
 export type MonitorBlocks = 'pc' | 'ai' | 'accounts' | 'both'
-
-/**
- * As janelas que o Claude Code publica, na ordem em que ele as publica.
- *
- * Escrita aqui, e não derivada da leitura, porque a COLUNA existe mesmo quando
- * a conta não tem leitura: sem isso, a conta parada teria uma linha mais curta
- * que a das outras e os anéis não se alinhariam de uma linha para a seguinte.
- * Espelha a ordem fixa de `parseStatusLine`.
- */
-const WINDOWS = ['5h', '7d'] as const
 
 interface Props {
   /** `view.blocks` do nó. */
@@ -412,9 +393,12 @@ function AccountsBlock(): JSX.Element {
       )}
 
       {codexAccountUsage.available && (
-        <ul className="monitor-accounts">
-          <CodexAccountLine usage={codexAccountUsage} />
-        </ul>
+        <>
+          <div className="monitor-account-section">Codex</div>
+          <ul className="monitor-accounts">
+            <CodexAccountLine usage={codexAccountUsage} />
+          </ul>
+        </>
       )}
 
       <div className="monitor-account-section">Claude</div>
@@ -431,157 +415,4 @@ function AccountsBlock(): JSX.Element {
     </section>
   )
 }
-
-function CodexAccountLine({ usage }: { usage: ReturnType<typeof useStore>['codexAccountUsage'] }): JSX.Element {
-  const windows = activeWindows(usage.limits)
-  const source = usage.source
-  const danger = usage.spendControlReached === true || usage.rateLimitReachedType !== null
-  const lifetimeTokens = usage.tokenUsage?.summary.lifetimeTokens ?? null
-  const label =
-    usage.authMode === 'api-key'
-      ? 'limites da API não disponíveis aqui'
-      : source === 'none'
-        ? 'sem leitura'
-        : [usage.planType, lifetimeTokens !== null ? `${formatTokens(lifetimeTokens)} tok` : null]
-            .filter(Boolean)
-            .join(' · ') || 'Codex'
-  const title = [
-    usage.planType ? `plano ${usage.planType}` : null,
-    usage.authMode ? `auth ${usage.authMode}` : null,
-    usage.credits?.unlimited ? 'créditos sem limite' : usage.credits?.balance ? `créditos ${usage.credits.balance}` : null,
-    lifetimeTokens !== null ? `${lifetimeTokens.toLocaleString('pt-BR')} tokens na conta` : null,
-    usage.tokenUsage?.summary.peakDailyTokens !== null && usage.tokenUsage?.summary.peakDailyTokens !== undefined
-      ? `pico diário ${usage.tokenUsage.summary.peakDailyTokens.toLocaleString('pt-BR')}`
-      : null,
-    usage.rateLimitReachedType ? `limite atingido: ${usage.rateLimitReachedType}` : null
-  ]
-    .filter(Boolean)
-    .join(' · ')
-
-  return (
-    <>
-      <div className="monitor-account-section">Codex</div>
-      <li className={danger ? 'monitor-account is-danger' : 'monitor-account'}>
-        <span
-          className={`monitor-source is-${source === 'live' ? 'live' : source === 'stored' ? 'stored' : 'none'}`}
-          title={
-            source === 'live'
-              ? 'publicado pelo Codex App Server'
-              : source === 'stored'
-                ? 'última leitura Codex guardada'
-                : 'sem leitura Codex'
-          }
-        />
-        <span className="monitor-account-name" title={title || label}>
-          Codex
-        </span>
-        <span className="monitor-account-warn">{label}</span>
-        {usage.authMode === 'api-key'
-          ? null
-          : (windows.length > 0
-              ? windows
-              : [
-                  { window: '5h', pct: Number.NaN, resetsAt: null },
-                  { window: '7d', pct: Number.NaN, resetsAt: null }
-                ]
-            ).map((limit) => (
-              <WindowDonut
-                key={`${limit.bucketId ?? ''}-${limit.window}`}
-                name={limit.window}
-                limit={Number.isFinite(limit.pct) ? limit : null}
-                ago={source === 'stored' ? agoLabel(usage.at) : null}
-              />
-            ))}
-      </li>
-    </>
-  )
-}
-
-/**
- * A linha de uma conta.
- *
- * Os dois anéis existem sempre, mesmo vazios: eles são a COLUNA da tabela, e
- * uma conta sem leitura precisa ocupar a mesma largura das outras para as
- * linhas continuarem comparáveis de relance — que é a única coisa que se faz
- * com este bloco.
- */
-function AccountLine({
-  account,
-  usage
-}: {
-  account: ClaudeAccountInfo
-  usage?: AccountUsage
-}): JSX.Element {
-  const source = usage?.source ?? 'none'
-  const ago = source === 'stored' ? agoLabel(usage?.at) : null
-
-  // O que a linha inteira diz, para quem parar o mouse nela: quem é a conta,
-  // quantos agentes dela estão abertos e quanto eles já custaram nesta sessão.
-  const parts = [accountLabel(account)]
-  if (usage && usage.live > 0) parts.push(`${usage.live} terminal(is) aberto(s)`)
-  if (usage && usage.costUsd !== null) parts.push(`$${usage.costUsd.toFixed(2)} nesta sessão`)
-
-  return (
-    <li className="monitor-account">
-      {/* Mesma gramática do ponto do bloco IA: cheio = medido agora, vazado =
-          última leitura conhecida, apagado = sem leitura nenhuma. */}
-      <span
-        className={`monitor-source is-${source}`}
-        title={
-          source === 'live'
-            ? 'medindo agora — há terminal aberto nesta conta'
-            : source === 'stored'
-              ? `última leitura conhecida${ago ? `, ${ago}` : ''} — sem terminal aberto nesta conta`
-              : 'sem leitura desta conta'
-        }
-      />
-      <span className="monitor-account-name" title={parts.join(' · ')}>
-        {account.label}
-      </span>
-      {/* Sem login não há janela para medir, e o vazio aqui tem uma causa que o
-          usuário resolve — dizê-la vale mais que dois anéis apagados. */}
-      {!account.authenticated && <span className="monitor-account-warn">sem login</span>}
-      {WINDOWS.map((name) => (
-        <WindowDonut
-          key={name}
-          name={name}
-          limit={usage?.limits.find((l) => l.window === name) ?? null}
-          ago={ago}
-        />
-      ))}
-    </li>
-  )
-}
-
-/** O anel de uma janela e o nome dela — "◕ 5h". */
-function WindowDonut({
-  name,
-  limit,
-  ago
-}: {
-  name: string
-  /** null = esta conta não tem leitura válida desta janela. */
-  limit: UsageWindow | null
-  /** Idade da leitura, quando ela é a guardada. */
-  ago: string | null
-}): JSX.Element {
-  const falta = limit ? untilReset(limit.resetsAt) : null
-  const title = !limit
-    ? `${name}: sem leitura`
-    : [
-        `${name} ${Math.round(limit.pct)}%`,
-        falta ? `reabre em ${falta}` : null,
-        ago // só a leitura guardada tem idade; a viva é de agora
-      ]
-        .filter(Boolean)
-        .join(' · ')
-
-  return (
-    <span className="monitor-window-cell" title={title}>
-      <Donut pct={limit?.pct ?? null} stale={ago !== null} />
-      <span className="monitor-window-name">{name}</span>
-    </span>
-  )
-}
-
 

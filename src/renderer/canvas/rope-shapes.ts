@@ -1,5 +1,21 @@
 import type { Point, RopeStyleId } from '@shared/types'
 
+/**
+ * Cores decorativas para o repouso; verde, vermelho e âmbar seguem reservados
+ * aos estados.
+ *
+ * Mora aqui, e não no seletor dos controles de vista onde nasceu, porque a tela
+ * de Configurações oferece a MESMA paleta — duas listas divergiriam na primeira
+ * cor nova, e o usuário veria opções diferentes para a mesma preferência.
+ */
+export const ROPE_COLORS: { value: string; label: string }[] = [
+  { value: '#007aff', label: 'Azul' },
+  { value: '#5856d6', label: 'Índigo' },
+  { value: '#af52de', label: 'Violeta' },
+  { value: '#e0245e', label: 'Rosa' },
+  { value: '#1abc9c', label: 'Turquesa' }
+]
+
 export const ROPE_STYLES: { id: RopeStyleId; label: string; physics: boolean }[] = [
   // `dotted` é o traçado com que as conexões nasceram e segue sendo o padrão;
   // `rope` é a corda torcida. Os dois nomes já trocaram de dono uma vez — o

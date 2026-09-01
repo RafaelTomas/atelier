@@ -22,6 +22,9 @@ import { join, resolve } from 'node:path'
 
 import {
   benchFor,
+  sessionIdFromScreen,
+  toolTrail,
+  renderToolTrail,
   dismissRefusedBusy,
   parseList,
   missingNeeds,
@@ -39,6 +42,7 @@ import { SCENARIOS, SENTINELS, CRITERIA, CONFIG, scenario, applicablePairs } fro
 const ROOT = resolve(import.meta.dirname, '..')
 const STUCK = await readFile(join(ROOT, 'scripts/fixtures/trilha-prompt-preso.txt'), 'utf8')
 const ANSWERED = await readFile(join(ROOT, 'scripts/fixtures/trilha-respondida.txt'), 'utf8')
+const STUCK_BOOT = STUCK
 
 let passed = 0
 let failed = 0
@@ -146,6 +150,37 @@ test('S6 precisa de DOIS agentes ociosos, e um canvas com um só não serve', ()
 test('o teto de terminais conta o coordenador', () => {
   assert.equal(ceilingRoom(inv, CONFIG.terminalCeiling), 12 - 3 - 1)
   assert.ok(ceilingRoom(parseList(''), 1) < 1, 'canvas no teto tem de recusar')
+})
+
+// ─── A trilha de verdade vem do transcript, não da tela ───────────────────────
+
+test('o id da sessão sai da linha de boot que o Atelier escreve na tela', () => {
+  assert.equal(sessionIdFromScreen(STUCK_BOOT), '171D3492-364F-4728-A413-B9029085B80F')
+  assert.equal(sessionIdFromScreen('nenhuma linha de boot aqui'), null)
+})
+
+test('toolTrail devolve as chamadas EM ORDEM, que é o que E-01 e E-03 perguntam', () => {
+  // Transcript real da corrida `bancada` (01/09, conta FCX): o sujeito rodou
+  // `portal read` ANTES de `atelier list` — agiu primeiro, inventariou depois.
+  // Na TELA isso aparecia como `ran 3 shell commands`, e a ordem sumia.
+  const jsonl = [
+    JSON.stringify({ message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill: 'atelier' } }] } }),
+    JSON.stringify({ message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'atelier portal read "PaginaQuebrada"' } }] } }),
+    JSON.stringify({ message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'atelier list' } }] } }),
+    '{ isto não é json }',
+    JSON.stringify({ message: { content: 'texto solto, não é lista' } })
+  ].join('\n')
+  const calls = toolTrail(jsonl)
+  assert.deepEqual(calls.map((c) => c.tool), ['Skill', 'Bash', 'Bash'])
+  assert.match(calls[1].detail, /portal read/)
+  assert.match(calls[2].detail, /atelier list/)
+  assert.ok(calls.findIndex((c) => /portal read/.test(c.detail)) < calls.findIndex((c) => /atelier list/.test(c.detail)),
+    'a ordem é o dado: agir antes de inventariar é E-01 "não"')
+})
+
+test('linha corrompida no transcript não derruba a trilha', () => {
+  assert.deepEqual(toolTrail('{'), [])
+  assert.equal(renderToolTrail([]), '(nenhuma chamada de ferramenta no transcript)')
 })
 
 // ─── A bancada: o sujeito não herda o cabeamento do coordenador ───────────────

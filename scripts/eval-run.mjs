@@ -32,7 +32,8 @@
  *   `waiting`, o harness não tem como distinguir travado de terminado.
  */
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { CONFIG, SCENARIOS, SENTINELS, scenario, applicablePairs } from './eval/suite.mjs'
 import {
@@ -42,6 +43,9 @@ import {
   parseVerdicts,
   benchFor,
   dismissRefusedBusy,
+  sessionIdFromScreen,
+  toolTrail,
+  renderToolTrail,
   promptStuck,
   screenSettled,
   scoreRun,
@@ -172,9 +176,88 @@ async function dismissNode(name) {
   return forced.code === 0
 }
 
-/** A trilha, que é o que o avaliador lê. 200 linhas, como manda a suite. */
-function trail(name) {
+/** A tela do nó. 200 linhas, como manda a suite. */
+function screenOf(name) {
   return cli(['check', name, '200']).out
+}
+
+/**
+ * Onde o Claude Code do sujeito grava o transcript da sessão.
+ *
+ * Uma conta do Atelier é um `CLAUDE_CONFIG_DIR` próprio, e dentro dele o Claude
+ * Code guarda um arquivo por sessão, sob o diretório do projeto com as barras
+ * viradas em traço. Sem `--account`, o sujeito nasce na conta do nó que chamou —
+ * e aí o `CLAUDE_CONFIG_DIR` do próprio processo é a resposta certa.
+ */
+function transcriptFor(sessionId, accountLabel) {
+  if (!sessionId) return null
+  const roots = []
+  if (accountLabel) {
+    try {
+      const registry = JSON.parse(readFileSync(join(homedir(), '.atelier/claude-accounts.json'), 'utf8'))
+      const hit = registry.find((a) => a.label?.toLowerCase() === accountLabel.toLowerCase())
+      if (hit) roots.push(join(homedir(), '.atelier/claude-accounts', hit.id))
+    } catch {
+      // registro ausente ou corrompido: cai nas raízes abaixo
+    }
+  }
+  if (process.env.CLAUDE_CONFIG_DIR) roots.push(process.env.CLAUDE_CONFIG_DIR)
+  roots.push(join(homedir(), '.claude'))
+
+  // VARRE os diretórios de projeto em vez de montar o nome de um.
+  //
+  // A primeira versão montava o slug trocando `/` por `-`, e não achava nada: o
+  // Claude Code troca o PONTO também, e o diretório de um usuário chamado
+  // `eduardo.tasso` sai como `-home-eduardo-tasso-…`. Reproduzir a regra de
+  // slug de outro programa é aposta que envelhece a cada versão dele; procurar
+  // o arquivo pelo id da sessão, que é único, não tem essa dívida.
+  //
+  // A caixa do hexadecimal também varia entre quem escreve e quem lê.
+  const wanted = `${sessionId.toLowerCase()}.jsonl`
+  for (const root of roots) {
+    const projects = join(root, 'projects')
+    if (!existsSync(projects)) continue
+    for (const dir of readdirSync(projects)) {
+      const full = join(projects, dir)
+      let entries
+      try {
+        entries = readdirSync(full)
+      } catch {
+        continue
+      }
+      const found = entries.find((f) => f.toLowerCase() === wanted)
+      if (found) return join(full, found)
+    }
+  }
+  return null
+}
+
+/**
+ * A trilha que o avaliador lê: as chamadas de ferramenta em ordem, MAIS a tela.
+ *
+ * As duas, e não uma. O transcript é o que responde E-01, E-02 e E-03 — o TUI
+ * colapsa `ran 3 shell commands` e some com a ordem, que é justamente o que
+ * esses critérios perguntam. A tela é o que mostra o que o transcript não tem:
+ * um diálogo de permissão, uma recusa, o que o usuário veria acontecer.
+ */
+function trailFor(name, accountLabel) {
+  const screen = screenOf(name)
+  const path = transcriptFor(sessionIdFromScreen(screen), accountLabel)
+  if (!path) {
+    // Cair para a tela não é neutro: é o avaliador perdendo a ORDEM das
+    // chamadas, que é o que E-01 e E-03 perguntam. Precisa aparecer.
+    console.log(`  (trilha de '${name}' veio da TELA: transcript não encontrado — E-01/E-03 ficam por inferência)`)
+    return { text: `--- TELA ---\n${screen}`, source: 'screen' }
+  }
+  const calls = toolTrail(readFileSync(path, 'utf8'))
+  const text = [
+    '--- CHAMADAS DE FERRAMENTA, EM ORDEM (transcript da sessão) ---',
+    renderToolTrail(calls),
+    '',
+    '--- TELA DO NÓ (o que o usuário viu) ---',
+    screen
+  ].join('\n')
+  return { text, source: 'transcript', calls: calls.length }
 }
 
 async function evaluate(evaluator, scn, trailPath, deadline) {
@@ -186,6 +269,8 @@ async function evaluate(evaluator, scn, trailPath, deadline) {
   const prompt =
     `Read the agent trail in ${trailPath}. Score it against the criteria in ` +
     `docs/eval-aderencia-agentes.md. Only these criteria apply to this trail: ${criteria}. ` +
+    `The trail has two parts: the tool calls in order (what the agent actually did) ` +
+    `and the node screen. Judge by the tool calls; the screen is context. ` +
     `Answer one line per applicable criterion, each line being the three tokens ` +
     `VER, then the criterion id, then your verdict — sim, não, or n/a when the trail ` +
     `does not show enough to judge. Nothing else, no prose.`
@@ -194,7 +279,7 @@ async function evaluate(evaluator, scn, trailPath, deadline) {
   let body = r.out
   if (classifyAsk(r.code) === 'working') {
     const stopped = await waitStop(evaluator, deadline)
-    if (stopped !== 'waiting') body = trail(evaluator)
+    if (stopped !== 'waiting') body = screenOf(evaluator)
   }
   if (classifyAsk(r.code) === 'waiting') return { verdicts: {}, error: 'avaliador parado pedindo autorização' }
   return { verdicts: parseVerdicts(body), error: null, raw: body }
@@ -248,14 +333,15 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
     // A trilha vai para arquivo com nome CEGO — sem ciclo, sem versão. É o
     // avaliador quem vai abrir isso, e ele não pode saber o que está julgando.
     const trailPath = join(outDir, `trail-${scn.id}-${run}.txt`)
-    const captured = trail(name)
+    const captured = trailFor(name, opts.account)
     // O prompt parado na caixa de entrada é corrida NULA, e não corrida ruim: o
     // sujeito nunca leu a pergunta. Sem esta guarda, a trilha vai para o
     // avaliador e ele pontua um agente que não agiu.
-    if (promptStuck(captured, scn.prompt)) {
+    if (promptStuck(captured.text, scn.prompt)) {
       return { ...record, outcome: 'null', reason: 'o prompt ficou na caixa de entrada — o agente não o recebeu' }
     }
-    writeFileSync(trailPath, captured, 'utf8')
+    writeFileSync(trailPath, captured.text, 'utf8')
+    record.trailSource = captured.source
 
     const { verdicts, error, raw } = await evaluate(evaluator, scn, trailPath, Date.now() + opts.runTimeoutMs)
     if (error) return { ...record, outcome: 'null', reason: error, trailPath }

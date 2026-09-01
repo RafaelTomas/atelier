@@ -274,6 +274,61 @@ export function subjectName(scenarioId, run) {
 }
 
 /**
+ * O id da sessão do agente, tirado da linha de boot que aparece na tela.
+ *
+ * É o que destrava o transcript — ver `toolTrail`. A linha vem do próprio
+ * Atelier (`[atelier] claude --model … --session-id …`), então está sempre no
+ * começo do scrollback de um nó Claude Code.
+ */
+export function sessionIdFromScreen(screen) {
+  const m = String(screen).match(/--session-id\s+([0-9A-Fa-f-]{36})/)
+  return m ? m[1] : null
+}
+
+/**
+ * A trilha REAL: as chamadas de ferramenta do sujeito, do transcript.
+ *
+ * A tela não serve para pontuar E-01, E-02 e E-03, e isso só ficou claro
+ * comparando as duas na corrida `bancada` de 01/09. O TUI COLAPSA as chamadas:
+ * três comandos viram a linha `ran 3 shell commands`, e o que o avaliador lê é
+ * um resumo em que não dá para saber o que foi chamado nem em que ordem — que é
+ * literalmente o que esses três critérios perguntam. Naquela corrida o sujeito
+ * rodou `portal read` ANTES de `atelier list`, e isso não estava na tela.
+ *
+ * O transcript tem tudo, em ordem, e é escrito pelo próprio agente. A tela
+ * continua indo junto (ver o driver): ela mostra o que o transcript não tem —
+ * diálogo de permissão, recusa, o que o usuário veria.
+ */
+export function toolTrail(jsonl) {
+  const calls = []
+  for (const line of String(jsonl).split('\n')) {
+    if (!line.trim()) continue
+    let entry
+    try {
+      entry = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const content = entry?.message?.content
+    if (!Array.isArray(content)) continue
+    for (const part of content) {
+      if (part?.type !== 'tool_use') continue
+      const input = part.input ?? {}
+      const detail =
+        input.command ?? input.file_path ?? input.pattern ?? input.skill ?? JSON.stringify(input)
+      calls.push({ tool: part.name, detail: String(detail).slice(0, 300) })
+    }
+  }
+  return calls
+}
+
+/** O transcript vira texto numerado — é o que o avaliador lê. */
+export function renderToolTrail(calls) {
+  if (calls.length === 0) return '(nenhuma chamada de ferramenta no transcript)'
+  return calls.map((c, i) => `${i + 1}. ${c.tool}: ${c.detail}`).join('\n')
+}
+
+/**
  * Os nós que o sujeito precisa ENXERGAR para o cenário existir.
  *
  * Um recruta nasce cabeado só a quem o recrutou (`recruit.ts:234`), e a

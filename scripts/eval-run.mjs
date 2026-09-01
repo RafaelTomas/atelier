@@ -40,6 +40,7 @@ import {
   missingNeeds,
   classifyAsk,
   parseVerdicts,
+  benchFor,
   dismissRefusedBusy,
   promptStuck,
   screenSettled,
@@ -220,6 +221,18 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
   if (recruited.code !== 0) return { ...record, outcome: 'skipped', reason: `recruit falhou: ${recruited.out}` }
 
   try {
+    // A BANCADA. O recruta nasce cabeado só a quem o recrutou, e o cenário pede
+    // que ELE enxergue o editor, o portal, a nota, o quadro. Sem isto o eval
+    // mediria um canvas vazio — o buraco que o piloto de 01/09 encontrou.
+    const bench = benchFor(scn, inventory())
+    for (const resource of bench) {
+      const wired = cli(['connect', name, resource])
+      if (wired.code !== 0 || /^error:/.test(wired.out)) {
+        return { ...record, outcome: 'skipped', reason: `não consegui cabear '${resource}' ao sujeito: ${wired.out}` }
+      }
+    }
+    record.bench = bench
+
     const deadline = Date.now() + opts.runTimeoutMs
     const booted = await waitReady(name, Math.min(deadline, Date.now() + 180_000))
     if (!booted) return { ...record, outcome: 'null', reason: 'o nó não ficou pronto a tempo' }
@@ -284,7 +297,11 @@ async function main() {
   for (const { scenario: s, missing } of plan) {
     const mark = missing.length ? `PULADO — falta ${missing.join('; ')}` : 'pronto'
     console.log(`  ${s.id}  ${mark}`)
-    if (!missing.length && s.manual) console.log(`        confira à mão: ${s.manual}`)
+    if (!missing.length) {
+      const bench = benchFor(s, inv)
+      if (bench.length) console.log(`        bancada do sujeito: ${bench.join(', ')}`)
+      if (s.manual) console.log(`        confira à mão: ${s.manual}`)
+    }
   }
   console.log('')
 

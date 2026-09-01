@@ -274,6 +274,30 @@ export function subjectName(scenarioId, run) {
 }
 
 /**
+ * Os nós que o sujeito precisa ENXERGAR para o cenário existir.
+ *
+ * Um recruta nasce cabeado só a quem o recrutou (`recruit.ts:234`), e a
+ * pré-condição de canvas do harness lê o `atelier list` do COORDENADOR. Sem
+ * cabear, o sujeito de S1 abriria um canvas sem editor nenhum e o eval mediria
+ * um canvas vazio em vez de um agente. Daí a bancada: os nós do coordenador que
+ * o cenário exige, na quantidade que ele exige, para o `atelier connect` levar
+ * ao sujeito.
+ *
+ * A ordem é a do inventário, e não importa qual portal ou qual nota vai: o
+ * cenário pede UM, e o que se mede é o que o agente faz com ele.
+ */
+export function benchFor(scenario, inventory) {
+  const bench = []
+  for (const [kind, count] of Object.entries(scenario.needs ?? {})) {
+    // `agents` é o único que não se cabeia: o sujeito já nasce vendo o
+    // coordenador, e cabeá-lo a OUTRO sujeito misturaria duas corridas.
+    if (kind === 'agents') continue
+    for (const item of (inventory[kind] ?? []).slice(0, count)) bench.push(item.name)
+  }
+  return bench
+}
+
+/**
  * O `dismiss` recusou porque o nó ainda estava trabalhando?
  *
  * `dismiss` sem `--force` recusa um nó em `working` — de propósito, para o

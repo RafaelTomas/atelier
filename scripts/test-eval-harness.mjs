@@ -21,6 +21,7 @@ import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 import {
+  benchFor,
   dismissRefusedBusy,
   parseList,
   missingNeeds,
@@ -145,6 +146,37 @@ test('S6 precisa de DOIS agentes ociosos, e um canvas com um só não serve', ()
 test('o teto de terminais conta o coordenador', () => {
   assert.equal(ceilingRoom(inv, CONFIG.terminalCeiling), 12 - 3 - 1)
   assert.ok(ceilingRoom(parseList(''), 1) < 1, 'canvas no teto tem de recusar')
+})
+
+// ─── A bancada: o sujeito não herda o cabeamento do coordenador ───────────────
+
+test('a bancada leva ao sujeito os nós que o cenário exige', () => {
+  assert.deepEqual(benchFor(scenario('S1'), inv), ['index.ts'])
+  assert.deepEqual(benchFor(scenario('S4'), inv), ['Decisões', 'Tarefas'])
+  assert.deepEqual(benchFor(scenario('S3'), inv), ['App local'])
+})
+
+test('cenário que não pede nada cabeado não monta bancada', () => {
+  // S2 e S8 são os únicos que rodam sem cabo prévio, e foi com eles que o
+  // piloto de 01/09 validou o protocolo.
+  assert.deepEqual(benchFor(scenario('S2'), inv), [])
+  assert.deepEqual(benchFor(scenario('S8'), inv), [])
+})
+
+test('agentes NÃO entram na bancada', () => {
+  // O sujeito já nasce vendo o coordenador, e cabeá-lo a outro sujeito
+  // misturaria duas corridas.
+  assert.deepEqual(benchFor(scenario('S6'), inv), [])
+})
+
+test('a bancada respeita a quantidade pedida, e não despeja o canvas inteiro', () => {
+  const muitos = parseList([
+    'Connected notes:',
+    '  Uma',
+    '  Outra',
+    '  Terceira'
+  ].join('\n'))
+  assert.deepEqual(benchFor({ needs: { notes: 1 } }, muitos), ['Uma'])
 })
 
 // ─── O desfecho do ask, e a corrida nula ──────────────────────────────────────

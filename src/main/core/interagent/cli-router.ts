@@ -8,6 +8,7 @@ import type { UUID } from '@shared/types'
 import { handleArtesao } from './handlers/artesao'
 import { handleAsk } from './handlers/ask'
 import { handleBrief } from './handlers/brief'
+import { handleConnect } from './handlers/connect'
 import { handleButton } from './handlers/button'
 import { handleCheck } from './handlers/check'
 import { handleDismiss } from './handlers/dismiss'
@@ -89,8 +90,16 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
     case 'debug':
       return buildDebugInfo(terminalId)
 
-    // Ainda não portados — respondem com mensagem honesta em vez de falhar mudo
+    // Fora de COMMANDS, e não por não estar pronto: quem cabeia o canvas é o
+    // USUÁRIO. Os cabos são a estrutura que ele desenhou, e um agente que
+    // pudesse religá-los mudaria o que os outros enxergam sem ninguém ver.
+    // Existe para o harness do eval montar a bancada de cada sujeito, e para um
+    // coordenador que sabe o que está fazendo — os dois lados precisam já estar
+    // cabeados a quem chama.
     case 'connect':
+      return handleConnect(args, terminalId)
+
+    // Ainda não portados — respondem com mensagem honesta em vez de falhar mudo
     case 'preset':
       return `error: '${command}' ainda não implementado neste porte Electron. Disponíveis: ${COMMANDS}`
 

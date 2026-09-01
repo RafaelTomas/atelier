@@ -581,8 +581,48 @@ await test('comando desconhecido não derruba o servidor', async () => {
 })
 
 await test('comando não portado responde de forma honesta', async () => {
-  const out = await cli(['connect', 'x'], terminalId)
+  const out = await cli(['preset'], terminalId)
   assert.match(out, /ainda não implementado/)
+})
+
+// ─── atelier connect: cabear dois vizinhos ────────────────────────────────────
+//
+// O verbo nasceu de um buraco achado montando a eval suite: todo verbo que cria
+// nó conecta ao CHAMADOR, e não havia como cabear dois nós já existentes — só o
+// renderer, ou seja, só o usuário arrastando cabo. Um recruta nascia vendo
+// apenas quem o recrutou, e preparar a bancada dele era gesto humano, um por nó.
+
+await test('atelier connect cabeia dois nós conectados ao chamador', async () => {
+  await cli(['recruit', 'Vizinho'], terminalId)
+  // A nota 'Spec' e o recruta estão os dois cabeados ao chamador, e não entre si
+  const out = await cli(['connect', 'Vizinho', 'Spec'], terminalId)
+  assert.match(out, /Connected 'Vizinho' and 'Spec'/)
+
+  // O que importa não é a mensagem: é o recruta passar a ENXERGAR a nota
+  const vizinho = ws.nodes.find((n) => n.content.type === 'terminal' && n.content.value.name === 'Vizinho')
+  assert.match(await cli(['list'], vizinho.id), /Spec/)
+})
+
+await test('connect duas vezes não duplica o cabo, e diz isso', async () => {
+  const out = await cli(['connect', 'Vizinho', 'Spec'], terminalId)
+  assert.match(out, /already connected/)
+})
+
+await test('connect recusa o que não está ao alcance de quem chama', async () => {
+  // A regra de permissão é a mesma de todo handler daqui, e é ela que impede um
+  // agente de religar partes do canvas que ele nem alcança.
+  const out = await cli(['connect', 'Spec', 'NinguemConheceEsseNo'], terminalId)
+  assert.match(out, /is not connected to you/)
+  assert.match(out, /Connected to you:/, 'o erro precisa dizer o que ESTÁ ao alcance')
+})
+
+await test('connect recusa o nó consigo mesmo', async () => {
+  const out = await cli(['connect', 'Spec', 'Spec'], terminalId)
+  assert.match(out, /same node/)
+})
+
+await test('connect sem os dois nomes mostra o uso', async () => {
+  assert.match(await cli(['connect', 'Spec'], terminalId), /usage: atelier connect/)
 })
 
 // ─── Recrutar agente pelo CLI ─────────────────────────────────────────────────

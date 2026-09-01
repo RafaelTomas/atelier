@@ -245,6 +245,14 @@ class ProjectStore {
     log.info('projects', `${paths.length} caminho(s) não serão mais oferecidos`)
   }
 
+  /** Desfaz um `ignore`: a próxima varredura volta a oferecer o caminho. */
+  async unignore(paths: string[]): Promise<void> {
+    const gone = new Set(paths.map(normalizePath))
+    this.index.excludedPaths = this.index.excludedPaths.filter((p) => !gone.has(normalizePath(p)))
+    await persistence.saveProjectIndex(this.index)
+    log.info('projects', `${paths.length} caminho(s) voltam a ser oferecidos`)
+  }
+
   async patch(id: UUID, patch: Partial<Project>): Promise<Project | null> {
     const i = this.index.projects.findIndex((p) => p.id === id)
     if (i < 0) return null

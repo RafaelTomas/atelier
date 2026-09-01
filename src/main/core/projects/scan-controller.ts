@@ -15,8 +15,15 @@ import { uuid } from '../coding'
 import { log } from '../logger'
 import { notifyRenderer } from '../../ipc/notify'
 import { dataDir } from '../persistence/paths'
+import { appState } from '../state/app-state'
 import { projectIndex } from '../state/project-store'
 import { scanForProjects, type ScanStop } from './scanner'
+
+/** As raízes configuradas em Preferências, ou a home quando a lista está vazia. */
+function configuredRoots(): string[] {
+  const roots = appState.preferences.scanRoots
+  return roots.length > 0 ? roots : [homedir()]
+}
 
 export type ScanMode = 'folder' | 'home'
 
@@ -57,7 +64,7 @@ class ScanController {
   async start(input: StartScanInput): Promise<{ scanId: UUID } | { error: string }> {
     if (this.current) return { error: 'já existe uma varredura em andamento' }
 
-    const roots = input.mode === 'home' ? [homedir()] : [input.path ?? '']
+    const roots = input.mode === 'home' ? configuredRoots() : [input.path ?? '']
     if (roots.some((r) => !r)) return { error: 'nenhuma pasta escolhida' }
 
     const scanId = uuid()
@@ -86,7 +93,8 @@ class ScanController {
         // A home quase sempre tem algum manifesto solto na raiz; sem isto a
         // varredura inteira pararia no primeiro diretório.
         descendRoots: input.mode === 'home',
-        maxDepth: input.maxDepth ?? DEFAULT_DEPTH[input.mode],
+        maxDepth:
+          input.maxDepth ?? (input.mode === 'home' ? appState.preferences.scanMaxDepth : DEFAULT_DEPTH.folder),
         maxDurationMs: MAX_DURATION_MS,
         maxDirs: MAX_DIRS,
         // O próprio diretório de dados do app nunca é projeto do usuário.

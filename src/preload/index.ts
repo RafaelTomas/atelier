@@ -85,6 +85,17 @@ interface GitActionResult {
   ok: boolean
   message: string
 }
+
+/** Dados de diagnóstico do grupo "Sobre" da tela de Configurações. */
+interface AboutInfo {
+  appVersion: string
+  schemaVersion: number
+  dataDir: string
+  /** true quando `ATELIER_HOME` desvia dos dados reais — ver `isOverriddenHome`. */
+  isOverriddenHome: boolean
+  cliPath: string
+}
+
 type Unsubscribe = () => void
 
 function on<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
@@ -95,6 +106,7 @@ function on<T>(channel: string, cb: (payload: T) => void): Unsubscribe {
 
 const api = {
   bootInfo: (): Promise<BootInfo> => ipcRenderer.invoke('app:boot-info'),
+  aboutInfo: (): Promise<AboutInfo> => ipcRenderer.invoke('app:about-info'),
 
   prefs: {
     get: (): Promise<Preferences> => ipcRenderer.invoke('prefs:get'),
@@ -413,6 +425,8 @@ const api = {
       ipcRenderer.invoke('project:accept-candidates', paths),
     ignoreCandidates: (paths: string[]): Promise<void> =>
       ipcRenderer.invoke('project:ignore-candidates', paths),
+    listIgnored: (): Promise<string[]> => ipcRenderer.invoke('project:list-ignored'),
+    unignore: (paths: string[]): Promise<void> => ipcRenderer.invoke('project:unignore', paths),
     scanStart: (input: { mode: 'folder' | 'home'; path?: string; maxDepth?: number }): Promise<{ scanId: UUID } | { error: string }> =>
       ipcRenderer.invoke('project:scan-start', input),
     scanCancel: (scanId?: UUID): Promise<void> => ipcRenderer.invoke('project:scan-cancel', scanId),

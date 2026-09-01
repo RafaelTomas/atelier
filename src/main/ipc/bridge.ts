@@ -8,7 +8,7 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { extForImageMime, isSupportedImageName, mimeForImageName, pngDimensions } from '@shared/image'
 import { quoteForShell } from '@shared/shell'
 import type { VaultEntry, VaultFile } from '@shared/vault'
@@ -44,7 +44,7 @@ import { terminalContentFromOpts } from '../core/models/terminal-draft'
 import { makeCanvasNode, makeDrawing } from '../core/models/workspace'
 import type { WorkspaceManager } from '../core/state/workspace-manager'
 import { persistence } from '../core/persistence/persistence-manager'
-import { ipcSocketPath, dataDir, paths } from '../core/persistence/paths'
+import { ipcSocketPath, dataDir, isOverriddenHome, paths } from '../core/persistence/paths'
 import { listDirectory } from '../core/projects/file-tree'
 import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../core/projects/file-ops'
 import { fileWatcher } from '../core/projects/file-watcher'
@@ -80,6 +80,7 @@ import {
   resolveTemplate,
   syncVaultKeys
 } from '../core/vault/vault-manager'
+import { atelierBinDir } from '../core/interagent/cli-install'
 import { interAgentServer } from '../core/interagent/server'
 import { onConnectionCreated, restoreConnections } from '../core/connection/connection-manager'
 import { forgetTerminal } from '../core/connection/skill-injector'
@@ -326,6 +327,16 @@ export function registerIPC(): void {
     homeDir: homedir(),
     platform: process.platform,
     needsRecovery: appState.needsRecovery
+  }))
+
+  // Só para o grupo "Sobre" da tela de Configurações — dados de diagnóstico
+  // que `app:boot-info` não carrega porque nada além dali precisa deles.
+  ipcMain.handle('app:about-info', () => ({
+    appVersion: app.getVersion(),
+    schemaVersion: Constants.schemaVersion,
+    dataDir: dataDir(),
+    isOverriddenHome: isOverriddenHome(),
+    cliPath: atelierBinDir().cliPath
   }))
 
   ipcMain.handle('prefs:get', () => appState.preferences)
@@ -647,6 +658,14 @@ export function registerIPC(): void {
   ipcMain.handle('project:ignore-candidates', async (_e, paths: string[]) => {
     await projectIndex.ignore(paths)
     clearCandidates(paths)
+  })
+
+  // Tela de Configurações — grupo Projetos: a lista do que já foi recusado, e o
+  // desfazer por item.
+  ipcMain.handle('project:list-ignored', () => projectIndex.ignoredPaths)
+
+  ipcMain.handle('project:unignore', async (_e, paths: string[]) => {
+    await projectIndex.unignore(paths)
   })
 
   ipcMain.handle('project:add-folder', async (_e, path: string) => {

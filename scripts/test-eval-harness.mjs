@@ -213,10 +213,22 @@ test('a bancada leva ao sujeito os nós que o cenário exige', () => {
 })
 
 test('cenário que não pede nada cabeado não monta bancada', () => {
-  // S2 e S8 são os únicos que rodam sem cabo prévio, e foi com eles que o
-  // piloto de 01/09 validou o protocolo.
-  assert.deepEqual(benchFor(scenario('S2'), inv), [])
+  // S8 é o ÚNICO que roda sem cabo prévio. S2 era o outro, e deixou de ser em
+  // 01/09: o prompt dele mandava rodar 'essa query' sem query, sem banco e sem
+  // credencial, e os três sujeitos do ciclo 0 pediram a query em vez de agir.
   assert.deepEqual(benchFor(scenario('S8'), inv), [])
+  assert.deepEqual(benchFor({ needs: {} }, inv), [])
+})
+
+test('S2 pede o cofre, e o prompt dele carrega a query', () => {
+  // Um cenário que só pode ser respondido com uma pergunta não mede nenhum dos
+  // cinco critérios que ele lista — foi o que o ciclo 0 mostrou.
+  const s2 = scenario('S2')
+  assert.deepEqual(s2.needs, { vaults: 1 })
+  assert.match(s2.prompt, /select .* from pg_tables/i, 'o prompt voltou a não ter query')
+  assert.match(s2.expected, /table create/)
+  assert.ok(s2.manual, 'o cofre destravado e o banco no ar são pré-condição de humano')
+  assert.deepEqual(benchFor(s2, inv), ['Cofre'])
 })
 
 test('agentes NÃO entram na bancada', () => {
@@ -276,9 +288,11 @@ test('nome que não está cabeado é ERRO, nunca queda silenciosa para a posiç�
 })
 
 test('pick de um tipo que o cenário não pede é ignorado', () => {
-  // `--bench portals=X` numa corrida de S4 não deve arrastar portal nenhum para
-  // a bancada: quem decide o que o cenário precisa é a matriz.
-  assert.deepEqual(benchFor(scenario('S2'), inv, { portals: 'App local' }), [])
+  // `--bench portals=X` numa corrida que não pede portal não deve arrastar
+  // portal nenhum para a bancada: quem decide o que o cenário precisa é a
+  // matriz, não a linha de comando.
+  assert.deepEqual(benchFor(scenario('S8'), inv, { portals: 'App local' }), [])
+  assert.deepEqual(benchFor(scenario('S2'), inv, { portals: 'App local' }), ['Cofre'])
 })
 
 // ─── O desfecho do ask, e a corrida nula ──────────────────────────────────────

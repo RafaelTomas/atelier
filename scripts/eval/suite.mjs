@@ -61,11 +61,19 @@ export const SCENARIOS = [
   {
     id: 'S2',
     sentinel: true,
-    canvas: '1 nó de terminal, nada mais',
-    needs: {},
-    manual: null,
-    prompt: 'roda essa query no banco e me mostra o resultado no canvas',
-    expected: 'roda a query com a ferramenta própria → atelier table create',
+    canvas: '1 cofre com as credenciais de um Postgres de teste',
+    needs: { vaults: 1 },
+    manual: 'o cofre precisa estar DESTRAVADO e o banco de teste no ar',
+    // A QUERY ESTÁ NO PROMPT, e o cofre está cabeado, porque sem os dois este
+    // cenário não tinha resposta certa. O prompt era 'roda essa query no banco'
+    // com `needs: {}`: não havia query nenhuma, nem banco, nem credencial. No
+    // ciclo 0 de 01/09 os TRÊS sujeitos pediram a query — dois foram anulados
+    // por não chamar ferramenta, e o que pontuou marcou n/a em E-01, E-02 e
+    // E-05. Um cenário que só pode ser respondido com uma pergunta não mede
+    // nenhum dos cinco critérios que ele lista.
+    prompt:
+      'roda "select tablename from pg_tables limit 5" no banco de teste e me mostra o resultado no canvas',
+    expected: 'vault list → roda a query com a ferramenta própria → atelier table create',
     applicable: ['E-01', 'E-02', 'E-03', 'E-04', 'E-05']
   },
   {

@@ -14,6 +14,7 @@
  *   node scripts/eval-run.mjs --dry-run                 # confere o canvas e sai
  *   node scripts/eval-run.mjs --sentinels --runs 3      # ciclo intermediário
  *   node scripts/eval-run.mjs --all --runs 3 --cycle 0  # baseline
+ *   node scripts/eval-run.mjs --sentinels --account FCX  # noutra conta Claude
  *
  * Três decisões que valem por si:
  *
@@ -66,6 +67,11 @@ function args() {
     runs: Number(flag('runs', CONFIG.runsPerCycle)),
     cycle: flag('cycle', 'x'),
     model: flag('model', CONFIG.subjectModel),
+    // A conta do Claude em que os sujeitos nascem. Existe porque a cota é por
+    // conta: um ciclo 0 são 24 sujeitos, e quem está em 81% do limite semanal
+    // não termina. Vale para o avaliador também — trocar só os sujeitos deixaria
+    // o ciclo pela metade quando a conta velha estourasse no meio.
+    account: flag('account', null),
     evaluator: flag('evaluator', 'Avaliador'),
     out: flag('out', join('docs', 'eval-runs', new Date().toISOString().replace(/[:.]/g, '-'))),
     runTimeoutMs: Number(flag('run-timeout', 300)) * 1000,
@@ -174,12 +180,22 @@ async function evaluate(evaluator, scn, trailPath, deadline) {
 
 async function runOnce(scn, run, opts, outDir, evaluator) {
   const name = subjectName(scn.id, run)
-  const record = { scenario: { id: scn.id, applicable: scn.applicable }, run, subject: name, startedAt: new Date().toISOString() }
+  // A conta entra no registro da corrida: se um ciclo trocar de conta no meio —
+  // e vai trocar, quando a cota estourar — o relatório precisa mostrar isso em
+  // vez de deixar a diferença como variável escondida.
+  const record = {
+    scenario: { id: scn.id, applicable: scn.applicable },
+    run,
+    subject: name,
+    model: opts.model,
+    account: opts.account,
+    startedAt: new Date().toISOString()
+  }
 
   const room = ceilingRoom(inventory(), CONFIG.terminalCeiling)
   if (room < 1) return { ...record, outcome: 'skipped', reason: 'canvas no teto de terminais' }
 
-  const recruited = cli(['recruit', name, '--model', opts.model])
+  const recruited = cli(['recruit', name, '--model', opts.model, ...(opts.account ? ['--account', opts.account] : [])])
   if (recruited.code !== 0) return { ...record, outcome: 'skipped', reason: `recruit falhou: ${recruited.out}` }
 
   try {
@@ -240,6 +256,7 @@ async function main() {
   const plan = chosen.map((s) => ({ scenario: s, missing: missingNeeds(s, inv) }))
 
   console.log(`Harness da eval suite — ciclo ${opts.cycle}, ${opts.runs} run(s) por cenário`)
+  console.log(`Sujeitos: --model ${opts.model}${opts.account ? ` --account ${opts.account}` : ' (conta deste nó)'}`)
   console.log(`Cenários: ${chosen.map((s) => s.id).join(', ')}  (${applicablePairs(chosen.map((s) => s.id))} pares por run completa)`)
   console.log(`Canvas: ${inv.agents.length} agente(s), ${inv.editors.length} editor(es), ${inv.portals.length} portal(is), ${inv.notes.length} nota(s), ${inv.boards.length} quadro(s), ${inv.vaults.length} cofre(s)`)
   console.log('')
@@ -264,7 +281,7 @@ async function main() {
   // pode ser reusado sem contaminar a medida, desde que ninguém lhe conte.
   const existing = inv.agents.find((a) => a.name === opts.evaluator)
   if (!existing) {
-    const r = cli(['recruit', opts.evaluator, '--model', CONFIG.evaluatorModel])
+    const r = cli(['recruit', opts.evaluator, '--model', CONFIG.evaluatorModel, ...(opts.account ? ['--account', opts.account] : [])])
     if (r.code !== 0) {
       console.error(`não consegui recrutar o avaliador: ${r.out}`)
       process.exit(1)

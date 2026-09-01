@@ -189,10 +189,27 @@ export function detectWaiting(screen: string): WaitingReason | null {
   // Claude Code. A pergunta sozinha não basta — ela também aparece no texto de
   // uma conversa QUALQUER sobre permissões. O que a torna um diálogo é a lista
   // de opções logo abaixo, e é a conjunção que casa.
+  //
+  // A ÂNCORA É O RODAPÉ, e não o texto da pergunta. `Do you want to proceed`
+  // era a única forma reconhecida, e o Claude Code tem mais de uma: um diálogo
+  // que diz `Allow reads outside the working directories?` — o que o agente vê
+  // ao abrir uma reference da skill do Atelier, que mora fora do cwd do nó —
+  // passava batido, e o nó ficava `[idle]`. No ciclo 0 de 01/09 isso apareceu
+  // em SEIS das sete trilhas, e uma corrida parada nele entrou no relatório
+  // pontuada como se o sujeito tivesse terminado (S4, run 1).
+  //
+  // `Tab to amend` é o rodapé do diálogo aberto: está nas duas telas de
+  // permissão capturadas e em nenhuma das trilhas normais, nem na de
+  // `AskUserQuestion`. Ancorar nele cobre a próxima variante do texto sem
+  // precisar aprender a frase dela. `doyouwanttoproceed` fica como alternativa,
+  // porque um diálogo sem o rodapé continuaria sendo um diálogo.
   const asks = d.includes('doyouwanttoproceed')
+  const amend = d.includes('tabtoamend')
   const numbered = d.includes('1.yes') || (d.includes('1.') && d.includes('2.'))
   const escape = d.includes('esctocancel')
-  if (asks && (numbered || escape)) return { kind: 'permission', detail: commandUnderReview(tail) }
+  if ((asks || amend) && (numbered || escape)) {
+    return { kind: 'permission', detail: commandUnderReview(tail) }
+  }
 
   // A OUTRA parada do Claude Code: `AskUserQuestion`, a lista de opções.
   //

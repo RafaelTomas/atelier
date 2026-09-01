@@ -48,6 +48,11 @@ const { OUTCOMES, exitCodeFor } = cli.default ?? cli
 
 const REAL = await readFile(join(ROOT, 'scripts/fixtures/waiting-claude-permission.txt'), 'utf8')
 const QUESTION = await readFile(join(ROOT, 'scripts/fixtures/waiting-claude-question.txt'), 'utf8')
+// A tela de um sujeito do ciclo 0 (S4, run 1) parado em `Allow reads outside the
+// working directories?` — o diálogo que o Claude Code abre quando o agente vai
+// ler uma reference da skill do Atelier, que mora fora do cwd do nó. Capturada
+// ao vivo em 01/09, e é a prova de que o texto da pergunta varia.
+const READS = await readFile(join(ROOT, 'scripts/fixtures/waiting-reads-outside-cwd.txt'), 'utf8')
 
 let passed = 0
 let failed = 0
@@ -135,6 +140,43 @@ test('a janela do fim é contada em \\r, não só em \\n', () => {
   // Mesmo cenário do teste anterior, mas com o TUI separando como ele separa.
   const depois = REAL + Array.from({ length: 60 }, (_, i) => `● linha nova ${i}`).join('\r')
   assert.equal(detectWaiting(depois), null, 'o diálogo antigo casou por causa do \\r')
+})
+
+test('o diálogo de leitura fora do cwd é espera, e não fim de trabalho', () => {
+  // Seis das sete trilhas do ciclo 0 tinham este diálogo na tela, e ele não era
+  // detectado: `detectWaiting` só conhecia `Do you want to proceed`. O nó ficava
+  // `[idle]`, o `ask` voltava com exit 0, e a corrida do S4 run 1 entrou no
+  // relatório PONTUADA — 1/2, com E-01 e E-02 `n/a` — sobre um sujeito que
+  // nunca saiu do diálogo.
+  const r = detectWaiting(READS)
+  assert.ok(r, 'o diálogo de leitura fora do cwd continua passando batido')
+  assert.equal(r.kind, 'permission')
+})
+
+test('a âncora é o rodapé do diálogo, não a frase da pergunta', () => {
+  // `Tab to amend` está nas duas telas de permissão capturadas e em nenhuma das
+  // trilhas normais. Ancorar nele cobre a próxima variante do texto sem
+  // precisar aprender a frase dela — e é o que este teste protege.
+  const dense = (t) => t.replace(/\s+/g, '').toLowerCase()
+  assert.ok(!dense(READS).includes('doyouwanttoproceed'), 'a fixture mudou de assunto')
+  assert.ok(dense(READS).includes('tabtoamend'))
+  assert.ok(dense(REAL).includes('tabtoamend'), 'o rodapé não é comum às duas telas')
+
+  // Uma pergunta que o Claude Code ainda não faz, com o mesmo rodapé.
+  const inventada = 'Allow something entirely new?\n ❯ 1. Yes\n   2. No\nEsc to cancel · Tab to amend'
+  assert.equal(detectWaiting(inventada)?.kind, 'permission')
+})
+
+test('a fixture nova também é tela de TUI, fatiada por \\r', () => {
+  const crs = (READS.match(/\r/g) || []).length
+  const lfs = (READS.match(/\n/g) || []).length
+  assert.ok(crs > lfs * 5, `a fixture perdeu os \\r: ${crs} vs ${lfs}`)
+})
+
+test('o rodapé sozinho, sem opção nenhuma, não inventa espera', () => {
+  // A conjunção continua sendo a defesa: `Tab to amend` citado numa conversa
+  // sobre diálogos de permissão não é um diálogo aberto.
+  assert.equal(detectWaiting('falamos sobre Tab to amend ontem, e nada mais'), null)
 })
 
 test('detail é null quando o comando não aparece na forma legível', () => {

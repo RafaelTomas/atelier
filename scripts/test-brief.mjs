@@ -146,10 +146,32 @@ await test('brief de um nó comum: um grupo por linha, cada um com o verbo', asy
   assert.match(out, /Tables: Vendas/)
   assert.match(out, /atelier table list/)
   assert.match(out, /Boards: Sprint/)
-  assert.match(out, /atelier todo list/)
+  // O exemplo do quadro leva o NOME, e leva um verbo que não é `list`: `list` é o
+  // único que aceita omitir o quadro, e a forma curta daqui era copiada para
+  // `todo move`, onde ela é erro de uso. Ver o comentário em handlers/brief.ts.
+  assert.match(out, /atelier todo list "Sprint"/)
+  assert.match(out, /atelier todo move "Sprint" <id> doing/)
+  assert.match(out, /every verb but list needs the board/)
 
   // Nenhum grupo vazio aparece — não há "(none)" nem grupo que não foi cabeado.
   assert.ok(!/\(none\)/.test(out), 'um grupo vazio vazou como "(none)"')
+})
+
+await test('com DOIS quadros o exemplo continua nomeando um deles', async () => {
+  // Este é o caso que mordeu: dois quadros cabeados, e `todo move <id> doing`
+  // sem o nome é erro de uso sem nada a que recorrer. O brief tem de sair com um
+  // nome real em ambos os exemplos — o do primeiro quadro, que é copiável.
+  const segundo = node(1750, { type: 'widget', value: makeWidgetContent('todo', null, { title: 'Rascunho' }) })
+  wire(caller, segundo)
+
+  const out = await routeCLI(['brief'], caller.id)
+
+  assert.match(out, /Boards: Sprint, Rascunho/)
+  assert.match(out, /atelier todo move "Sprint" <id> doing/)
+  assert.ok(
+    !/atelier todo (list|move) (?!")/.test(out),
+    'saiu um exemplo de todo sem o nome do quadro'
+  )
 })
 
 await test('teto de 30 linhas: um canvas típico não estoura', async () => {

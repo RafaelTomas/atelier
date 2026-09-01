@@ -30,6 +30,10 @@ await esbuild.build({
       export { routeCLI } from './src/main/core/interagent/cli-router.ts'
       export { makeCanvasNode } from './src/main/core/models/workspace.ts'
       export {
+        withCodexInstructions,
+        tomlSingleLine
+      } from './src/main/core/terminal/codex-instructions.ts'
+      export {
         makeTerminalContent,
         makeStickyNoteContent,
         makePortalContent,
@@ -62,7 +66,9 @@ const {
   makeCodeEditorContent,
   makeDataTableContent,
   makeSecretVaultContent,
-  makeWidgetContent
+  makeWidgetContent,
+  withCodexInstructions,
+  tomlSingleLine
 } = core
 
 let passed = 0
@@ -193,6 +199,89 @@ await test('brief de um Artesão sozinho ainda traz a doutrina inteira', async (
   assert.match(out, /nothing wired to this node yet/)
   assert.match(out, /You are an ARTISAN on this Atelier canvas\./)
   assert.match(out, /Nobody is cabled to you yet/)
+})
+
+// ─── O canal do Codex: o brief pelo argv ────────────────────────────────────
+
+await test('o comando do Codex ganha o brief em developer_instructions', () => {
+  const cx = node(4000, { type: 'terminal', value: makeTerminalContent('Codex') })
+  const peer = node(4100, { type: 'terminal', value: makeTerminalContent('Vizinho') })
+  wire(cx, peer)
+
+  const out = withCodexInstructions('codex --model gpt-5.6-luna', cx.id, 'linux')
+
+  // A flag vai no FIM, e o comando original fica intacto na frente: quem lê o
+  // `argv` num `ps` continua vendo qual agente e qual modelo subiram.
+  assert.ok(out.startsWith('codex --model gpt-5.6-luna '), `comando alterado: ${out}`)
+  assert.match(out, /-c 'developer_instructions="/)
+  // O inventário do canvas está lá dentro, e numa linha só.
+  assert.match(out, /Agents: Vizinho/)
+  assert.equal(out.split('\n').length, 1, 'o argumento saiu com newline literal')
+  assert.match(out, /\\n/, 'os newlines do brief não viraram \\n escapado')
+})
+
+await test('quem não é Codex não ganha nada, e o Claude não é tocado', () => {
+  const cx = node(4200, { type: 'terminal', value: makeTerminalContent('Outro') })
+  for (const cmd of ['claude --model sonnet', 'npx codex', 'bash', 'agy', 'opencode', '']) {
+    assert.equal(withCodexInstructions(cmd, cx.id, 'linux'), cmd, `mexeu em '${cmd}'`)
+  }
+})
+
+await test('developer_instructions do usuário vence, e não é sobreposto', () => {
+  // Mesma regra do `--settings` já escrito à mão: sobrepor em silêncio trocaria
+  // a configuração que o usuário digitou.
+  const cx = node(4300, { type: 'terminal', value: makeTerminalContent('Codex Manual') })
+  const meu = `codex -c 'developer_instructions="o meu texto"'`
+  assert.equal(withCodexInstructions(meu, cx.id, 'linux'), meu)
+})
+
+await test('no Windows o comando volta intacto, em vez de sair partido', () => {
+  // A citação é POSIX e o valor é cheio de aspas duplas. As do cmd.exe e as do
+  // PowerShell são outras, e nenhuma das duas foi medida: um brief que não
+  // chega é melhor que um nó que não sobe.
+  const cx = node(4400, { type: 'terminal', value: makeTerminalContent('Codex Win') })
+  assert.equal(withCodexInstructions('codex', cx.id, 'win32'), 'codex')
+  assert.notEqual(withCodexInstructions('codex', cx.id, 'linux'), 'codex')
+})
+
+await test('o escape TOML: barra primeiro, toda aspa, e nenhum controle cru', () => {
+  // Isto é texto de USUÁRIO indireto: o brief carrega nomes de nós do canvas.
+  assert.equal(tomlSingleLine('a\\b'), '"a\\\\b"')
+  assert.equal(tomlSingleLine('atelier ask "Name"'), '"atelier ask \\"Name\\""')
+  // Três aspas seguidas não precisam de regra própria porque TODA aspa já é
+  // escapada — a regra por vizinhança é a que erra no caso que ninguém testou.
+  assert.equal(tomlSingleLine('a "" " b'), '"a \\"\\" \\" b"')
+  assert.equal(tomlSingleLine('um\ndois'), '"um\\ndois"')
+  assert.equal(tomlSingleLine('um\tdois'), '"um\\tdois"')
+  // CR sozinho: só é legal em TOML como metade de um CRLF, e um brief que
+  // passou por editor do Windows tem CR sozinho.
+  assert.equal(tomlSingleLine('a\rb'), '"a\\u000db"')
+  assert.equal(tomlSingleLine('a\u001b[31m'), '"a\\u001b[31m"')
+  assert.equal(tomlSingleLine('a\u0000b'), '"a\\u0000b"')
+  // Nenhum controle cru sobrou dentro das aspas.
+  const cru = tomlSingleLine('x\u0001\u0002\u001f\u007fy')
+  assert.ok(
+    !/[\u0000-\u0008\u000b-\u001f\u007f]/.test(cru),
+    `controle cru sobrou: ${JSON.stringify(cru)}`
+  )
+})
+
+await test('a barra é escapada ANTES das aspas, e não escapa as nossas', () => {
+  // Se a ordem invertesse, a barra que introduzimos para a aspa viraria barra
+  // dupla e a aspa voltaria a fechar a string — o brief inteiro cairia para
+  // literal cru, numa linha só e com as barras à mostra.
+  assert.equal(tomlSingleLine('C:\\dir\\ "x"'), '"C:\\\\dir\\\\ \\"x\\""')
+})
+
+await test('o brief do argv é o MESMO texto que o CLI devolve', () => {
+  // Se divergirem, um nó Codex e um nó Claude no mesmo lugar do canvas passam a
+  // ter inventários diferentes, e nada avisa.
+  const cx = node(4500, { type: 'terminal', value: makeTerminalContent('Codex Igual') })
+  const nota = node(4600, { type: 'stickyNote', value: makeStickyNoteContent('Recado') })
+  wire(cx, nota)
+  const out = withCodexInstructions('codex', cx.id, 'linux')
+  assert.match(out, /Notes: Recado/)
+  assert.match(out, /atelier note read/)
 })
 
 await rm(outdir, { recursive: true, force: true })

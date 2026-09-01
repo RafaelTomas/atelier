@@ -35,6 +35,7 @@ import {
   writeSession
 } from './session-store'
 import { withAgentSettings } from './agent-settings'
+import { withCodexInstructions } from './codex-instructions'
 import { forgetUsage } from './status-line'
 
 /**
@@ -276,9 +277,15 @@ class TerminalManager extends EventEmitter {
     // `connectedNodes` enxerga os cabos certos.
     const briefPath = await writeBriefFile(opts.nodeId)
 
+    // O brief do Codex entra pelo argv, e é aqui que ele entra: o Codex não tem
+    // hook de `SessionStart`, então a única forma de o texto chegar na posição
+    // de contexto de sistema é `-c developer_instructions=`. Num preset que não
+    // é Codex o comando volta intacto — ver terminal/codex-instructions.ts.
+    const command = withCodexInstructions(agent.command, opts.nodeId)
+
     // A sessão do agente, pelo mesmo motivo: as flags entram no comando ANTES
     // de ele ser digitado. Ver terminal/agent-resume.ts e session-store.ts.
-    const plan = await this.planSession(opts, cwd, agent.command)
+    const plan = await this.planSession(opts, cwd, command)
 
     let proc: IPty
     try {

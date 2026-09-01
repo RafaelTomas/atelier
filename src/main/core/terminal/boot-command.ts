@@ -88,7 +88,12 @@ function isCmd(shell: string): boolean {
   return base === 'cmd.exe' || base === 'cmd'
 }
 
-function quotePosix(path: string): string {
+/**
+ * Cita para shell POSIX. Exportada porque `codex-instructions.ts` cita pelas
+ * MESMAS regras: um valor com espaço, aspa dupla ou apóstrofo indo para dentro
+ * do argv que esta linha de boot monta.
+ */
+export function quotePosix(path: string): string {
   if (/^[\w@%+=:,./-]+$/.test(path)) return path
   // Aspa simples dentro de aspas simples só existe fechando, escapando, e
   // reabrindo: `'` vira `'\''`.

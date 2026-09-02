@@ -11,8 +11,8 @@
  *      são comandos que um agente digita (cli-router.ts:65).
  *
  * Mais o que o plano pede para o SKILL.md em si: no máximo 130 linhas, e as
- * oito references (portal, todo, editor, vault, table, button, projects,
- * recruit) de fato escritas por `installSkillsIfNeeded()`.
+ * nove references (portal, todo, editor, vault, table, button, projects,
+ * recruit, node) de fato escritas por `installSkillsIfNeeded()`.
  *
  * `~/.claude/skills/` não é tocado: `HOME` é sobrescrito para um diretório
  * temporário antes de chamar o instalador, do mesmo jeito que os vizinhos
@@ -101,7 +101,8 @@ const EXPECTED_REFERENCES = [
   'image.md',
   'button.md',
   'projects.md',
-  'recruit.md'
+  'recruit.md',
+  'node.md'
 ]
 
 function verbsCitedEm(texto) {
@@ -216,7 +217,7 @@ test('os quatro comandos ausentes de propósito aparecem como contra-exemplo, co
   }
 })
 
-await testAsync('installSkillsIfNeeded() escreve SKILL.md e as oito references em disco', async () => {
+await testAsync('installSkillsIfNeeded() escreve SKILL.md e as nove references em disco', async () => {
   await installSkillsIfNeeded()
   const dir = join(fakeHome, '.claude', 'skills', 'atelier')
   const skillFile = await readFile(join(dir, 'SKILL.md'), 'utf8')

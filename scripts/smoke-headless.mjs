@@ -1248,6 +1248,13 @@ await test('config do botão faz round-trip por um mapa de strings', () => {
       url: '',
       cwd: '',
       target: null,
+      agentName: '',
+      preset: '',
+      model: '',
+      roleId: '',
+      accountId: '',
+      artisan: false,
+      reuseAgent: true,
       confirm: true,
       pending: false,
       proposedBy: null
@@ -1261,6 +1268,26 @@ await test('config do botão faz round-trip por um mapa de strings', () => {
   const view = writeButtonConfig({ ...config, cwd: '', confirm: false })
   assert.equal('cwd' in view, false)
   assert.equal('confirm' in view, false)
+})
+
+await test('reuso do agente é ligado por AUSÊNCIA da chave, não por presença', () => {
+  // A chave só é gravada quando o usuário DESLIGA o reuso. Se a leitura
+  // dependesse de `view.reuseAgent === '1'`, todo botão de agente gravado por
+  // uma versão anterior (ou pelo app nativo) nasceria abrindo um terminal novo
+  // por disparo — e um relógio cabeado esgotaria o teto do canvas sozinho.
+  assert.equal(readButtonConfig({ label: 'X', action: 'agent' }).reuseAgent, true)
+  assert.equal(readButtonConfig({ label: 'X', action: 'agent', reuseAgent: '0' }).reuseAgent, false)
+
+  const view = writeButtonConfig({
+    ...readButtonConfig({ label: 'X', action: 'agent' }),
+    agentName: 'Artesão',
+    preset: 'claude',
+    model: 'sonnet'
+  })
+  assert.equal('reuseAgent' in view, false, 'o padrão foi gravado no view')
+  assert.equal(view.agentName, 'Artesão')
+  assert.equal(view.model, 'sonnet')
+  assert.equal(readButtonConfig(view).preset, 'claude')
 })
 
 let buttonId
@@ -1280,7 +1307,9 @@ await test('atelier button propose cria o nó PENDENTE', async () => {
   assert.equal(config.pending, true, 'botão de agente nasce armado — é execução arbitrária')
   assert.equal(config.command, 'npm run dev')
   assert.equal(config.proposedBy, 'Agent A')
-  // Widget não é conectável: um cabo aqui pediria array novo no payload.
+  // `propose` não cabeia: um botão de comando escreve num terminal que ele
+  // mesmo abre no clique. Quem cabeia é o botão de AGENTE, e só depois do
+  // spawn — ver store.runAgentButton.
   assert.ok(!ws.connections.some((c) => c.nodeIdA === node.id || c.nodeIdB === node.id))
 })
 
@@ -1294,6 +1323,180 @@ await test('atelier button propose sem ação responde uso, e não cria nó iner
 await test('atelier button propose --prompt exige um alvo', async () => {
   const out = await cli(['button', 'propose', 'Revisar', '--prompt', 'revise o diff'], terminalId)
   assert.match(out, /--target/)
+})
+
+await test('atelier button propose --agent grava um recruit no canvas', async () => {
+  const out = await cli(
+    [
+      'button',
+      'propose',
+      'Meu dia',
+      '--agent',
+      'Artesão',
+      '--preset',
+      'claude',
+      '--model',
+      'sonnet',
+      '--prompt',
+      'busque meus cards'
+    ],
+    terminalId
+  )
+  assert.match(out, /PENDING/)
+  const node = ws.nodes.find(
+    (n) => n.content.type === 'widget' && n.content.value.view.label === 'Meu dia'
+  )
+  assert.ok(node, 'o botão de agente não entrou no canvas')
+  const config = readButtonConfig(node.content.value.view)
+  assert.equal(config.action, 'agent')
+  assert.equal(config.agentName, 'Artesão')
+  assert.equal(config.preset, 'claude')
+  assert.equal(config.model, 'sonnet')
+  assert.equal(config.prompt, 'busque meus cards')
+  assert.equal(config.reuseAgent, true)
+  // Pendente como qualquer proposta: este botão SOBE UM PROCESSO, que é mais
+  // do que escrever num terminal que já existe.
+  assert.equal(config.pending, true)
+})
+
+await test('--agent recusa preset e modelo que não existem, e recusa antes de criar o nó', async () => {
+  const antes = ws.nodes.length
+  const preset = await cli(
+    ['button', 'propose', 'X', '--agent', 'A', '--preset', 'jarvis'],
+    terminalId
+  )
+  assert.match(preset, /unknown preset/)
+  // Um id completo passa de propósito (mesma regra do recruit: fechar a lista
+  // a envelheceria a cada modelo novo). O que NÃO passa é um token que deixaria
+  // de ser argumento no shell do agente.
+  const model = await cli(
+    ['button', 'propose', 'X', '--agent', 'A', '--preset', 'claude', '--model', 'sonnet; ls'],
+    terminalId
+  )
+  assert.match(model, /^error/)
+  const semSeletor = await cli(
+    ['button', 'propose', 'X', '--agent', 'A', '--preset', 'shell', '--model', 'sonnet'],
+    terminalId
+  )
+  assert.match(semSeletor, /^error/, '--model num preset sem seletor tem de ser recusa')
+  assert.equal(ws.nodes.length, antes, 'um nó ficou no canvas depois da recusa')
+})
+
+await test('--artisan marca o agente do botão, e é recusado num preset sem agente', async () => {
+  const out = await cli(
+    ['button', 'propose', 'Bancada', '--agent', 'Artesão', '--artisan'],
+    terminalId
+  )
+  assert.match(out, /PENDING/)
+  const node = ws.nodes.find(
+    (n) => n.content.type === 'widget' && n.content.value.view.label === 'Bancada'
+  )
+  assert.equal(readButtonConfig(node.content.value.view).artisan, true)
+
+  // Shell puro não tem a quem instruir — mesma trava do diálogo de terminal.
+  const antes = ws.nodes.length
+  const shell = await cli(
+    ['button', 'propose', 'X', '--agent', 'A', '--preset', 'shell', '--artisan'],
+    terminalId
+  )
+  assert.match(shell, /nobody to instruct/)
+  assert.equal(ws.nodes.length, antes)
+})
+
+await test('--agent é exclusivo com --target e com --command', async () => {
+  const alvo = await cli(
+    ['button', 'propose', 'X', '--agent', 'A', '--target', 'Agent A'],
+    terminalId
+  )
+  assert.match(alvo, /drop --target/)
+  const cmd = await cli(
+    ['button', 'propose', 'X', '--agent', 'A', '--command', 'ls'],
+    terminalId
+  )
+  assert.match(cmd, /exclusive/)
+})
+
+await test('button edit num botão ACEITO devolve ele a pendente', async () => {
+  await cli(['button', 'propose', 'Editável', '--agent', 'Artesão'], terminalId)
+  const node = ws.nodes.find(
+    (n) => n.content.type === 'widget' && n.content.value.view.label === 'Editável'
+  )
+  // O aceite acontece no canvas; aqui é simulado no conteúdo do nó.
+  ws.updateContent(node.id, (n) => {
+    const c = readButtonConfig(n.content.value.view)
+    n.content.value.view = writeButtonConfig({ ...c, pending: false, proposedBy: null })
+  })
+
+  const out = await cli(
+    ['button', 'edit', 'Editável', '--prompt', 'busque os cards do Fardamento'],
+    terminalId
+  )
+  assert.match(out, /PENDING/)
+  const depois = readButtonConfig(ws.node(node.id).content.value.view)
+  assert.equal(depois.prompt, 'busque os cards do Fardamento')
+  // A promessa do aceite: o usuário leu a ação antiga, e ela mudou.
+  assert.equal(depois.pending, true)
+  assert.equal(depois.proposedBy, 'Agent A')
+})
+
+await test('edit de botão feito no DIÁLOGO, com preset vazio, não recusa', async () => {
+  // O diálogo grava `preset` vazio quando o usuário não mexe no seletor, e o
+  // clique resolve para 'claude' em runtime. O edit tem de fazer a mesma
+  // leitura — senão um botão que funciona perfeitamente fica impossível de
+  // editar, com um "unknown preset ''" que não diz nada a quem o criou.
+  ws.addNode({
+    id: 'BTN-DIALOGO-0000-0000-000000000001',
+    frame: { x: 0, y: 0, width: 120, height: 120 },
+    content: {
+      type: 'widget',
+      value: {
+        kind: 'button',
+        projectId: null,
+        view: { label: 'Do diálogo', action: 'agent', agentName: 'Art', prompt: 'antigo' }
+      }
+    }
+  })
+  const out = await cli(['button', 'edit', 'Do diálogo', '--prompt', 'novo'], terminalId)
+  assert.doesNotMatch(out, /unknown preset/)
+  const node = ws.nodes.find(
+    (n) => n.content.type === 'widget' && n.content.value.view.label === 'Do diálogo'
+  )
+  assert.equal(readButtonConfig(node.content.value.view).prompt, 'novo')
+})
+
+await test('mexer só na aparência NÃO repende o botão', async () => {
+  const node = ws.nodes.find(
+    (n) => n.content.type === 'widget' && n.content.value.view.label === 'Editável'
+  )
+  ws.updateContent(node.id, (n) => {
+    const c = readButtonConfig(n.content.value.view)
+    n.content.value.view = writeButtonConfig({ ...c, pending: false, proposedBy: null })
+  })
+
+  const out = await cli(['button', 'edit', 'Editável', '--color', '#FF9F0A'], terminalId)
+  assert.match(out, /stays armed/)
+  const depois = readButtonConfig(ws.node(node.id).content.value.view)
+  assert.equal(depois.color, '#FF9F0A')
+  // Forçar um segundo aceite para trocar uma cor ensinaria a clicar em Aceitar
+  // sem ler, que é o oposto do que o aceite serve.
+  assert.equal(depois.pending, false)
+})
+
+await test('button edit valida como o propose, e não grava nada quando recusa', async () => {
+  const antes = readButtonConfig(
+    ws.nodes.find((n) => n.content.type === 'widget' && n.content.value.view.label === 'Editável')
+      .content.value.view
+  )
+  const out = await cli(
+    ['button', 'edit', 'Editável', '--preset', 'jarvis'],
+    terminalId
+  )
+  assert.match(out, /unknown preset/)
+  const depois = readButtonConfig(
+    ws.nodes.find((n) => n.content.type === 'widget' && n.content.value.view.label === 'Editável')
+      .content.value.view
+  )
+  assert.deepEqual(depois, antes)
 })
 
 await test('atelier button list mostra o estado de cada botão', async () => {

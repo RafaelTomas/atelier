@@ -103,6 +103,9 @@
 }
 
 .field-row { display: flex; align-items: center; gap: 10px; }
+/* Campo alto (textarea): o rótulo sobe para cima em vez de ficar centralizado
+   ao lado de cinco linhas de texto. */
+.field-row.is-stacked { flex-direction: column; align-items: stretch; gap: 6px; }
 
 .field-label { color: var(--text-dim); flex-shrink: 0; }
 
@@ -121,6 +124,7 @@
 .field-input.is-narrow { flex: 0 0 80px; }
 
 .field-textarea {
+  width: 100%; box-sizing: border-box;
   padding: 10px var(--s-4); border-radius: var(--r-lg); resize: vertical;
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
   font: inherit; user-select: text;

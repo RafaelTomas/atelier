@@ -494,15 +494,40 @@ atelier image list
   'button.md': `# Buttons
 
 A button is a small node on the canvas that runs something with one click — a
-command in a terminal, a prompt to an agent, or a URL in a portal.
+command in a terminal, a prompt to an agent already running, a URL in a portal,
+or a NEW agent it opens and stays cabled to.
 
 \`\`\`
 atelier button propose "Label" --command "npm run dev" [--icon play] [--color "#34C759"] [--cwd <path>] [--target "Terminal"] [--confirm]
 atelier button propose "Label" --prompt "review the diff" --target "Claude"
 atelier button propose "Label" --url http://localhost:5173
+atelier button propose "Label" --agent "Name" [--preset claude] [--model sonnet] [--cwd <path>] [--role "Role"] [--account "Account"] [--prompt "first thing to say"] [--artisan] [--no-reuse]
 atelier button list
 atelier button remove "Label"
 \`\`\`
+
+## A button that opens an agent
+
+\`--agent\` is a \`recruit\` saved on the canvas: same flags, same rules, but the
+click is what runs it — and a clock cabled to the button can be the one clicking.
+That is the difference from \`--prompt\`, which needs an agent that is already
+running: \`--agent\` starts one. Use it when the work should begin from the
+canvas rather than from someone typing.
+
+The terminal it opens is **cabled to the button**, and that cable is the state:
+on the next press the button reuses the agent on the other end if it is still
+alive, and only opens a new one when there is none. Pull the cable and the next
+press opens a fresh agent. \`--no-reuse\` makes every press open a new one — do
+not combine it with a clock, which would exhaust the canvas terminal ceiling.
+
+\`--artisan\` opens it as an Artisan — it delegates by opening nodes on the
+canvas, and on Claude Code its internal subagent tool is blocked. Pass it when
+the button starts a flow: what a button opens is usually whoever DISTRIBUTES the
+work, not whoever executes it. It is refused on the \`shell\` preset, which has
+nobody to instruct.
+
+\`--agent\` is exclusive with \`--command\`, \`--url\` and \`--target\`: the button
+opens its own target, so naming another one is a contradiction, not a default.
 
 **Propose a button when the user repeats the same command** — the second or
 third time the same line goes into a terminal, offer one.

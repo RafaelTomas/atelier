@@ -48,6 +48,13 @@ import {
 import type { ClockConfig } from '@shared/clock'
 import { readClockConfig, setClockColor, writeClockConfig } from '@shared/clock'
 import { normalizeURL } from '@shared/portal-url'
+import {
+  ARTISAN_COLOR,
+  ARTISAN_ICON,
+  ARTISAN_NAME,
+  isArtisanCapable,
+  presetById
+} from '@shared/terminal-presets'
 import { viewport } from '../canvas/viewport'
 import { boundsForNodes, groupOf } from '../canvas/group-geometry'
 import { DESCRIBE_PROJECTS_ENABLED } from '../feature-flags'
@@ -55,6 +62,36 @@ import { quoteForShell } from '../paths'
 import { PDF_NODE_SIZE, isPdf } from '../pdf-viewer'
 import { applyRopeColor, applyTheme, isThemeMode, type ThemeMode } from '../theme'
 import type { PillId } from '../floating/use-pill'
+
+/**
+ * Quanto o botão de agente espera entre abrir o terminal e digitar o prompt
+ * nele.
+ *
+ * Um botão de COMANDO escreve num shell, que aceita texto assim que o PTY
+ * existe. Um botão de AGENTE escreve numa TUI que ainda está subindo, e texto
+ * mandado cedo demais se perde no buffer de boot — o botão fica com cara de
+ * "não mandou nada", que é o defeito mais caro de diagnosticar no palco.
+ *
+ * O número é folgado de propósito. O certo seria esperar um sinal de prontidão
+ * do agente, mas cada TUI anuncia isso de um jeito e nenhuma promete; três
+ * segundos cobrem o boot de todas as cinco sem prender ninguém olhando.
+ */
+const AGENT_BUTTON_PROMPT_DELAY_MS = 3000
+
+/**
+ * Quanto esperar entre o texto do prompt e o Enter que o envia.
+ *
+ * É o mesmo número, e o mesmo motivo, de `ENTER_DELAY_MS` em handlers/ask.ts: o
+ * TUI de um agente classifica como COLAGEM todo bloco que chega grande e de uma
+ * vez, e um `\r` grudado no mesmo bloco entra na colagem em vez de ser lido como
+ * "enviar". O prompt fica parado no campo de entrada esperando um Enter humano
+ * — que é exatamente o que o botão existia para não precisar.
+ *
+ * Não é questão de quebra de linha: um prompt de uma linha só, longo, é
+ * classificado do mesmo jeito. O que separa uma tecla de uma colagem é o pedaço
+ * em que ela chega.
+ */
+const ENTER_DELAY_MS = 300
 
 /**
  * Qual chave de `preferences.json` guarda cada pílula.
@@ -1450,6 +1487,10 @@ class Store {
       return true
     }
 
+    if (config.action === 'agent') {
+      return this.runAgentButton(nodeId, config)
+    }
+
     const text = config.action === 'prompt' ? config.prompt : config.command
     if (!text.trim()) {
       this.showNotice('este botão não tem o que enviar')
@@ -1464,7 +1505,11 @@ class Store {
           (n) => n.id === config.target && n.content.type === 'terminal'
         ) ?? null
       : null
-    if (target && (await window.atelier.terminal.write(target.id, `${text}\r`))) {
+    // Um botão de PROMPT escreve num agente, e o Enter tem de ir separado. Um
+    // botão de comando com alvo passa pelo mesmo caminho: num shell os dois
+    // jeitos dão no mesmo, e uma exceção aqui só criaria um segundo caminho
+    // para manter.
+    if (target && (await this.writePrompt(target.id, text))) {
       this.set({ selection: [target.id] })
       this.markRun(nodeId, 'running')
       return true
@@ -1504,14 +1549,163 @@ class Store {
         assignedRoleId: null,
         claudeAccountId: null,
         resumeSessionId: null,
-        // Terminal de botão roda um comando e mostra a saída; não delega nada.
-        isArtisan: false
+        // Terminal de botão roda um comando e mostra a saída; não delega nada,
+        // e não fotografa nada.
+        isArtisan: false,
+        canvasShotEnabled: false
       },
       at,
       { width: 560, height: 360 }
     )
     this.markRun(nodeId, created ? 'running' : 'failed')
     return created !== null
+  }
+
+  /**
+   * Entrega um texto a um terminal e MANDA O ENTER SEPARADO — nunca
+   * `texto + '\r'` num write só. Ver ENTER_DELAY_MS.
+   *
+   * Devolve se o texto chegou: `terminal.write` falha quando não há PTY vivo, e
+   * é essa falha que serve de teste de vida em quem chama.
+   */
+  private async writePrompt(terminalId: UUID, text: string): Promise<boolean> {
+    const written = await window.atelier.terminal.write(
+      terminalId,
+      text.replace(/\r?\n$/, '')
+    )
+    if (!written) return false
+    window.setTimeout(() => {
+      void window.atelier.terminal.write(terminalId, '\r')
+    }, ENTER_DELAY_MS)
+    return true
+  }
+
+  /**
+   * O terminal que este botão abriu: o único terminal cabeado a ele.
+   *
+   * O cabo É o estado, e essa é a decisão central do botão de agente. A
+   * alternativa era gravar o UUID do agente na config a cada disparo, e ela é
+   * pior por duas razões: um botão que se reescreve sozinho suja o autosave a
+   * cada clique, e desligar o cabo no canvas deixaria de significar o que o
+   * usuário acha que significa. Aqui, puxar o cabo é o gesto de dizer "abre um
+   * novo da próxima vez".
+   *
+   * Mais de um cabeado (o usuário ligou outro à mão) devolve null: reusar "o
+   * primeiro" mandaria o prompt para um agente que não é o do botão. Abrir um
+   * novo é o erro mais barato dos dois.
+   */
+  private agentOfButton(nodeId: UUID): CanvasNode | null {
+    const ws = this.state.workspace
+    if (!ws) return null
+    const ids = ws.connections
+      .filter((c) => c.nodeIdA === nodeId || c.nodeIdB === nodeId)
+      .map((c) => (c.nodeIdA === nodeId ? c.nodeIdB : c.nodeIdA))
+    const terminals = ws.nodes.filter(
+      (n) => ids.includes(n.id) && n.content.type === 'terminal'
+    )
+    return terminals.length === 1 ? terminals[0] : null
+  }
+
+  /**
+   * `action: 'agent'` — o botão ABRE um agente e se cabeia a ele.
+   *
+   * É um `atelier recruit` gravado no canvas, e por isso os campos da config
+   * espelham as flags daquele verbo. A diferença que importa é quem dispara:
+   * aqui é um clique, ou um relógio cabeado — o que faz do botão o ponto de
+   * partida de um fluxo, e não o atalho de um comando que alguém já digitou.
+   *
+   * O prompt é opcional. Sem ele o botão só abre o agente, que é legítimo:
+   * "minha bancada da manhã" é um botão que sobe o time e não diz nada.
+   */
+  private async runAgentButton(nodeId: UUID, config: ButtonConfig): Promise<boolean> {
+    const prompt = config.prompt.trim()
+
+    // Reuso primeiro. `terminal.write` falha quando não há PTY vivo, e é essa
+    // falha que serve de teste de vida — perguntar antes abriria uma janela
+    // entre a pergunta e a escrita.
+    if (config.reuseAgent) {
+      const live = this.agentOfButton(nodeId)
+      if (live) {
+        const delivered = prompt ? await this.writePrompt(live.id, prompt) : true
+        if (delivered) {
+          this.set({ selection: [live.id] })
+          this.markRun(nodeId, 'running')
+          return true
+        }
+      }
+    }
+
+    const preset = presetById(config.preset || 'claude')
+    if (!preset) {
+      this.showNotice(`este botão aponta para um preset que não existe (${config.preset})`)
+      this.markRun(nodeId, 'failed')
+      return false
+    }
+
+    // O modelo entra no COMANDO, exatamente como em recruit.ts — nada de campo
+    // novo no terminal. Um preset sem seletor ignora o campo em vez de montar
+    // uma linha de comando que o agente não entende.
+    const chosen = config.model.trim()
+    const command =
+      chosen && preset.model
+        ? `${preset.command} ${preset.model.flag} ${preset.model.aliases[chosen] ?? chosen}`
+        : preset.command
+
+    const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
+    const at = node
+      ? { x: node.frame.x + node.frame.width + 40, y: node.frame.y }
+      : centerOfViewport(560, 360)
+
+    // Artesão só vale onde há a quem instruir — a mesma trava do diálogo de
+    // terminal. Um preset de shell com a caixa marcada abriria um nó vestido de
+    // Artesão que não delega nada.
+    const artisan = config.artisan && isArtisanCapable({ agentType: preset.agentType, command })
+
+    const created = await this.createTerminal(
+      {
+        // A roupa do Artesão é a mesma que o diálogo de terminal veste: nome de
+        // partida, martelo e verde. Um nome escrito no botão continua mandando.
+        name: config.agentName || (artisan ? ARTISAN_NAME : config.label || preset.label),
+        command,
+        agentType: preset.agentType,
+        workingDirectory: this.buttonCwd(nodeId, config),
+        icon: artisan ? ARTISAN_ICON : preset.icon,
+        color: artisan ? ARTISAN_COLOR : preset.color,
+        monitorWithOmbro: true,
+        isManager: false,
+        themeId: null,
+        fontFamily: null,
+        fontSize: null,
+        assignedRoleId: (config.roleId || null) as UUID | null,
+        claudeAccountId: config.accountId || null,
+        resumeSessionId: null,
+        isArtisan: artisan,
+        canvasShotEnabled: false
+      },
+      at,
+      { width: 560, height: 360 }
+    )
+    if (!created) {
+      this.markRun(nodeId, 'failed')
+      return false
+    }
+
+    // O cabo, e é ele que faz o reuso funcionar no disparo seguinte.
+    await this.addConnection(nodeId, created.id)
+
+    // O prompt espera o PTY. O mesmo atraso que o TerminalManager usa para
+    // injetar o comando de um botão comum não serve aqui: lá o texto vai para
+    // um shell, aqui vai para um agente que ainda está subindo. Escrever cedo
+    // demais perde a frase no buffer de boot, e um botão que "não mandou nada"
+    // é o defeito mais difícil de enxergar no palco.
+    if (prompt) {
+      window.setTimeout(() => {
+        void this.writePrompt(created.id, prompt)
+      }, AGENT_BUTTON_PROMPT_DELAY_MS)
+    }
+
+    this.markRun(nodeId, 'running')
+    return true
   }
 
   /**

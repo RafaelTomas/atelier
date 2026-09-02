@@ -139,6 +139,21 @@ export interface TerminalContent {
    * comportamento que esse nó já tinha.
    */
   isArtisan: boolean
+  /**
+   * Este agente pode FOTOGRAFAR o canvas (`atelier node shot`).
+   *
+   * Desligado de fábrica, e é o usuário que liga, no diálogo do nó — mesmo
+   * gesto e mesma razão do controle do portal (Decisão C do
+   * 2026-08-27-PLANO-controle-de-portal.md): a captura sai da janela INTEIRA,
+   * então ela leva o que estiver na tela — a nota do vizinho, o arquivo aberto
+   * num editor, o cofre destrancado. `atelier node map` dá a geometria sem
+   * nada disso, e é o que um agente precisa para não empilhar nó; a foto é
+   * para quando o usuário quer que ele veja o que ELE está vendo.
+   *
+   * Ausente no disco (nó antigo, ou vindo do app nativo) = `false`, que é o
+   * comportamento que esse nó já tinha.
+   */
+  canvasShotEnabled: boolean
 }
 
 export type StorageMode = { kind: 'managed' } | { kind: 'custom'; path: string }
@@ -1596,6 +1611,12 @@ export interface TerminalDraft {
    * que não liga nada é pior que um desmarcado.
    */
   isArtisan: boolean
+  /**
+   * O interruptor "Fotografar o canvas" da aba Agente. Sem condição de comando,
+   * ao contrário do Artesão: capturar a janela não depende de haver um agente
+   * de IA no nó — depende só de o usuário querer.
+   */
+  canvasShotEnabled: boolean
 }
 
 // ─── Ponte renderer ⇄ main ────────────────────────────────────────────────────

@@ -83,7 +83,9 @@ function emptyDraft(workingDirectory: string, defaults: Preferences | null): Ter
     resumeSessionId: null,
     // Artesão nasce desligado: delegar em nós do canvas é uma decisão do
     // usuário sobre aquele agente, não o padrão de todo terminal.
-    isArtisan: false
+    isArtisan: false,
+    // A foto do canvas, idem, e com mais razão: ela leva a janela inteira.
+    canvasShotEnabled: false
   }
 }
 
@@ -348,6 +350,22 @@ function DetailsTab({
               : artisanStrong
                 ? 'delega abrindo agentes no canvas; aqui o subagente interno fica bloqueado'
                 : 'delega abrindo agentes no canvas; fora do Claude Code a regra é instruída, não bloqueada'}
+          </em>
+        </span>
+      </label>
+
+      <label className="check-row is-stacked">
+        <input
+          type="checkbox"
+          checked={draft.canvasShotEnabled}
+          onChange={(e) => patch({ canvasShotEnabled: e.target.checked })}
+        />
+        <span>
+          <strong>Fotografar o canvas</strong>
+          <em>
+            deixa este agente capturar a JANELA INTEIRA com `atelier node shot` — o
+            que estiver na tela vai na foto. Para saber só o que existe e onde, ele
+            já tem `atelier node map`, que não precisa disto
           </em>
         </span>
       </label>

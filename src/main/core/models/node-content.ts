@@ -137,7 +137,11 @@ function decodeTerminal(raw: Record<string, unknown>): TerminalContent {
     // `bool` dá false para ausente, e é o que se quer: um nó gravado antes do
     // Artesão (ou pelo app nativo, que descarta a chave) volta como um agente
     // comum — nunca com os subagentes internos desligados sem ninguém pedir.
-    isArtisan: bool(raw.isArtisan)
+    isArtisan: bool(raw.isArtisan),
+    // Mesma leitura defensiva: ausente = false. Uma permissão que voltasse
+    // ligada por omissão daria a um nó antigo o direito de fotografar a tela do
+    // usuário sem ele nunca ter marcado nada.
+    canvasShotEnabled: bool(raw.canvasShotEnabled)
   }
 }
 
@@ -452,6 +456,7 @@ export function makeTerminalContent(
     recruitedBy: null,
     resumeSessionId: null,
     isArtisan: false,
+    canvasShotEnabled: false,
     ...opts
   }
 }

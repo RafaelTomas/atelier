@@ -89,6 +89,7 @@ table, board and project names to use. Never guess a name.
 | a new agent, already cabled to you | \`atelier recruit\` |
 | to close an agent you recruited | \`atelier dismiss\` |
 | to create, read or edit a sticky note | \`atelier note\` |
+| to see the canvas, or add a node/frame to it | \`atelier node\` |
 | to read or drive a browser page on the canvas | \`atelier portal\` |
 | to know what file/selection is open in an editor | \`atelier editor\` |
 | a secret, or to log into a page unseen | \`atelier vault\` |
@@ -102,8 +103,8 @@ table, board and project names to use. Never guess a name.
 
 Details, syntax and the rules for each resource are in \`references/\`:
 \`recruit.md\`, \`portal.md\`, \`editor.md\`, \`vault.md\`, \`table.md\`,
-\`image.md\`, \`button.md\`, \`todo.md\`, \`projects.md\`. Read the one you need,
-not all of them — that is the whole point of this file being short.
+\`image.md\`, \`button.md\`, \`todo.md\`, \`projects.md\`, \`node.md\`. Read the
+one you need, not all of them — that is the whole point of this file being short.
 
 ## Talk to another agent
 
@@ -127,7 +128,7 @@ of your own work, see \`references/recruit.md\`.
 ## Notes
 
 \`\`\`
-atelier note create ["content"]
+atelier note create ["content"] [--name "Requisito"]
 atelier note read "Note Name" [offset] [limit]
 atelier note write "Note Name" "content"
 atelier note edit "Note Name" "old text" "new text"
@@ -315,6 +316,14 @@ A portal that is off-screen or zoomed out is woken up for the read, so the first
 one may take a second. You cannot run arbitrary JavaScript in a portal: these
 sessions are often logged in as the user.
 
+**\`go\` moves the page the user is looking at.** A connected portal is their
+screen, not your browser tab: navigating it away to check something is like
+grabbing someone's mouse. So when you need ANOTHER url — the site root to tell a
+broken route from a dead server, an API endpoint, a status page — fetch it
+yourself with \`curl\` and leave the portal where it is. That is not going around
+the cable; it is the polite way past it. Use \`go\` when the user asked to be
+taken somewhere, or when you are the one who opened that portal.
+
 ## Acting in a page
 
 \`\`\`
@@ -455,9 +464,19 @@ TSV, else CSV. JSON is accepted as an array of objects (\`[{"id":1,"name":"a"}]\
 or the explicit form \`{"columns":[…],"rows":[[…]]}\`. CSV/TSV take the first line
 as the header.
 
-Good inputs come straight from the client: \`sqlite3 -json db "SELECT …"\` or
-\`psql -A -F',' -c "SELECT …"\`. Results over ~2000 rows (or 200k cells) are
-truncated, and the reply says so. \`append\` adds rows to an existing table but
+Good inputs come straight from the client, and the FLAGS matter:
+
+\`\`\`
+psql --csv -c "SELECT …"          # header, no footer, quotes values with commas
+sqlite3 -json db "SELECT …"       # array of objects
+\`\`\`
+
+Do NOT use \`psql -A -F','\`: it appends a \`(N rows)\` footer, and that footer
+becomes a bogus last row in the table. \`-At\` drops the footer but drops the
+HEADER too, so the columns come out unnamed. \`--csv\` is the one that gives both
+— measured against psql 15.
+
+Results over ~2000 rows (or 200k cells) are truncated, and the reply says so. \`append\` adds rows to an existing table but
 refuses if the columns differ — a schema change between calls is an error, not
 a merge.
 `,
@@ -475,15 +494,40 @@ atelier image list
   'button.md': `# Buttons
 
 A button is a small node on the canvas that runs something with one click — a
-command in a terminal, a prompt to an agent, or a URL in a portal.
+command in a terminal, a prompt to an agent already running, a URL in a portal,
+or a NEW agent it opens and stays cabled to.
 
 \`\`\`
 atelier button propose "Label" --command "npm run dev" [--icon play] [--color "#34C759"] [--cwd <path>] [--target "Terminal"] [--confirm]
 atelier button propose "Label" --prompt "review the diff" --target "Claude"
 atelier button propose "Label" --url http://localhost:5173
+atelier button propose "Label" --agent "Name" [--preset claude] [--model sonnet] [--cwd <path>] [--role "Role"] [--account "Account"] [--prompt "first thing to say"] [--artisan] [--no-reuse]
 atelier button list
 atelier button remove "Label"
 \`\`\`
+
+## A button that opens an agent
+
+\`--agent\` is a \`recruit\` saved on the canvas: same flags, same rules, but the
+click is what runs it — and a clock cabled to the button can be the one clicking.
+That is the difference from \`--prompt\`, which needs an agent that is already
+running: \`--agent\` starts one. Use it when the work should begin from the
+canvas rather than from someone typing.
+
+The terminal it opens is **cabled to the button**, and that cable is the state:
+on the next press the button reuses the agent on the other end if it is still
+alive, and only opens a new one when there is none. Pull the cable and the next
+press opens a fresh agent. \`--no-reuse\` makes every press open a new one — do
+not combine it with a clock, which would exhaust the canvas terminal ceiling.
+
+\`--artisan\` opens it as an Artisan — it delegates by opening nodes on the
+canvas, and on Claude Code its internal subagent tool is blocked. Pass it when
+the button starts a flow: what a button opens is usually whoever DISTRIBUTES the
+work, not whoever executes it. It is refused on the \`shell\` preset, which has
+nobody to instruct.
+
+\`--agent\` is exclusive with \`--command\`, \`--url\` and \`--target\`: the button
+opens its own target, so naming another one is a contradiction, not a default.
 
 **Propose a button when the user repeats the same command** — the second or
 third time the same line goes into a terminal, offer one.
@@ -514,7 +558,10 @@ atelier todo step "Board" <id|"title prefix"> <step number> <pending|in_progress
 \`\`\`
 
 Only boards CABLED to you, like everything else here. \`create\` makes one already
-connected to you. Name the board only when more than one is connected.
+connected to you. **Every verb but \`list\` takes the board as its FIRST argument,
+always** — \`todo move <id> doing\` is not a shorter form, it is a usage error, and
+with two boards connected there is nothing to fall back to. Only \`list\` may omit
+it, and only while a single board is connected.
 
 Address a card by id or by a prefix of its title — an ambiguous prefix is an
 error listing the candidates, never "the first one".
@@ -555,6 +602,74 @@ given the "Scanner de projetos" role, that listing is your work queue: take the
 first one, inspect the folder yourself, report with \`describe\`, repeat.
 
 Never modify anything inside a project while describing it.
+`,
+
+  'node.md': `# Putting nodes on the canvas
+
+Most nodes are created by the verb of their own RESOURCE — a note by
+\`note create\`, a board by \`todo create\`, an editor by \`editor open\`, a
+terminal by \`recruit\`. \`atelier node\` is for the ones that have no resource
+verb, plus the group frame — and for SEEING the canvas before you add to it.
+
+\`\`\`
+atelier node map
+atelier node create text "content" [--at x,y]
+atelier node create fileTree <absolute path> [--name "Label"] [--at x,y]
+atelier node create widget <projects|git|monitor|clock> [--at x,y]
+atelier node move "Node" x,y
+atelier node group "Title" "Node" ["Node"…] [--color "#0A84FF"]
+atelier node shot [/absolute/destination.png]
+\`\`\`
+
+**Run \`node map\` before building.** It prints every node with its type, size
+and position, plus the group frames — so you know a git panel is already there
+and which spots are free. Without it you are placing nodes blind, and the
+canvas is the user's workspace, not scratch space. It also NAMES the pairs that
+overlap: a node hidden under another is always a defect, and that list is the
+one thing worth fixing before you add anything.
+
+Names in the map follow the usual rule; the GEOMETRY does not. A node not
+cabled to you shows as \`—\` with its position: enough not to build on top of
+it, nothing about anyone's work.
+
+Without \`--at\`, a new node lands in the first free spot beside this terminal
+— never on top of another node. With \`--at\`, it lands exactly there, and the
+command REFUSES if that rectangle is taken, naming what is in the way. Use
+\`--at\` when the user described a layout; drop it otherwise.
+
+\`node move\` fixes what is already there, and refuses an occupied destination
+for the same reason. A node that leaves a group's rectangle leaves the group,
+and one that enters is adopted — the same rule the user's drag follows, so the
+frame never shows a member sitting outside it.
+
+**\`node shot\` needs the user's permission**, per node, and it is off by
+default: the capture is of the WHOLE window, so it carries whatever is on
+screen — a neighbour's note, a file open in an editor, an unlocked vault. Ask
+for it only when the user wants you to see what they see, and reach for
+\`node map\` first: it answers "what is where" with no permission at all. The
+refusal tells them which switch to flip.
+
+Asking this verb for a type that has its own — \`node create note\` — answers
+with the right verb and creates nothing.
+
+**\`text\` and \`fileTree\` take no cable.** That is deliberate, not a gap: the
+title has no data to trade and browsing the tree is the user's gesture. They
+will never appear in \`atelier list\`, so keep the 8-char id the command prints
+if you mean to group them later.
+
+**A file tree may only root where the canvas can already read** — an indexed
+project, the workspace working directory, or a folder already on the canvas as
+a tree. A tree root also authorizes \`editor open\` underneath it, so widening
+that reach is the user's gesture: ask them to index the project.
+
+\`node group\` reaches by NAME what is cabled to you, this terminal, and the
+text/file-tree nodes; anything else needs the id. The frame is fitted around
+the members, with the same padding the app uses when the user groups a
+selection.
+
+**Build in the order the user reads.** Create the nodes first, then the frame
+around them — a group fits itself to the members it is given and does not grow
+when you add a node later.
 `
 }
 

@@ -71,7 +71,7 @@ export const CRITERIA = [
     id: 'E-05',
     short: 'Recurso em vez de desvio',
     question:
-      'O agente usou o recurso cabeado em vez de um caminho próprio que ignora o cabo (ler o arquivo do disco em vez de `editor read --selection`; buscar a URL por conta própria em vez do portal cabeado)?'
+      'O agente usou o recurso cabeado em vez de um caminho próprio que ignora o cabo (ler o arquivo do disco em vez de `editor read --selection`; buscar a URL por conta própria em vez do portal cabeado)? NÃO conta como desvio buscar por fora um recurso DIFERENTE do que está cabeado — outra URL, outro arquivo — depois de ter usado o cabeado para o que ele mostra: o portal é a tela do usuário, e navegá-la para outro lugar seria mexer no que ele está olhando.'
   },
   {
     id: 'E-06',

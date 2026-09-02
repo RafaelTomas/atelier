@@ -53,6 +53,25 @@ const { apply, applyOp, create, itemsIn, makeBoard, orderBetween, parseBoard, re
   pathToFileURL(outfile).href
 )
 
+// O handler do CLI entra por um bundle PRÓPRIO: ele arrasta o canvas inteiro, e
+// misturá-lo ao bundle do store faria um teste de modelo depender de Electron.
+const handlerFile = join(outdir, 'todo-handler.mjs')
+await esbuild.build({
+  stdin: {
+    contents: `export { boardUsage } from './src/main/core/interagent/handlers/todo.ts'`,
+    resolveDir: ROOT,
+    loader: 'ts'
+  },
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  external: ['electron'],
+  outfile: handlerFile,
+  logLevel: 'silent',
+  alias: { '@shared': join(ROOT, 'src/shared') }
+})
+const { boardUsage } = await import(pathToFileURL(handlerFile).href)
+
 let passed = 0
 let failed = 0
 async function test(name, fn) {
@@ -77,6 +96,32 @@ function boardWith(...titles) {
 }
 
 // ─── Operações ────────────────────────────────────────────────────────────────
+
+await test('o usage de um verbo de quadro NOMEIA os quadros cabeados', async () => {
+  // Medido no ciclo 2 da eval: dois sujeitos do S4 chamaram
+  // `atelier todo move <id> doing` sem o quadro, receberam a linha de uso e nada
+  // mais, e acertaram só na tentativa seguinte — perdendo E-02, que pergunta se
+  // o primeiro verbo sobre o recurso saiu certo de primeira. O argumento que
+  // falta é POSICIONAL, então o handler nunca chega a `findBoard`, que já sabia
+  // dizer quais quadros existem. É o usage que precisa carregar a lista.
+  const dois = boardUsage('atelier todo move "Board" <id> <status>', ['Tarefas', 'Rascunho eval'])
+  assert.match(dois, /Connected boards: 'Tarefas', 'Rascunho eval'\.$/)
+  assert.match(dois, /usage: atelier todo move/, 'a assinatura sumiu do usage')
+
+  // Um quadro só: o singular, porque "Connected boards: 'Tarefas'" lê como se
+  // houvesse mais de um e o agente tivesse escolhido errado.
+  const um = boardUsage('atelier todo done "Board" <id>', ['Tarefas'])
+  assert.match(um, /Connected board: 'Tarefas'\.$/)
+})
+
+await test('sem quadro cabeado o usage convida a criar, e não manda nomear', async () => {
+  // Mandar nomear um quadro que não existe é pior que a mensagem curta: o
+  // agente tentaria adivinhar um nome.
+  const nenhum = boardUsage('atelier todo move "Board" <id> <status>', [])
+  assert.match(nenhum, /No board is connected/)
+  assert.match(nenhum, /atelier todo create/)
+  assert.ok(!/Connected board/.test(nenhum), 'listou quadro onde não há nenhum')
+})
 
 await test('add põe o cartão na primeira coluna e carimba as datas', () => {
   const { board, item } = applyOp(makeBoard('Sprint'), { type: 'add', title: 'Etapa 3' })

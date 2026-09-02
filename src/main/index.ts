@@ -43,7 +43,7 @@ app.setName('Atelier')
 /**
  * O UA que o Chromium do Electron manda de fábrica carrega dois tokens que
  * navegador nenhum tem: o nome/versão do app (`Atelier/0.1.0`) e
- * `Electron/31.7.7`. Sites que fazem sniffing de browser — WhatsApp Web é o
+ * `Electron/44.1.1`. Sites que fazem sniffing de browser — WhatsApp Web é o
  * caso que apareceu — não reconhecem essa string e mandam "atualize para o
  * Chrome 100 ou posterior", mesmo rodando sobre um Chromium bem mais novo que
  * isso. Tirar os dois tokens deixa um UA de Chrome legítimo, com a versão real

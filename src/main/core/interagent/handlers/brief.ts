@@ -126,7 +126,20 @@ function renderInventory(nodes: CanvasNode[]): string {
   const boards = nodes.filter((n) => n.content.type === 'widget' && n.content.value.kind === 'todo')
   if (boards.length > 0) {
     lines.push('', `Boards: ${names(boards)}`)
-    lines.push('  atelier todo list')
+    // O exemplo leva o NOME do quadro, e leva um verbo que não é `list`.
+    //
+    // Ele mostrava `atelier todo list`, seco. Só que `list` é o único verbo que
+    // aceita omitir o quadro, e o brief é a última coisa que o nó lê sobre
+    // quadros antes de agir — nenhuma corrida do eval abriu a reference de
+    // `todo`. Nos ciclos 2 e 3 as seis corridas do S4 foram para
+    // `atelier todo move <id> doing`, sem o quadro, copiando a forma curta daqui;
+    // cinco tentativas perdidas em seis corridas, e um critério junto no ciclo 2.
+    //
+    // O nome do primeiro quadro entra literal porque um exemplo com o nome de
+    // verdade é copiável e um `"Board"` genérico convida a apagar o argumento.
+    const first = nodeDisplayName(boards[0].content)
+    lines.push(`  atelier todo list "${first}"`)
+    lines.push(`  atelier todo move "${first}" <id> doing    (every verb but list needs the board)`)
   }
 
   return lines.join('\n')

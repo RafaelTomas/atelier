@@ -11,8 +11,8 @@
  *      são comandos que um agente digita (cli-router.ts:65).
  *
  * Mais o que o plano pede para o SKILL.md em si: no máximo 130 linhas, e as
- * oito references (portal, todo, editor, vault, table, button, projects,
- * recruit) de fato escritas por `installSkillsIfNeeded()`.
+ * nove references (portal, todo, editor, vault, table, button, projects,
+ * recruit, node) de fato escritas por `installSkillsIfNeeded()`.
  *
  * `~/.claude/skills/` não é tocado: `HOME` é sobrescrito para um diretório
  * temporário antes de chamar o instalador, do mesmo jeito que os vizinhos
@@ -101,7 +101,8 @@ const EXPECTED_REFERENCES = [
   'image.md',
   'button.md',
   'projects.md',
-  'recruit.md'
+  'recruit.md',
+  'node.md'
 ]
 
 function verbsCitedEm(texto) {
@@ -216,7 +217,7 @@ test('os quatro comandos ausentes de propósito aparecem como contra-exemplo, co
   }
 })
 
-await testAsync('installSkillsIfNeeded() escreve SKILL.md e as oito references em disco', async () => {
+await testAsync('installSkillsIfNeeded() escreve SKILL.md e as nove references em disco', async () => {
   await installSkillsIfNeeded()
   const dir = join(fakeHome, '.claude', 'skills', 'atelier')
   const skillFile = await readFile(join(dir, 'SKILL.md'), 'utf8')
@@ -267,6 +268,56 @@ await testAsync('references órfãs de uma versão anterior são removidas', asy
     process.env.HOME = fakeHome
     await rm(home2, { recursive: true, force: true })
   }
+})
+
+test('a reference de table não recomenda flag de psql que quebra o CSV', () => {
+  // Medido contra psql 15 em 01/09: `psql -A -F','` acrescenta um rodapé
+  // `(N rows)`, e esse rodapé entra como ÚLTIMA LINHA do CSV — vira um registro
+  // falso na tabela publicada. `-At` tira o rodapé e tira o cabeçalho junto, o
+  // que deixa as colunas sem nome. `--csv` dá os dois, e ainda cita valores com
+  // vírgula.
+  //
+  // Isto custou duas chamadas por corrida ao sujeito do S2 no ciclo 0: ele
+  // seguiu o exemplo da reference, viu o resultado sair torto, e refez montando
+  // o cabeçalho à mão com printf.
+  const table = REFERENCES['table.md']
+  assert.ok(table, 'a reference de table desapareceu')
+  assert.match(table, /psql --csv/, 'o exemplo que funciona saiu da reference')
+  assert.match(table, /\(N rows\)` footer/, 'a reference parou de explicar a armadilha')
+  assert.ok(
+    !/psql -A -F','\s*-c/.test(table.replace(/Do NOT use[\s\S]*/, '')),
+    'o exemplo quebrado voltou a ser recomendado'
+  )
+})
+
+test('a reference de todo diz que o quadro é o PRIMEIRO argumento, sempre', () => {
+  // A frase antiga — "Name the board only when more than one is connected" —
+  // vale para `list` e para mais nenhum verbo: `todo move <id> doing` é erro de
+  // uso mesmo com um quadro só, porque o argumento é posicional. Dois sujeitos
+  // do S4 leram a permissão de omitir e perderam E-02 no ciclo 2.
+  const todo = REFERENCES['todo.md']
+  assert.ok(todo, 'a reference de todo desapareceu')
+  assert.match(todo, /takes the board as its FIRST argument/, 'o aviso do posicional saiu')
+  assert.ok(
+    !/Name the board only when more than one is connected/.test(todo),
+    'a frase que autorizava omitir o quadro voltou'
+  )
+})
+
+test('a reference de portal diz que `go` mexe na tela do usuário, e dá a saída', () => {
+  // Medido no ciclo 1: o sujeito do S3 leu o portal, quis saber se o servidor
+  // estava no ar ou se só a rota tinha quebrado, e foi de `curl` na raiz —
+  // perdendo E-05 duas vezes em três corridas. A leitura do avaliador estava
+  // certa pelo enunciado antigo e ERRADA pelo que se quer do agente: `portal go`
+  // teria levado a página que o USUÁRIO está olhando para outro lugar.
+  //
+  // A reference passou a dizer as duas coisas — que `go` move a tela do usuário,
+  // e que buscar outra url por fora é a saída educada — e o E-05 deixou de
+  // contar esse caso como desvio.
+  const portal = REFERENCES['portal.md']
+  assert.ok(portal, 'a reference de portal desapareceu')
+  assert.match(portal, /moves the page the user is looking at/, 'o aviso sobre `go` saiu')
+  assert.match(portal, /curl/, 'a saída educada saiu da reference')
 })
 
 await testAsync(

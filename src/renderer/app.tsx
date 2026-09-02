@@ -191,7 +191,8 @@ export function App(): JSX.Element {
           assignedRoleId: editing.content.value.assignedRoleId,
           claudeAccountId: editing.content.value.claudeAccountId,
           resumeSessionId: editing.content.value.resumeSessionId,
-          isArtisan: editing.content.value.isArtisan
+          isArtisan: editing.content.value.isArtisan,
+          canvasShotEnabled: editing.content.value.canvasShotEnabled
         }
       : null
 

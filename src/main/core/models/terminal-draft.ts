@@ -67,6 +67,10 @@ export function terminalContentFromOpts(
       isArtisanCapable({
         agentType: String(opts.agentType ?? 'generic_shell'),
         command: String(opts.command ?? '')
-      })
+      }),
+    // Sem condição de comando, ao contrário do Artesão: fotografar a janela não
+    // depende de haver agente de IA no nó. `=== true` e não `Boolean(...)` pela
+    // razão de sempre numa permissão — ausente ou torto vale desligado.
+    canvasShotEnabled: opts.canvasShotEnabled === true
   })
 }

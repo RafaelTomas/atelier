@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react'
 import type { ButtonAction, ButtonConfig, CanvasNode, UUID } from '@shared/types'
 import { DEFAULT_BUTTON_COLOR } from '@shared/types'
+import { QUICK_STARTS, isArtisanCapable, presetById } from '@shared/terminal-presets'
 import { BUTTON_PRESETS } from '../button-presets'
 import { Icon, ICON_NAMES } from '../node-icons'
 import { shortenPath } from '../paths'
@@ -37,6 +38,13 @@ export function emptyButtonConfig(): ButtonConfig {
     url: '',
     cwd: '',
     target: null,
+    agentName: '',
+    preset: '',
+    model: '',
+    roleId: '',
+    accountId: '',
+    artisan: false,
+    reuseAgent: true,
     confirm: false,
     // Botão feito PELO usuário nasce armado — o aceite existe para o que vem
     // do agente (ver ButtonWidget).
@@ -183,7 +191,8 @@ interface TabProps {
 const ACTION_LABELS: Record<ButtonAction, string> = {
   command: 'Comando',
   prompt: 'Prompt',
-  url: 'Endereço'
+  url: 'Endereço',
+  agent: 'Agente'
 }
 
 function ActionTab({
@@ -197,6 +206,7 @@ function ActionTab({
   terminals: CanvasNode[]
   defaultWorkingDirectory: string
 }): JSX.Element {
+  const { roles, claudeAccounts } = useStore()
   const browse = async (): Promise<void> => {
     const chosen = await window.atelier.dialog.chooseDirectory(draft.cwd || defaultWorkingDirectory)
     if (chosen) patch({ cwd: chosen })
@@ -220,7 +230,7 @@ function ActionTab({
       />
 
       <div className="segmented is-small">
-        {(['command', 'prompt', 'url'] as ButtonAction[]).map((a) => (
+        {(['command', 'prompt', 'url', 'agent'] as ButtonAction[]).map((a) => (
           <button
             key={a}
             type="button"
@@ -269,6 +279,158 @@ function ActionTab({
             onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
           />
         </div>
+      )}
+
+      {/* Agente: o botão ABRE um terminal e se cabeia a ele. Os campos são os
+          do diálogo de terminal, reduzidos ao que muda de botão para botão —
+          tema, fonte e tamanho ficam de fora porque ninguém os escolhe por
+          botão, e um formulário com tudo esconderia os quatro que importam. */}
+      {draft.action === 'agent' && (
+        <>
+          <div className="field-row">
+            <label className="field-label">Nome</label>
+            <input
+              className="field-input"
+              value={draft.agentName}
+              placeholder={draft.label || 'como o nó vai se chamar'}
+              onChange={(e) => patch({ agentName: e.target.value })}
+              onKeyDown={(e) => e.key === 'Enter' && onSubmit()}
+            />
+          </div>
+
+          <div className="field-row">
+            <label className="field-label">Agente</label>
+            <select
+              className="field-input"
+              value={draft.preset || 'claude'}
+              onChange={(e) => patch({ preset: e.target.value, model: '' })}
+            >
+              {QUICK_STARTS.map((q) => (
+                <option key={q.id} value={q.id}>
+                  {q.label}
+                </option>
+              ))}
+            </select>
+            {/* O seletor de modelo é do PRESET: quem não declara `model` não
+                ganha o campo, em vez de ganhar um campo que não faz nada. */}
+            {presetById(draft.preset || 'claude')?.model && (
+              <select
+                className="field-input"
+                value={draft.model}
+                onChange={(e) => patch({ model: e.target.value })}
+              >
+                <option value="">(modelo padrão)</option>
+                {Object.keys(presetById(draft.preset || 'claude')!.model!.aliases).map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          <div className="field-row">
+            <label className="field-label">Onde</label>
+            <span className="path-display" title={draft.cwd || defaultWorkingDirectory}>
+              {shortenPath(draft.cwd) || shortenPath(defaultWorkingDirectory) || '(sem diretório)'}
+            </span>
+            <button type="button" className="btn" onClick={() => void browse()}>
+              Procurar…
+            </button>
+            {draft.cwd && (
+              <button type="button" className="btn" onClick={() => patch({ cwd: '' })}>
+                Padrão
+              </button>
+            )}
+          </div>
+
+          <div className="field-row">
+            <label className="field-label">Papel</label>
+            <select
+              className="field-input"
+              value={draft.roleId}
+              onChange={(e) => patch({ roleId: e.target.value })}
+            >
+              <option value="">(sem papel)</option>
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="field-input"
+              value={draft.accountId}
+              onChange={(e) => patch({ accountId: e.target.value })}
+            >
+              <option value="">(conta padrão)</option>
+              {claudeAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Textarea, e não `input` de uma linha: o prompt de abertura de um
+              Artesão é uma coreografia (crie o quadro, recrute, cabeie, peça),
+              e num campo de uma linha ela vira uma tira ilegível que ninguém
+              relê antes de disparar. O Enter aqui QUEBRA LINHA em vez de
+              enviar o formulário, pelo mesmo motivo. */}
+          <div className="field-row is-stacked">
+            <label className="field-label">Prompt</label>
+            <textarea
+              className="field-textarea"
+              rows={5}
+              value={draft.prompt}
+              placeholder="opcional — o que dizer ao agente assim que ele subir"
+              onChange={(e) => patch({ prompt: e.target.value })}
+            />
+          </div>
+
+          {/* Artesão é escolha por botão, e não aparência: um botão que começa
+              um fluxo quase sempre abre quem vai DISTRIBUIR o trabalho. A trava
+              é a mesma do diálogo de terminal — um shell puro não tem a quem
+              instruir. */}
+          {(() => {
+            const preset = presetById(draft.preset || 'claude')
+            const capable = preset
+              ? isArtisanCapable({ agentType: preset.agentType, command: preset.command })
+              : false
+            return (
+              <label className="check-row is-stacked">
+                <input
+                  type="checkbox"
+                  checked={draft.artisan && capable}
+                  disabled={!capable}
+                  onChange={(e) => patch({ artisan: e.target.checked })}
+                />
+                <span>
+                  <strong>Artesão</strong>
+                  <em>
+                    {capable
+                      ? 'o agente que este botão abre delega em nós do canvas, e nasce de martelo e verde'
+                      : 'precisa de um agente de IA no preset — um shell puro não tem a quem instruir'}
+                  </em>
+                </span>
+              </label>
+            )
+          })()}
+
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={draft.reuseAgent}
+              onChange={(e) => patch({ reuseAgent: e.target.checked })}
+            />
+            Reusar o agente cabeado, se estiver vivo
+          </label>
+          <p className="field-hint">
+            {draft.reuseAgent
+              ? 'O segundo disparo manda o prompt para o agente que este botão já abriu. Puxar o cabo no canvas é o gesto de dizer "abre um novo da próxima vez".'
+              : 'Cada disparo abre um agente novo, sem o contexto do anterior. Com um relógio cabeado, isto esgota o teto de terminais do canvas.'}
+          </p>
+        </>
       )}
 
       {/* Comando NÃO oferece escolher terminal: ele sempre nasce num terminal

@@ -139,6 +139,21 @@ export interface TerminalContent {
    * comportamento que esse nó já tinha.
    */
   isArtisan: boolean
+  /**
+   * Este agente pode FOTOGRAFAR o canvas (`atelier node shot`).
+   *
+   * Desligado de fábrica, e é o usuário que liga, no diálogo do nó — mesmo
+   * gesto e mesma razão do controle do portal (Decisão C do
+   * 2026-08-27-PLANO-controle-de-portal.md): a captura sai da janela INTEIRA,
+   * então ela leva o que estiver na tela — a nota do vizinho, o arquivo aberto
+   * num editor, o cofre destrancado. `atelier node map` dá a geometria sem
+   * nada disso, e é o que um agente precisa para não empilhar nó; a foto é
+   * para quando o usuário quer que ele veja o que ELE está vendo.
+   *
+   * Ausente no disco (nó antigo, ou vindo do app nativo) = `false`, que é o
+   * comportamento que esse nó já tinha.
+   */
+  canvasShotEnabled: boolean
 }
 
 export type StorageMode = { kind: 'managed' } | { kind: 'custom'; path: string }
@@ -581,9 +596,9 @@ export interface PlanBook {
  * persistido, e um botão que gravasse o workspace a cada clique sujaria o
  * autosave com dado descartável.
  */
-export type ButtonAction = 'command' | 'prompt' | 'url'
+export type ButtonAction = 'command' | 'prompt' | 'url' | 'agent'
 
-export const BUTTON_ACTIONS: ButtonAction[] = ['command', 'prompt', 'url']
+export const BUTTON_ACTIONS: ButtonAction[] = ['command', 'prompt', 'url', 'agent']
 
 export interface ButtonConfig {
   /** Rótulo exibido e título do nó. */
@@ -595,6 +610,46 @@ export interface ButtonConfig {
   command: string
   prompt: string
   url: string
+  /**
+   * `action: 'agent'` — o agente que o botão ABRE, cabeado a ele. Os campos
+   * espelham as flags de `atelier recruit`, e por um motivo: um botão de agente
+   * é um recruit gravado no canvas, e duas gramáticas para a mesma coisa
+   * envelheceriam separadas.
+   *
+   * Nome vazio = o `label` do botão. `preset` vazio = `claude`. Os demais
+   * vazios significam "o padrão do preset", como no recruit sem a flag.
+   */
+  agentName: string
+  preset: string
+  model: string
+  /**
+   * Papel e conta vão como ID JÁ RESOLVIDO, não como nome. Quem resolve é o
+   * diálogo (uma lista) ou o `button propose` (que recusa um nome que não
+   * existe, como o recruit faz). Resolver no CLIQUE poria a mensagem de erro no
+   * palco, no pior momento possível — e um papel apagado depois cai no padrão,
+   * que é degradação melhor que um botão que não abre nada.
+   */
+  roleId: string
+  accountId: string
+  /**
+   * O agente que o botão abre nasce ARTESÃO — delegando em nós do canvas, com o
+   * subagente interno bloqueado no Claude Code.
+   *
+   * Vale por botão, e não é detalhe de aparência: um botão que começa um fluxo
+   * quase sempre abre quem vai DISTRIBUIR o trabalho, não quem executa. Sem
+   * este campo o `recruit` do CLI daria um Artesão e o botão não, o que faria a
+   * mesma configuração render dois nós diferentes.
+   *
+   * Só tem efeito num preset capaz (ver `isArtisanCapable`): um shell puro não
+   * tem a quem instruir.
+   */
+  artisan: boolean
+  /**
+   * Segundo disparo: reusar o agente que já está cabeado ao botão, se ele
+   * estiver vivo. Ligado por padrão — um relógio de hora em hora com esta
+   * opção desligada esgota o teto de terminais antes do fim do dia.
+   */
+  reuseAgent: boolean
   /** Vazio = o diretório do projeto do widget, ou o do workspace. */
   cwd: string
   /** Terminal onde a ação roda. null = cria um novo. */
@@ -625,6 +680,15 @@ export function readButtonConfig(view: Record<string, string>): ButtonConfig {
     command: view.command ?? '',
     prompt: view.prompt ?? '',
     url: view.url ?? '',
+    agentName: view.agentName ?? '',
+    preset: view.preset ?? '',
+    model: view.model ?? '',
+    roleId: view.roleId ?? '',
+    accountId: view.accountId ?? '',
+    artisan: view.artisan === '1',
+    // Ausente = ligado. A chave só é gravada quando o usuário DESLIGA o reuso,
+    // que é o caso raro — ver a regra de `view` enxuto abaixo.
+    reuseAgent: view.reuseAgent !== '0',
     cwd: view.cwd ?? '',
     target: view.target ? (view.target as UUID) : null,
     confirm: view.confirm === '1',
@@ -645,6 +709,13 @@ export function writeButtonConfig(config: ButtonConfig): Record<string, string> 
   if (config.command) view.command = config.command
   if (config.prompt) view.prompt = config.prompt
   if (config.url) view.url = config.url
+  if (config.agentName) view.agentName = config.agentName
+  if (config.preset) view.preset = config.preset
+  if (config.model) view.model = config.model
+  if (config.roleId) view.roleId = config.roleId
+  if (config.accountId) view.accountId = config.accountId
+  if (config.artisan) view.artisan = '1'
+  if (!config.reuseAgent) view.reuseAgent = '0'
   if (config.cwd) view.cwd = config.cwd
   if (config.target) view.target = config.target
   if (config.confirm) view.confirm = '1'
@@ -661,6 +732,13 @@ export function buttonActionSummary(config: ButtonConfig): string {
       return config.prompt
     case 'url':
       return config.url
+    // O que o botão FAZ é abrir o agente; o prompt é o que ele diz depois. Um
+    // resumo que mostrasse só o prompt esconderia justamente o que o aceite
+    // precisa deixar ler: que este clique sobe um processo.
+    case 'agent':
+      return `abre o agente '${config.agentName || config.label}'${
+        config.prompt ? ` e envia: ${config.prompt}` : ''
+      }`
     default:
       return config.command
   }
@@ -1596,6 +1674,12 @@ export interface TerminalDraft {
    * que não liga nada é pior que um desmarcado.
    */
   isArtisan: boolean
+  /**
+   * O interruptor "Fotografar o canvas" da aba Agente. Sem condição de comando,
+   * ao contrário do Artesão: capturar a janela não depende de haver um agente
+   * de IA no nó — depende só de o usuário querer.
+   */
+  canvasShotEnabled: boolean
 }
 
 // ─── Ponte renderer ⇄ main ────────────────────────────────────────────────────

@@ -119,6 +119,28 @@ test('isArtisan ausente no disco volta false, e marcado sobrevive ao round-trip'
   )
 })
 
+test('canvasShotEnabled ausente volta false, e ligado sobrevive ao round-trip', () => {
+  // Mesma história do isArtisan, e o risco aqui é maior: se o campo se perdesse
+  // no save, a permissão de fotografar a janela voltaria desligada sem ninguém
+  // saber — ou, se decodificasse ausente como true, um nó do app nativo ganharia
+  // o direito de capturar a tela do usuário sem ele ter marcado nada.
+  const node = payload.nodes.find((n) => n.content.type === 'terminal')
+  assert.equal(node.content.value.canvasShotEnabled, false)
+
+  const clone = JSON.parse(JSON.stringify(raw))
+  clone.payload.nodes.find((n) => n.content.terminal).content.terminal._0.canvasShotEnabled = true
+  const { payload: p } = decodeWorkspaceDocument(clone)
+  assert.equal(
+    p.nodes.find((n) => n.content.type === 'terminal').content.value.canvasShotEnabled,
+    true
+  )
+  const back = encodeWorkspaceDocument(p)
+  assert.equal(
+    back.payload.nodes.find((n) => n.content.terminal).content.terminal._0.canvasShotEnabled,
+    true
+  )
+})
+
 test('frame decodifica de [[x,y],[w,h]]', () => {
   const node = payload.nodes.find((n) => n.content.type === 'terminal')
   assert.deepEqual(node.frame, { x: 9900, y: 8600, width: 560, height: 360 })

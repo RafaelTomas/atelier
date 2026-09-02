@@ -38,6 +38,8 @@ import { join } from 'node:path'
 import {
   CRITERIA, CONFIG, SCENARIOS, SENTINELS, scenario, applicablePairs } from './eval/suite.mjs'
 import {
+  parseGitStatus,
+  treeDelta,
   parseList,
   missingNeeds,
   classifyAsk,
@@ -49,6 +51,7 @@ import {
   evaluatorText,
   renderToolTrail,
   promptStuck,
+  quotaWall,
   screenSettled,
   scoreRun,
   aggregate,
@@ -120,6 +123,27 @@ function cli(argv, timeoutMs = 600_000) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Os caminhos sujos do repositório, agora.
+ *
+ * O eval é desassistido e um sujeito do S4 já editou treze arquivos e deixou o
+ * `npm run typecheck` quebrado, sem nada na saída acusando (01/09). Isto é a
+ * atribuição: chamado antes e depois de cada corrida, o delta diz o que AQUELA
+ * corrida mexeu.
+ *
+ * Falha de `git` devolve `null`, e `null` desliga a checagem em vez de derrubar o
+ * ciclo — rodar o eval fora de um repositório é legítimo, e um harness que
+ * exigisse `git` para medir agente seria acoplamento gratuito.
+ */
+function gitStatusPaths() {
+  const r = spawnSync('git', ['status', '--porcelain', '-z', '--untracked-files=all'], {
+    encoding: 'utf8',
+    timeout: 30_000
+  })
+  if (r.status !== 0 || typeof r.stdout !== 'string') return null
+  return parseGitStatus(r.stdout)
+}
 
 function inventory() {
   return parseList(cli(['list']).out)
@@ -471,6 +495,18 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
     if (promptStuck(captured.text, scn.prompt)) {
       return { ...record, outcome: 'null', reason: 'o prompt ficou na caixa de entrada — o agente não o recebeu' }
     }
+    // A PAREDE DE COTA vem antes do detector de transcript vazio, e a ordem é o
+    // ponto: uma corrida barrada pelo limite da conta chega com zero chamadas e
+    // seria acusada de delegar a subagente interno — foi o que aconteceu no
+    // ciclo 1 de 01/09. Ela não se repete: ver `quotaWall`.
+    if (quotaWall(captured.text)) {
+      return {
+        ...record,
+        outcome: 'null',
+        quota: true,
+        reason: 'a conta bateu no limite de uso — a corrida não chegou a acontecer'
+      }
+    }
     // Transcript encontrado e VAZIO é trilha inútil, não trilha de agente
     // parado. Aconteceu em 01/09: o sujeito de S5 delegou para um subagente
     // interno (`Agent(fork)`), as chamadas foram para outra sessão, e o nó ficou
@@ -509,6 +545,7 @@ async function runOnce(scn, run, opts, outDir, evaluator) {
     // Sempre, e conferindo: um sujeito esquecido no canvas come uma vaga do
     // teto da próxima corrida.
     await dismissNode(name)
+
   }
 }
 
@@ -540,6 +577,22 @@ async function main() {
   console.log(`Sujeitos: --model ${opts.model}${opts.account ? ` --account ${opts.account}` : ' (conta deste nó)'}`)
   console.log(`Cenários: ${chosen.map((s) => s.id).join(', ')}  (${applicablePairs(chosen.map((s) => s.id))} pares por run completa)`)
   console.log(`Canvas: ${inv.agents.length} agente(s), ${inv.editors.length} editor(es), ${inv.portals.length} portal(is), ${inv.notes.length} nota(s), ${inv.boards.length} quadro(s), ${inv.vaults.length} cofre(s)`)
+
+  // A árvore, dita na saída como qualquer outra pré-condição. Não é motivo para
+  // recusar: a atribuição é por DELTA, então uma árvore que já começa suja
+  // continua medindo. É motivo para o usuário saber — um repositório que já não
+  // compila polui a corrida do sujeito, e a falha que ele encontrar não é dele.
+  const repoInicial = gitStatusPaths()
+  if (repoInicial === null) {
+    console.log('Repositório: `git status` não respondeu — a atribuição de mudanças fica desligada')
+  } else if (repoInicial.length) {
+    console.log(
+      `Repositório: JÁ SUJO em ${repoInicial.length} caminho(s) — o delta por corrida continua valendo, ` +
+        'mas confira se a árvore compila antes de medir agente nenhum'
+    )
+  } else {
+    console.log('Repositório: limpo')
+  }
   console.log('')
   for (const { scenario: s, missing } of plan) {
     const mark = missing.length ? `PULADO — falta ${missing.join('; ')}` : 'pronto'
@@ -576,7 +629,7 @@ async function main() {
 
   const records = []
   try {
-    for (const { scenario: s, missing } of plan) {
+    cenarios: for (const { scenario: s, missing } of plan) {
       if (missing.length) {
         records.push({ scenario: { id: s.id, applicable: s.applicable }, outcome: 'skipped', reason: `canvas sem ${missing.join('; ')}` })
         continue
@@ -588,18 +641,48 @@ async function main() {
         let attempt = 0
         let record
         do {
+          // A árvore ANTES e DEPOIS da corrida, medida aqui e não dentro de
+          // `runOnce`: lá o retorno é `{ ...record }` montado dentro do `try`, e
+          // um campo escrito no `finally` chegaria depois do objeto já existir —
+          // seria perdido em silêncio. Aqui o registro está em mãos.
+          const repoAntes = gitStatusPaths()
           record = await runOnce(s, run, opts, outDir, opts.evaluator)
-          const willRetry = record.outcome === 'null' && attempt < opts.maxNull
+          const repoDepois = gitStatusPaths()
+          if (repoAntes && repoDepois) {
+            const { touched } = treeDelta(repoAntes, repoDepois)
+            if (touched.length) {
+              record.repoTouched = touched
+              // Dito ALTO: uma corrida desassistida que edita código e quebra o
+              // build não pode passar calada. No ciclo 0 passou, e só apareceu
+              // porque alguém foi olhar `git status` à mão depois.
+              console.log(
+                `  REPOSITÓRIO MEXIDO na corrida ${s.id}/${run}: ${touched.length} caminho(s) — ` +
+                  `${touched.slice(0, 6).join(', ')}${touched.length > 6 ? ', …' : ''}`
+              )
+            }
+          }
+          const willRetry = record.outcome === 'null' && !record.quota && attempt < opts.maxNull
           if (record.outcome === 'null') {
             console.log(`  ${s.id} run ${run}: NULA (${record.reason})${willRetry ? ` — repetindo ${attempt + 1}/${opts.maxNull}` : ' — sem repetição restante'}`)
           }
           attempt += 1
-        } while (record.outcome === 'null' && attempt <= opts.maxNull)
+        } while (record.outcome === 'null' && !record.quota && attempt <= opts.maxNull)
 
         records.push(record)
         appendFileSync(jsonl, `${JSON.stringify({ cycle: opts.cycle, ...record })}\n`, 'utf8')
         const s10 = record.score
         console.log(`  ${s.id} run ${run}: ${record.outcome}${s10 ? ` ${s10.yes}/${s10.applicable}` : ''}${record.reason ? ` — ${record.reason}` : ''}`)
+        // PARADA, não repetição: nada nesta conta vai passar até o reset, e o
+        // relatório parcial vale mais que uma fila de nulas. O `break` é
+        // rotulado para sair também do laço de cenários — o `finally` dispensa o
+        // avaliador, e o resumo é escrito com o que já foi medido.
+        if (record.quota) {
+          console.log(
+            `\n  PAREDE DE COTA na conta ${opts.account ?? 'deste nó'}: a onda para aqui. ` +
+              'Espere o reset ou rode com --account de outra conta.'
+          )
+          break cenarios
+        }
       }
     }
   } finally {
@@ -616,6 +699,18 @@ async function main() {
     // A MEDIDA sem teto, ao lado dos critérios com teto. Ver `effortByScenario`:
     // quatro critérios saturaram no ciclo 0, e uma mutação da skill não teria
     // onde aparecer. Aqui ela aparece, e sem inventar nota de corte.
+    ...(() => {
+      // O que o ciclo 0 não tinha, e por isso quinze arquivos sujos só
+      // apareceram quando alguém olhou à mão depois.
+      const mexeram = records.filter((r) => r.repoTouched?.length)
+      if (mexeram.length === 0) return ['Repositório: nenhuma corrida mexeu na árvore']
+      return [
+        `Repositório: ${mexeram.length} corrida(s) MEXERAM na árvore — revise antes de commitar:`,
+        ...mexeram.map(
+          (r) => `  ${r.scenario.id} run ${r.run}: ${r.repoTouched.join(', ')}`
+        )
+      ]
+    })(),
     'Chamadas até concluir (mediana, faixa) — comparável DENTRO do cenário:',
     ...Object.entries(total.effort).map(
       ([id, e]) => `  ${id}  mediana ${e.median}  faixa ${e.min}–${e.max}  (${e.calls.join(', ')})`

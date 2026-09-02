@@ -564,6 +564,16 @@ await test('atelier note create cria nota já conectada', async () => {
   assert.match(list, /Note/)
 })
 
+await test('note create --name nomeia o .md, e é por ele que a nota é lida', async () => {
+  // O nome da nota É o nome do arquivo, e é o endereço que outro agente usa no
+  // `note read`. Sem a flag, uma parede montada pelo CLI vira `Note 2`,
+  // `Note 3`… e só o usuário consegue renomear, no cabeçalho do nó.
+  const out = await cli(['note', 'create', 'o combinado da sprint', '--name', 'Requisito'], terminalId)
+  assert.match(out, /Created note 'Requisito'/)
+  const read = await cli(['note', 'read', 'Requisito'], terminalId)
+  assert.equal(read.trim(), 'o combinado da sprint')
+})
+
 await test('duas notas nunca dividem o mesmo .md', async () => {
   const a = await cli(['note', 'create', 'texto A'], terminalId)
   const b = await cli(['note', 'create', 'texto B'], terminalId)

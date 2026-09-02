@@ -127,7 +127,7 @@ of your own work, see \`references/recruit.md\`.
 ## Notes
 
 \`\`\`
-atelier note create ["content"]
+atelier note create ["content"] [--name "Requisito"]
 atelier note read "Note Name" [offset] [limit]
 atelier note write "Note Name" "content"
 atelier note edit "Note Name" "old text" "new text"

@@ -80,6 +80,15 @@ export function ButtonDialog({
   const [draft, setDraft] = useState<ButtonConfig>(() => initial ?? emptyButtonConfig())
   const [quickId, setQuickId] = useState<string | null>(null)
   const [emulator, setEmulator] = useState<EmulatorState>({ phase: 'idle' })
+  /**
+   * O último rótulo que UM CARTÃO escreveu, para saber se o próximo cartão
+   * pode escrever por cima. `BUTTON_PRESETS.some(...)` sozinho não bastava: o
+   * nome de um AVD não está nessa lista, então escolher "Pixel_7" e depois
+   * "Small_Phone" deixava o rótulo preso no primeiro — e o mesmo valia trocando
+   * de um AVD para um preset estático. Comparar com o que ESTE diálogo gravou —
+   * e não com uma lista fixa — cobre as duas direções.
+   */
+  const [lastAutoLabel, setLastAutoLabel] = useState<string | null>(null)
 
   const patch = (p: Partial<ButtonConfig>): void => setDraft((d) => ({ ...d, ...p }))
 
@@ -102,7 +111,11 @@ export function ButtonDialog({
     const preset = BUTTON_PRESETS.find((p) => p.id === id)
     if (!preset) return
     setQuickId(id)
-    const nameFromPreset = BUTTON_PRESETS.some((p) => p.label === draft.label) || draft.label === ''
+    // Trocar de preset abandona a escolha de dispositivo em andamento — sem
+    // isto a lista de AVDs ficava na tela mesmo depois de o usuário escolher
+    // outro cartão, porque nada aqui tocava o estado do Emulador.
+    setEmulator({ phase: 'idle' })
+    const nameFromPreset = draft.label === '' || draft.label === lastAutoLabel
     patch({
       action: 'command',
       command: preset.command,
@@ -110,6 +123,7 @@ export function ButtonDialog({
       color: preset.color,
       ...(nameFromPreset ? { label: preset.label } : {})
     })
+    if (nameFromPreset) setLastAutoLabel(preset.label)
   }
 
   /**
@@ -119,6 +133,11 @@ export function ButtonDialog({
    * aplicar algo já sabido de antemão.
    */
   const openEmulatorPicker = async (): Promise<void> => {
+    // Marca o cartão como selecionado já no clique — como qualquer outro
+    // preset — em vez de só depois de um AVD escolhido. Sem isto o cartão
+    // ficava "apagado" bem no meio da lista de dispositivos que ele mesmo
+    // abriu, e nada na tela dizia qual cartão estava ativo.
+    setQuickId('emulador')
     setEmulator({ phase: 'loading' })
     const result = await window.atelier.android.listAvds()
     if (!result.ok) {
@@ -144,7 +163,7 @@ export function ButtonDialog({
   const applyEmulator = (emulatorPath: string, avd: string): void => {
     setQuickId('emulador')
     setEmulator({ phase: 'idle' })
-    const nameFromPreset = BUTTON_PRESETS.some((p) => p.label === draft.label) || draft.label === ''
+    const nameFromPreset = draft.label === '' || draft.label === lastAutoLabel
     patch({
       action: 'command',
       command: `${quoteForShell(emulatorPath, platform)} -avd ${quoteForShell(avd, platform)}`,
@@ -152,6 +171,7 @@ export function ButtonDialog({
       color: EMULATOR_COLOR,
       ...(nameFromPreset ? { label: avd } : {})
     })
+    if (nameFromPreset) setLastAutoLabel(avd)
   }
 
   const submit = (): void => {

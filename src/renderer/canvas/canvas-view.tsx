@@ -277,6 +277,69 @@ export function CanvasView(): JSX.Element {
 
   useEffect(() => portalWake.subscribe(() => setWakeTick((t) => t + 1)), [])
 
+  // Botão do meio SEMPRE pana, nunca cola — e nunca chega a ser visto pelo
+  // programa dentro do terminal.
+  //
+  // Duas fontes de colagem indevida, as duas nascendo do mesmo evento chegar
+  // até o xterm:
+  //
+  //  1. O xterm tem um `mousedown` interno no elemento do terminal que chama
+  //     `this.focus()` para QUALQUER botão, sem checar qual foi. Com o campo
+  //     focado, o Chromium/X11 acha um alvo editável no instante em que o
+  //     botão do meio solta e cola a seleção primária ali — não adianta
+  //     `preventDefault`, porque o foco não veio do default do navegador,
+  //     veio de uma chamada de JS.
+  //  2. Quando o programa dentro do PTY ativa mouse tracking (a CLI de
+  //     agente faz isso, um shell puro não), o MESMO `mousedown` do xterm
+  //     REPORTA o clique pro processo via escape sequence — e é o próprio
+  //     programa quem decide colar (normalmente via OSC 52), sem qualquer
+  //     relação com o clipboard do navegador. Isto é o que explicava colar
+  //     "no chat" (a CLI) mas não num shell comum.
+  //
+  // A única defesa que cobre as duas é o clique nunca alcançar o xterm: um
+  // listener nativo em CAPTURA no host, uma camada acima de qualquer nó, que
+  // barra a propagação do `mousedown` de botão do meio ali mesmo e assume o
+  // início do pan na mão (é por isso que o branch de botão do meio saiu do
+  // `beginInteraction` — aquele roda tarde demais, na fase de bolha).
+  //
+  // O `mouseup`/`auxclick` NÃO tem stopPropagation: o fim do pan é decidido
+  // por um listener de `mouseup` na `window` (mais abaixo, fora deste efeito)
+  // que precisa continuar recebendo o evento normalmente.
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    let blurredNodeId: string | null = null
+    const onMouseDown = (e: MouseEvent): void => {
+      if (e.button !== 1) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      interaction.current = { kind: 'panning', last: screenPoint(e) }
+      markGesture()
+      const active = document.activeElement as HTMLElement | null
+      if (active && host.contains(active) && active !== document.body) {
+        blurredNodeId = active.closest('[data-node-id]')?.getAttribute('data-node-id') ?? null
+        active.blur()
+      }
+    }
+    const onMouseUp = (e: MouseEvent): void => {
+      if (e.button !== 1) return
+      e.preventDefault()
+      if (blurredNodeId) store.requestTerminalFocus(blurredNodeId as UUID)
+      blurredNodeId = null
+    }
+    const onAux = (e: MouseEvent): void => {
+      if (e.button === 1) e.preventDefault()
+    }
+    host.addEventListener('mousedown', onMouseDown, { capture: true })
+    host.addEventListener('mouseup', onMouseUp, { capture: true })
+    host.addEventListener('auxclick', onAux, { capture: true })
+    return () => {
+      host.removeEventListener('mousedown', onMouseDown, { capture: true })
+      host.removeEventListener('mouseup', onMouseUp, { capture: true })
+      host.removeEventListener('auxclick', onAux, { capture: true })
+    }
+  }, [])
+
   // Colar imagem no canvas (Ctrl/Cmd+V). O terminal tem o próprio handler em
   // captura e chama stopPropagation, então uma colagem destinada a um agente
   // nunca chega aqui. Texto no clipboard não é problema desta tela — quem cola
@@ -516,6 +579,7 @@ export function CanvasView(): JSX.Element {
         void osImages[0].arrayBuffer().then(async (buf) => {
           const r = await window.atelier.terminal.pasteImage(under.id, buf, osImages[0].type)
           if ('error' in r) store.showNotice(r.error)
+          else store.requestTerminalFocus(under.id)
         })
         return
       }
@@ -604,7 +668,11 @@ export function CanvasView(): JSX.Element {
       interaction.current = { kind: 'panning', last: screenPoint(e) }
       return
     }
-    if (e.button === 1 || (e.button === 0 && e.altKey)) {
+    // Botão do meio puro NÃO passa por aqui: o listener nativo em captura,
+    // logo abaixo, já iniciou o pan e barrou o evento antes que chegasse a
+    // este handler — ver o comentário grande perto dele.
+    if (e.button === 0 && e.altKey) {
+      e.preventDefault()
       interaction.current = { kind: 'panning', last: screenPoint(e) }
       return
     }

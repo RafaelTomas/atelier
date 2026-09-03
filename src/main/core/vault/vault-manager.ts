@@ -186,7 +186,7 @@ function lockedMessage(vault: ConnectedVault): string {
  *  2. SÓ CRIA. Chave existente é recusada com o nome dela. Trocar o valor de uma
  *     chave que o usuário já usa, sem que a lista do nó mude de aparência, é a
  *     edição silenciosa que este comando não pode permitir — e é por isso que
- *     não existe `--force`.
+ *     não existe `--force`. Trocar o valor é o botão de editar, no nó.
  *  3. NASCE INERTE. `origin: null` e `inEnv: false`, sempre. A entrada serve a
  *     `vault get` e nada mais até o usuário decidir o contrário; ligar `inEnv`
  *     aqui colocaria o segredo no ambiente de todo terminal ligado ao cofre, e
@@ -235,7 +235,7 @@ export async function createSecret(
   if (!next) {
     return (
       `error: '${key}' already exists in '${vault.label}'. Creating is the only write you have: ` +
-      'ask the user to delete it in the vault node if it needs a new value.'
+      'ask the user to change the value with the pencil button in the vault node.'
     )
   }
   if (!(await persistence.writeVault(ws.id, vault.content.id, next))) {

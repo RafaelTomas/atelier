@@ -11,8 +11,8 @@ import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { extForImageMime, isSupportedImageName, mimeForImageName, pngDimensions } from '@shared/image'
 import { quoteForShell } from '@shared/shell'
-import type { VaultEntry, VaultFile } from '@shared/vault'
-import { isValidKeyName, originOf } from '@shared/vault'
+import type { VaultFile } from '@shared/vault'
+import { isValidKeyName, originOf, withSavedEntry } from '@shared/vault'
 import type {
   AgentRole,
   AgentStatus,
@@ -1410,8 +1410,11 @@ export function registerIPC(): void {
           error: 'nome de chave inválido — use letras, números e _, começando por letra ou _'
         }
       }
+      // Vazio NÃO é erro numa edição: o campo do formulário nasce em branco para
+      // não imprimir o segredo na tela, e em branco ele quer dizer "não mexi no
+      // valor". Quem recusa o vazio de uma chave NOVA é o `withSavedEntry`,
+      // porque só ele sabe se existe segredo anterior para preservar.
       const value = String(input.value ?? '')
-      if (!value) return { error: 'segredo vazio não é segredo' }
 
       // Origem é opcional, mas se vier tem de ser uma origem de verdade: uma
       // string torta aqui viraria uma comparação que nunca casa no
@@ -1428,20 +1431,15 @@ export function registerIPC(): void {
         return { error: 'locked' as const }
       }
 
-      const entry: VaultEntry = {
+      const next = withSavedEntry(file, {
         key,
         value,
         origin,
         inEnv: input.inEnv === true,
-        note: typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null,
-        updatedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-        source: 'user'
-      }
-      const entries = file.entries.filter((e) => e.key !== key)
-      entries.push(entry)
-      entries.sort((a, b) => a.key.localeCompare(b.key))
+        note: typeof input.note === 'string' && input.note.trim() ? input.note.trim() : null
+      })
+      if (!next) return { error: 'segredo vazio não é segredo' }
 
-      const next: VaultFile = { ...file, entries }
       if (!(await persistence.writeVault(workspaceId, found.content.id, next))) {
         syncVaultKeys(workspaceId, nodeId, null)
         return { error: 'locked' as const }

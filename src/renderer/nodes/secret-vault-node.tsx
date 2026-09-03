@@ -22,6 +22,7 @@ import {
   IconEye,
   IconEyeOff,
   IconLock,
+  IconPencil,
   IconPlus,
   IconRotateKey,
   IconTrash
@@ -41,6 +42,9 @@ export function SecretVaultNode({ node, content, workspaceId }: Props): JSX.Elem
   const [locked, setLocked] = useState(content.locked)
   const [error, setError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  // Qual chave está aberta em edição. Uma por vez, e nunca junto do formulário
+  // de criar: duas fichas abertas no mesmo nó estreito não se distinguem.
+  const [editing, setEditing] = useState<string | null>(null)
   const [revealed, setRevealed] = useState<{ key: string; value: string } | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -123,7 +127,25 @@ export function SecretVaultNode({ node, content, workspaceId }: Props): JSX.Elem
 
   const remove = async (key: string): Promise<void> => {
     if (revealed?.key === key) setRevealed(null)
+    if (editing === key) setEditing(null)
     apply(await window.atelier.vault.remove(workspaceId, node.id, key))
+  }
+
+  /** Abrir a ficha fecha o que estiver revelado: o valor não fica atrás do form. */
+  const edit = (key: string): void => {
+    setEditing((current) => (current === key ? null : key))
+    if (revealTimer.current) clearTimeout(revealTimer.current)
+    setRevealed(null)
+    setAdding(false)
+  }
+
+  const save = async (input: KeyInput): Promise<void> => {
+    const result = await window.atelier.vault.set(workspaceId, node.id, input)
+    apply(result)
+    if ('keys' in result) {
+      setAdding(false)
+      setEditing(null)
+    }
   }
 
   if (locked) {
@@ -156,7 +178,10 @@ export function SecretVaultNode({ node, content, workspaceId }: Props): JSX.Elem
             adding ? 'icon-btn ghost-btn secret-vault-add is-open' : 'icon-btn ghost-btn secret-vault-add'
           }
           title={adding ? 'Fechar' : 'Adicionar chave'}
-          onClick={() => setAdding((v) => !v)}
+          onClick={() => {
+            setAdding((v) => !v)
+            setEditing(null)
+          }}
         >
           <IconPlus size={13} />
         </button>
@@ -165,14 +190,7 @@ export function SecretVaultNode({ node, content, workspaceId }: Props): JSX.Elem
       {error && <p className="secret-vault-error">{error}</p>}
 
       {adding && (
-        <KeyForm
-          onCancel={() => setAdding(false)}
-          onSubmit={async (input) => {
-            const result = await window.atelier.vault.set(workspaceId, node.id, input)
-            apply(result)
-            if ('keys' in result) setAdding(false)
-          }}
-        />
+        <KeyForm onCancel={() => setAdding(false)} onSubmit={save} />
       )}
 
       {keys.length === 0 && !adding && (
@@ -185,6 +203,17 @@ export function SecretVaultNode({ node, content, workspaceId }: Props): JSX.Elem
       <ul className="secret-vault-list">
         {keys.map((entry) => {
           const isOpen = revealed?.key === entry.key
+          const isEditing = editing === entry.key
+          // Em edição o item VIRA a ficha: manter a linha da chave por cima
+          // duplicaria o nome e as ações a dois centímetros do formulário que
+          // já as governa.
+          if (isEditing) {
+            return (
+              <li key={entry.key} className="secret-vault-item is-editing">
+                <KeyForm entry={entry} onCancel={() => setEditing(null)} onSubmit={save} />
+              </li>
+            )
+          }
           return (
             <li
               key={entry.key}
@@ -228,6 +257,14 @@ export function SecretVaultNode({ node, content, workspaceId }: Props): JSX.Elem
                     onClick={() => void copy(entry.key)}
                   >
                     {copied === entry.key ? <IconCheck size={14} /> : <IconCopy size={14} />}
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn ghost-btn"
+                    title="Editar chave"
+                    onClick={() => edit(entry.key)}
+                  >
+                    <IconPencil size={14} />
                   </button>
                   <button
                     type="button"
@@ -371,26 +408,39 @@ interface KeyInput {
 }
 
 /**
- * O formulário de uma chave nova.
+ * O formulário de uma chave — a mesma ficha para criar e para editar.
+ *
+ * Com `entry` ele edita, e o que muda é pouco de propósito: o NOME fica travado
+ * e o VALOR nasce em branco. As duas coisas pelo mesmo motivo, que é o motivo de
+ * a edição existir — o agente cria a chave com `atelier vault set` e o usuário
+ * chega depois para trocar só o segredo. O nome é o identificador (é a variável
+ * de ambiente que os terminais ligados já usam): mudá-lo é criar outra chave, e
+ * para isso existem o ＋ e a lixeira. O valor não é pré-preenchido porque
+ * imprimi-lo num input seria revelá-lo sem ninguém pedir — deixado em branco,
+ * ele preserva o segredo que está no arquivo (ver `withSavedEntry`).
  *
  * `origin` nasce vazia — o default do formato é `null`, e "quem não declarou
  * não autorizou" só vale se o caminho preguiçoso for o restritivo.
  */
 function KeyForm({
+  entry,
   onSubmit,
   onCancel
 }: {
+  entry?: SecretVaultKeyRef
   onSubmit: (input: KeyInput) => void | Promise<void>
   onCancel: () => void
 }): JSX.Element {
   const [form, setForm] = useState<KeyInput>({
-    key: '',
+    key: entry?.key ?? '',
     value: '',
-    origin: '',
-    inEnv: false,
-    note: ''
+    origin: entry?.origin ?? '',
+    inEnv: entry?.inEnv ?? false,
+    note: entry?.note ?? ''
   })
-  const [extra, setExtra] = useState(false)
+  // Editando uma chave que TEM origem ou nota, a gaveta já abre: escondê-las
+  // faria a ficha parecer que perdeu os dois campos ao ser gravada.
+  const [extra, setExtra] = useState(Boolean(entry && (entry.origin || entry.note)))
 
   // Fechado com conteúdo dentro, o rótulo diz o que está guardado ali. Um campo
   // preenchido que não aparece em lugar nenhum é um campo que vai ser gravado
@@ -412,14 +462,17 @@ function KeyForm({
           className="field-input secret-vault-input is-key"
           placeholder="NOME_DA_CHAVE"
           value={form.key}
-          autoFocus
+          readOnly={Boolean(entry)}
+          title={entry ? 'o nome não muda: apague e crie outra chave' : undefined}
+          autoFocus={!entry}
           onChange={(e) => setForm((f) => ({ ...f, key: e.target.value }))}
         />
         <input
           className="field-input secret-vault-input"
           type="password"
-          placeholder="valor"
+          placeholder={entry ? 'novo segredo (vazio = mantém)' : 'valor'}
           value={form.value}
+          autoFocus={Boolean(entry)}
           onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))}
         />
       </div>
@@ -444,7 +497,7 @@ function KeyForm({
             className="field-input secret-vault-input"
             placeholder="origem para login (https://exemplo.com)"
             value={form.origin}
-            autoFocus
+            autoFocus={!entry}
             onChange={(e) => setForm((f) => ({ ...f, origin: e.target.value }))}
           />
           <input
@@ -476,9 +529,9 @@ function KeyForm({
         <button
           type="submit"
           className="btn is-primary secret-vault-save"
-          disabled={!form.key.trim() || !form.value}
+          disabled={!form.key.trim() || (!entry && !form.value)}
         >
-          gravar
+          {entry ? 'salvar' : 'gravar'}
         </button>
       </div>
     </form>

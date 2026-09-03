@@ -78,6 +78,10 @@ await esbuild.build({
       // deixa de herdar o tamanho de painel do widget.
       export { minSize, defaultSize } from './src/main/core/node-sizes.ts'
       export { readButtonConfig, writeButtonConfig } from './src/shared/types.ts'
+      // O piso do renderer — o mesmo número, do outro lado da ponte. Ele guia o
+      // redimensionamento, e enquanto vivia solto divergia do piso da criação:
+      // um botão de 88 px saltava para 120 na primeira alça puxada.
+      export { MIN_SIZE, minSizeForNode } from './src/renderer/canvas/node-min-size.ts'
       // O amostrador de recursos. O ref-count dele é o defeito mais provável da
       // feature — um timer que sobrevive ao último nó desmontado amostra para
       // ninguém pelo resto da sessão, e nada na tela denuncia isso.
@@ -117,6 +121,7 @@ const { setEditorState, resetEditors } = core
 const { dismissRefusal } = core
 const { minSize, defaultSize } = core
 const { readButtonConfig, writeButtonConfig } = core
+const { MIN_SIZE, minSizeForNode } = core
 const { SystemStatsMonitor } = core
 const { getUsage, resetUsage, withAgentSettings } = core
 
@@ -1185,6 +1190,46 @@ await test('widget/button nasce 88×88, não com o tamanho de painel do widget',
   assert.deepEqual(minSize('widget', { kind: 'button' }), { width: 56, height: 56 })
   // E o widget comum continua sendo uma coluna: o `opts.kind` é o que separa.
   assert.deepEqual(defaultSize('widget', { kind: 'git' }), { width: 380, height: 460 })
+})
+
+await test('o piso do redimensionamento é o MESMO da criação, tipo a tipo', () => {
+  // Um piso por tipo no main e um piso único (120×60) no arrasto era o gesto
+  // mentindo: o botão não encolhia abaixo de 120 de largura enquanto a altura
+  // descia até 60 e o rótulo sumia. Esta tabela é o que o renderer usa nas duas
+  // pontas — desenhar a área e puxar a alça.
+  const pares = [
+    ['terminal', 'terminal', {}],
+    ['note', 'note', {}],
+    ['portal', 'portal', {}],
+    ['fileTree', 'fileTree', {}],
+    ['codeEditor', 'codeEditor', {}],
+    ['dataTable', 'dataTable', {}],
+    ['image', 'image', {}],
+    ['secretVault', 'secretVault', {}],
+    ['text', 'text', {}],
+    ['widget', 'widget', { kind: 'git' }],
+    ['button', 'widget', { kind: 'button' }],
+    ['clock', 'widget', { kind: 'clock' }]
+  ]
+  for (const [chave, kind, opts] of pares) {
+    const doMain = minSize(kind, opts)
+    assert.deepEqual(
+      MIN_SIZE[chave],
+      [doMain.width, doMain.height],
+      `piso de '${chave}' divergiu entre a criação e o redimensionamento`
+    )
+  }
+})
+
+await test('o piso do arrasto sai do CONTEÚDO do nó, não de um número único', () => {
+  const botao = { content: { type: 'widget', value: { kind: 'button', view: {} } } }
+  const painel = { content: { type: 'widget', value: { kind: 'git', view: {} } } }
+  const cofre = { content: { type: 'secretVault', value: {} } }
+  assert.deepEqual(minSizeForNode(botao), [56, 56])
+  assert.deepEqual(minSizeForNode(painel), [240, 180])
+  assert.deepEqual(minSizeForNode(cofre), [220, 140])
+  // Um traço não tem piso de tipo: cai no genérico em vez de travar em 240.
+  assert.deepEqual(minSizeForNode({ content: { type: 'stroke', value: {} } }), [120, 60])
 })
 
 // ─── Monitor de recursos ──────────────────────────────────────────────────────

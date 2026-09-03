@@ -34,6 +34,7 @@ import {
   groupAt,
   groupOf
 } from './group-geometry'
+import { DEFAULT_MIN_SIZE, minSizeForNode } from './node-min-size'
 import { Minimap } from './minimap'
 import { ConnectionsLayer } from './connections-layer'
 import { ConnectionPreview, canLink } from './connection-preview'
@@ -74,7 +75,7 @@ type Interaction =
   | { kind: 'panning'; last: Point }
   | ({ kind: 'mayDrag' } & DragTargets)
   | ({ kind: 'dragging' } & DragTargets)
-  | { kind: 'resizing'; id: UUID; start: Point; frame: Rect; edge: ResizeEdge }
+  | { kind: 'resizing'; id: UUID; start: Point; frame: Rect; edge: ResizeEdge; min: [number, number] }
   | { kind: 'groupResizing'; id: UUID; start: Point; frame: Rect; edge: ResizeEdge }
   | { kind: 'marquee'; start: Point; current: Point }
   | { kind: 'placing'; start: Point }
@@ -106,8 +107,8 @@ type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
  */
 const VIEWPORT_IDLE_MS = 180
 
-const MIN_NODE_WIDTH = 120
-const MIN_NODE_HEIGHT = 60
+/** Fallback do piso de nó — o piso de verdade é o do TIPO (ver node-min-size). */
+const [MIN_NODE_WIDTH, MIN_NODE_HEIGHT] = DEFAULT_MIN_SIZE
 
 /** Piso do traço ao redimensionar — bem menor que o do nó: um rabisco pode
  * nascer pequeno de verdade, e o mínimo do nó o impediria de encolher. */
@@ -763,6 +764,10 @@ export function CanvasView(): JSX.Element {
           id: node.id,
           start: cp,
           frame: { ...node.frame },
+          // O piso é o do TIPO, medido agora e carregado no gesto: um botão
+          // encolhe até 56, um terminal para em 200. Um piso único aqui fazia o
+          // botão saltar de 88 para 120 no primeiro pixel de arrasto.
+          min: minSizeForNode(node),
           // Sem valor no atributo vale a quina de sempre — assim uma alça
           // antiga no DOM continua funcionando durante um hot reload.
           edge: (handle.dataset.resizeHandle as ResizeEdge) || 'se'
@@ -917,7 +922,14 @@ export function CanvasView(): JSX.Element {
         case 'resizing': {
           const el = nodesRef.current?.querySelector<HTMLElement>(`[data-node-id="${state.id}"]`)
           if (el) {
-            const next = resizeFrame(state.frame, state.edge, cp.x - state.start.x, cp.y - state.start.y)
+            const next = resizeFrame(
+              state.frame,
+              state.edge,
+              cp.x - state.start.x,
+              cp.y - state.start.y,
+              state.min[0],
+              state.min[1]
+            )
             // Escreve as quatro: puxar pela esquerda ou pelo topo move o nó
             // além de mudar o tamanho.
             el.style.left = `${next.x}px`
@@ -1059,7 +1071,14 @@ export function CanvasView(): JSX.Element {
         case 'resizing': {
           void store.commitFrame(
             state.id,
-            resizeFrame(state.frame, state.edge, cp.x - state.start.x, cp.y - state.start.y)
+            resizeFrame(
+              state.frame,
+              state.edge,
+              cp.x - state.start.x,
+              cp.y - state.start.y,
+              state.min[0],
+              state.min[1]
+            )
           )
           break
         }

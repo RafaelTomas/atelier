@@ -12,11 +12,20 @@ import { DEFAULT_BUTTON_COLOR } from '@shared/types'
 import { QUICK_STARTS, isArtisanCapable, presetById } from '@shared/terminal-presets'
 import { BUTTON_PRESETS } from '../button-presets'
 import { Icon, ICON_NAMES } from '../node-icons'
-import { shortenPath } from '../paths'
+import { quoteForShell, shortenPath } from '../paths'
 import { NODE_COLORS } from '../terminal-presets'
 import { useStore } from '../state/store'
 
 type Tab = 'acao' | 'aparencia'
+
+/** Verde do Android — distinto dos outros presets, sem inventar cor nova pro resto do botão. */
+const EMULATOR_COLOR = '#3DDC84'
+
+type EmulatorState =
+  | { phase: 'idle' }
+  | { phase: 'loading' }
+  | { phase: 'error'; message: string }
+  | { phase: 'picking'; emulatorPath: string; avds: string[] }
 
 interface Props {
   /** Rascunho de partida. Presente = modo edição: o Início Rápido some. */
@@ -59,7 +68,7 @@ export function ButtonDialog({
   onCancel,
   onSubmit
 }: Props): JSX.Element {
-  const { workspace, projects, selectedProjectId } = useStore()
+  const { workspace, projects, selectedProjectId, platform } = useStore()
   const editing = initial !== null
   // O que o botão vai usar quando não tem diretório próprio — a mesma ordem de
   // `buttonCwd` na store: projeto selecionado, depois workspace. Mostrar o
@@ -70,6 +79,7 @@ export function ButtonDialog({
   const [tab, setTab] = useState<Tab>('acao')
   const [draft, setDraft] = useState<ButtonConfig>(() => initial ?? emptyButtonConfig())
   const [quickId, setQuickId] = useState<string | null>(null)
+  const [emulator, setEmulator] = useState<EmulatorState>({ phase: 'idle' })
 
   const patch = (p: Partial<ButtonConfig>): void => setDraft((d) => ({ ...d, ...p }))
 
@@ -99,6 +109,48 @@ export function ButtonDialog({
       icon: preset.icon,
       color: preset.color,
       ...(nameFromPreset ? { label: preset.label } : {})
+    })
+  }
+
+  /**
+   * Ao lado do "docker compose up", mas não é um `ButtonPreset` estático: o
+   * comando depende de QUAL dispositivo virtual existe nesta máquina, então o
+   * clique busca a lista (ver `core/android/android-emulator.ts`) em vez de
+   * aplicar algo já sabido de antemão.
+   */
+  const openEmulatorPicker = async (): Promise<void> => {
+    setEmulator({ phase: 'loading' })
+    const result = await window.atelier.android.listAvds()
+    if (!result.ok) {
+      setEmulator({ phase: 'error', message: result.error })
+      return
+    }
+    if (result.avds.length === 0) {
+      setEmulator({
+        phase: 'error',
+        message: 'Nenhum dispositivo virtual encontrado. Crie um no Android Studio (Device Manager) e tente de novo.'
+      })
+      return
+    }
+    // Um dispositivo só: nada para escolher, aplica direto — o mesmo clique
+    // único que qualquer outro card do Início Rápido já dá.
+    if (result.avds.length === 1) {
+      applyEmulator(result.emulatorPath, result.avds[0])
+      return
+    }
+    setEmulator({ phase: 'picking', emulatorPath: result.emulatorPath, avds: result.avds })
+  }
+
+  const applyEmulator = (emulatorPath: string, avd: string): void => {
+    setQuickId('emulador')
+    setEmulator({ phase: 'idle' })
+    const nameFromPreset = BUTTON_PRESETS.some((p) => p.label === draft.label) || draft.label === ''
+    patch({
+      action: 'command',
+      command: `${quoteForShell(emulatorPath, platform)} -avd ${quoteForShell(avd, platform)}`,
+      icon: 'device',
+      color: EMULATOR_COLOR,
+      ...(nameFromPreset ? { label: avd } : {})
     })
   }
 
@@ -135,7 +187,37 @@ export function ButtonDialog({
                   <span>{preset.label}</span>
                 </button>
               ))}
+              {/* Não é um ButtonPreset: o comando depende de qual AVD existe
+                  nesta máquina, achado só no clique (ver openEmulatorPicker). */}
+              <button
+                type="button"
+                className={quickId === 'emulador' ? 'quick-card is-selected' : 'quick-card'}
+                onClick={() => void openEmulatorPicker()}
+              >
+                <Icon name="device" size={30} />
+                <span>{emulator.phase === 'loading' ? 'procurando…' : 'Emulador'}</span>
+              </button>
             </div>
+
+            {emulator.phase === 'error' && <p className="tab-hint">{emulator.message}</p>}
+
+            {/* Mais de um AVD instalado: um sub-quick-start só com os
+                dispositivos, no lugar de adivinhar qual o usuário quer. */}
+            {emulator.phase === 'picking' && (
+              <div className="quick-start-row is-nested">
+                {emulator.avds.map((avd) => (
+                  <button
+                    key={avd}
+                    type="button"
+                    className="quick-card"
+                    onClick={() => applyEmulator(emulator.emulatorPath, avd)}
+                  >
+                    <Icon name="device" size={24} />
+                    <span>{avd}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
         )}
 

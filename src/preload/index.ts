@@ -445,6 +445,13 @@ const api = {
       ipcRenderer.invoke('project:start-scanner', workspaceId, position, command)
   },
 
+  /** Os dispositivos virtuais do Android Studio, pro diálogo de "Emulador" da dock. */
+  android: {
+    listAvds: (): Promise<
+      { ok: true; emulatorPath: string; avds: string[] } | { ok: false; error: string }
+    > => ipcRenderer.invoke('android:list-avds')
+  },
+
   /**
    * Git. Todo método recebe um caminho dentro do repositório — o processo
    * principal resolve a raiz e confere a allowlist; o renderer não escolhe

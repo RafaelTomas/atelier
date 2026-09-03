@@ -137,6 +137,10 @@
 /* Início rápido */
 
 .quick-start-row { display: flex; justify-content: space-between; gap: 6px; }
+/* O sub-Início Rápido dos AVDs, quando há mais de um dispositivo pra escolher
+   (ver button-dialog.tsx). Recuado, não centralizado como a linha de cima:
+   é uma escolha DENTRO do card "Emulador", não outra fileira de mesmo nível. */
+.quick-start-row.is-nested { justify-content: flex-start; flex-wrap: wrap; margin-top: 6px; }
 
 .quick-card {
   flex: 1; min-width: 0;

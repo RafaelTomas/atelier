@@ -58,7 +58,11 @@ export const ICON_NAMES = [
   'pulse',
   // Entrou com o nó de relógio: mostrador com dois ponteiros, o desenho que se
   // lê como "tempo" sem rótulo, nos quatro modos do nó.
-  'clock'
+  'clock',
+  // Entrou com o botão de Emulador: um aparelho, sem tentar desenhar o
+  // robozinho do Android — o traço fica genérico de propósito, e serve tanto
+  // pra Android quanto pra qualquer outro emulador que o botão venha a abrir.
+  'device'
 ] as const
 
 export type IconName = (typeof ICON_NAMES)[number]
@@ -82,6 +86,12 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <circle cx="12" cy="12" r="8.5" />
       <path d="M12 7v5l3.5 2" />
+    </>
+  ),
+  device: (
+    <>
+      <rect x="7" y="3" width="10" height="18" rx="2" />
+      <path d="M11 18h2" />
     </>
   ),
   sparkle: <path d="M12 3.2 13.8 8.4 19 10.2 13.8 12 12 17.2 10.2 12 5 10.2 10.2 8.4z" />,

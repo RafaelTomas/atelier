@@ -25,6 +25,7 @@ import type {
   UUID,
   WorkspacePayload
 } from '@shared/types'
+import { listAvds } from '../core/android/android-emulator'
 import { claudeAccounts } from '../core/claude/accounts'
 import { codexTelemetry } from '../core/codex/codex-telemetry'
 import { Constants } from '../core/constants'
@@ -1229,6 +1230,13 @@ export function registerIPC(): void {
       .filter((p) => !p.startsWith('/') && !p.startsWith('\\') && !/(^|[\\/])\.\.([\\/]|$)/.test(p))
       .slice(0, 2000)
   }
+
+  /**
+   * Os AVDs do Android Studio, para o diálogo de "Emulador" da dock escolher
+   * um. Não pede caminho — o SDK é achado sozinho (ver android-emulator.ts) —
+   * então não passa pela portaria de `allowedRoots`: não é leitura de projeto.
+   */
+  ipcMain.handle('android:list-avds', async () => listAvds())
 
   ipcMain.handle('git:status', async (_e, path: string): Promise<GitStatus | { error: string }> => {
     const allowed = await resolveAllowedPath(path, allowedRoots())

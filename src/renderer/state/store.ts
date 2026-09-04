@@ -222,6 +222,13 @@ export interface AppSnapshot {
   placing: Placement | null
   /** Pedido pendente de abrir a cascata da rail. A rail consome e zera. */
   railRequest: RailRequest | null
+  /**
+   * Pedido pendente de foco num terminal — nasce quando um caminho é
+   * arrastado/colado nele por fora do DOM (o drop na árvore de arquivos, por
+   * exemplo), gesto que entrega o texto ao PTY sem tocar no `document.activeElement`.
+   * Sem isto o foco do teclado fica onde o arrasto começou. O nó consome e zera.
+   */
+  focusTerminalRequest: UUID | null
   /** Tema escolhido — espelha preferences.theme. */
   theme: ThemeMode
   /** Traçado das conexões — espelha preferences.ropeStyle. */
@@ -417,6 +424,7 @@ const initial: AppSnapshot = {
   connectingFrom: null,
   placing: null,
   railRequest: null,
+  focusTerminalRequest: null,
   theme: 'system',
   ropeStyle: 'dotted',
   ropeThickness: 1,
@@ -954,6 +962,21 @@ class Store {
       return
     }
     this.set({ selection: [nodeId] })
+    this.requestTerminalFocus(nodeId)
+  }
+
+  /**
+   * Pede que o nó do terminal chame `term.focus()` — usado depois de um write
+   * que chegou por fora do DOM dele (drop de caminho/imagem), onde o foco do
+   * teclado não segue sozinho.
+   */
+  requestTerminalFocus(nodeId: UUID): void {
+    this.set({ focusTerminalRequest: nodeId })
+  }
+
+  /** O nó do terminal consome o pedido e zera, senão o mesmo id nunca refocaria de novo. */
+  consumeTerminalFocusRequest(nodeId: UUID): void {
+    if (this.state.focusTerminalRequest === nodeId) this.set({ focusTerminalRequest: null })
   }
 
   setEditorDirty(nodeId: UUID, dirty: boolean): void {

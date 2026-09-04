@@ -34,6 +34,7 @@ import {
   groupAt,
   groupOf
 } from './group-geometry'
+import { DEFAULT_MIN_SIZE, minSizeForNode } from './node-min-size'
 import { Minimap } from './minimap'
 import { ConnectionsLayer } from './connections-layer'
 import { ConnectionPreview, canLink } from './connection-preview'
@@ -74,7 +75,7 @@ type Interaction =
   | { kind: 'panning'; last: Point }
   | ({ kind: 'mayDrag' } & DragTargets)
   | ({ kind: 'dragging' } & DragTargets)
-  | { kind: 'resizing'; id: UUID; start: Point; frame: Rect; edge: ResizeEdge }
+  | { kind: 'resizing'; id: UUID; start: Point; frame: Rect; edge: ResizeEdge; min: [number, number] }
   | { kind: 'groupResizing'; id: UUID; start: Point; frame: Rect; edge: ResizeEdge }
   | { kind: 'marquee'; start: Point; current: Point }
   | { kind: 'placing'; start: Point }
@@ -106,8 +107,8 @@ type ResizeEdge = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
  */
 const VIEWPORT_IDLE_MS = 180
 
-const MIN_NODE_WIDTH = 120
-const MIN_NODE_HEIGHT = 60
+/** Fallback do piso de nó — o piso de verdade é o do TIPO (ver node-min-size). */
+const [MIN_NODE_WIDTH, MIN_NODE_HEIGHT] = DEFAULT_MIN_SIZE
 
 /** Piso do traço ao redimensionar — bem menor que o do nó: um rabisco pode
  * nascer pequeno de verdade, e o mínimo do nó o impediria de encolher. */
@@ -275,6 +276,69 @@ export function CanvasView(): JSX.Element {
   }, [workspace?.id])
 
   useEffect(() => portalWake.subscribe(() => setWakeTick((t) => t + 1)), [])
+
+  // Botão do meio SEMPRE pana, nunca cola — e nunca chega a ser visto pelo
+  // programa dentro do terminal.
+  //
+  // Duas fontes de colagem indevida, as duas nascendo do mesmo evento chegar
+  // até o xterm:
+  //
+  //  1. O xterm tem um `mousedown` interno no elemento do terminal que chama
+  //     `this.focus()` para QUALQUER botão, sem checar qual foi. Com o campo
+  //     focado, o Chromium/X11 acha um alvo editável no instante em que o
+  //     botão do meio solta e cola a seleção primária ali — não adianta
+  //     `preventDefault`, porque o foco não veio do default do navegador,
+  //     veio de uma chamada de JS.
+  //  2. Quando o programa dentro do PTY ativa mouse tracking (a CLI de
+  //     agente faz isso, um shell puro não), o MESMO `mousedown` do xterm
+  //     REPORTA o clique pro processo via escape sequence — e é o próprio
+  //     programa quem decide colar (normalmente via OSC 52), sem qualquer
+  //     relação com o clipboard do navegador. Isto é o que explicava colar
+  //     "no chat" (a CLI) mas não num shell comum.
+  //
+  // A única defesa que cobre as duas é o clique nunca alcançar o xterm: um
+  // listener nativo em CAPTURA no host, uma camada acima de qualquer nó, que
+  // barra a propagação do `mousedown` de botão do meio ali mesmo e assume o
+  // início do pan na mão (é por isso que o branch de botão do meio saiu do
+  // `beginInteraction` — aquele roda tarde demais, na fase de bolha).
+  //
+  // O `mouseup`/`auxclick` NÃO tem stopPropagation: o fim do pan é decidido
+  // por um listener de `mouseup` na `window` (mais abaixo, fora deste efeito)
+  // que precisa continuar recebendo o evento normalmente.
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+    let blurredNodeId: string | null = null
+    const onMouseDown = (e: MouseEvent): void => {
+      if (e.button !== 1) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      interaction.current = { kind: 'panning', last: screenPoint(e) }
+      markGesture()
+      const active = document.activeElement as HTMLElement | null
+      if (active && host.contains(active) && active !== document.body) {
+        blurredNodeId = active.closest('[data-node-id]')?.getAttribute('data-node-id') ?? null
+        active.blur()
+      }
+    }
+    const onMouseUp = (e: MouseEvent): void => {
+      if (e.button !== 1) return
+      e.preventDefault()
+      if (blurredNodeId) store.requestTerminalFocus(blurredNodeId as UUID)
+      blurredNodeId = null
+    }
+    const onAux = (e: MouseEvent): void => {
+      if (e.button === 1) e.preventDefault()
+    }
+    host.addEventListener('mousedown', onMouseDown, { capture: true })
+    host.addEventListener('mouseup', onMouseUp, { capture: true })
+    host.addEventListener('auxclick', onAux, { capture: true })
+    return () => {
+      host.removeEventListener('mousedown', onMouseDown, { capture: true })
+      host.removeEventListener('mouseup', onMouseUp, { capture: true })
+      host.removeEventListener('auxclick', onAux, { capture: true })
+    }
+  }, [])
 
   // Colar imagem no canvas (Ctrl/Cmd+V). O terminal tem o próprio handler em
   // captura e chama stopPropagation, então uma colagem destinada a um agente
@@ -515,6 +579,7 @@ export function CanvasView(): JSX.Element {
         void osImages[0].arrayBuffer().then(async (buf) => {
           const r = await window.atelier.terminal.pasteImage(under.id, buf, osImages[0].type)
           if ('error' in r) store.showNotice(r.error)
+          else store.requestTerminalFocus(under.id)
         })
         return
       }
@@ -603,7 +668,11 @@ export function CanvasView(): JSX.Element {
       interaction.current = { kind: 'panning', last: screenPoint(e) }
       return
     }
-    if (e.button === 1 || (e.button === 0 && e.altKey)) {
+    // Botão do meio puro NÃO passa por aqui: o listener nativo em captura,
+    // logo abaixo, já iniciou o pan e barrou o evento antes que chegasse a
+    // este handler — ver o comentário grande perto dele.
+    if (e.button === 0 && e.altKey) {
+      e.preventDefault()
       interaction.current = { kind: 'panning', last: screenPoint(e) }
       return
     }
@@ -763,6 +832,10 @@ export function CanvasView(): JSX.Element {
           id: node.id,
           start: cp,
           frame: { ...node.frame },
+          // O piso é o do TIPO, medido agora e carregado no gesto: um botão
+          // encolhe até 56, um terminal para em 200. Um piso único aqui fazia o
+          // botão saltar de 88 para 120 no primeiro pixel de arrasto.
+          min: minSizeForNode(node),
           // Sem valor no atributo vale a quina de sempre — assim uma alça
           // antiga no DOM continua funcionando durante um hot reload.
           edge: (handle.dataset.resizeHandle as ResizeEdge) || 'se'
@@ -917,7 +990,14 @@ export function CanvasView(): JSX.Element {
         case 'resizing': {
           const el = nodesRef.current?.querySelector<HTMLElement>(`[data-node-id="${state.id}"]`)
           if (el) {
-            const next = resizeFrame(state.frame, state.edge, cp.x - state.start.x, cp.y - state.start.y)
+            const next = resizeFrame(
+              state.frame,
+              state.edge,
+              cp.x - state.start.x,
+              cp.y - state.start.y,
+              state.min[0],
+              state.min[1]
+            )
             // Escreve as quatro: puxar pela esquerda ou pelo topo move o nó
             // além de mudar o tamanho.
             el.style.left = `${next.x}px`
@@ -1059,7 +1139,14 @@ export function CanvasView(): JSX.Element {
         case 'resizing': {
           void store.commitFrame(
             state.id,
-            resizeFrame(state.frame, state.edge, cp.x - state.start.x, cp.y - state.start.y)
+            resizeFrame(
+              state.frame,
+              state.edge,
+              cp.x - state.start.x,
+              cp.y - state.start.y,
+              state.min[0],
+              state.min[1]
+            )
           )
           break
         }

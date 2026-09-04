@@ -41,7 +41,13 @@ import type {
 import type { DataTablePayload } from '@shared/data-table'
 import type { RemovedNodeSnapshot } from '@shared/node-undo'
 
-/** O que a UI manda ao gravar uma chave. `value` sobe; nunca desce de volta. */
+/**
+ * O que a UI manda ao gravar uma chave. `value` sobe; nunca desce de volta.
+ *
+ * Numa EDIÇÃO o valor pode vir vazio: o formulário não pré-preenche o segredo
+ * (imprimi-lo na tela seria revelá-lo sem pedido), e vazio quer dizer "mudei só
+ * a ficha". Chave nova sem valor é recusada no main.
+ */
 interface VaultEntryInput {
   key: string
   value: string

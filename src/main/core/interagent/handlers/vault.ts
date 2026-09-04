@@ -121,7 +121,9 @@ async function setValue(args: string[], tid: UUID): Promise<string> {
     `Stored ${result.key} in '${result.vault.label}'.\n` +
     'It was created inert: no origin (so it cannot be typed by portal login) and not in the ' +
     'environment of any terminal. Ask the user to set those in the vault node if the key needs them.\n' +
-    'Creating is the only write you have — you cannot change or delete a key.'
+    'Creating is the only write you have — you cannot change or delete a key. If the value ' +
+    'you stored is a placeholder, say so: the user swaps the secret with the pencil button on ' +
+    'the key, keeping the origin, the note and the env flag.'
   )
 }
 

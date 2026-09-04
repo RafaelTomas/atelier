@@ -421,7 +421,10 @@ eval "$(atelier vault env --export)"
 
 \`set\` CREATES a key, and that is the only write you have. It refuses a key that
 already exists — you cannot change a value, and you cannot delete one; both are
-the user's action in the node. A key you create is inert: no origin, so
+the user's action in the node, where the pencil button on a key edits it and
+swapping the secret keeps the origin, the note and the env flag. So the useful
+move is to create the key with a placeholder value and tell the user to swap the
+secret there — never to ask them for the secret in your terminal. A key you create is inert: no origin, so
 \`portal login\` will not type it anywhere, and out of every terminal's
 environment. Ask the user to turn those on if the key needs them. Every write is
 in the vault's access trail.

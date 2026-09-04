@@ -30,6 +30,7 @@ import {
   IconText
 } from './icons'
 import { GROUP_MIN_HEIGHT, GROUP_MIN_WIDTH, rectContains } from './canvas/group-geometry'
+import { MIN_SIZE } from './canvas/node-min-size'
 import { rectCenter } from './canvas/viewport'
 import { HOME_URL } from './nodes/portal-node'
 import { truncateStart } from './paths'
@@ -40,27 +41,6 @@ import { store, useStore } from './state/store'
 import { Icon } from './node-icons'
 import { PDF_NODE_SIZE } from './pdf-viewer'
 
-/**
- * Piso por tipo, em pontos de canvas. Mora aqui, e não só no processo
- * principal, porque é durante o arrasto que ele precisa aparecer: o retângulo
- * para de encolher e o usuário vê o tamanho que vai receber de fato.
- */
-const MIN_SIZE: Record<string, [number, number]> = {
-  terminal: [200, 100],
-  note: [120, 80],
-  portal: [240, 180],
-  fileTree: [180, 140],
-  secretVault: [220, 140],
-  text: [80, 32],
-  // Espelha Constants.buttonMin* — o main aplica o mesmo piso ao criar.
-  button: [56, 56],
-  // Espelha Constants.widgetMin*: o monitor nasce menor que o painel padrão,
-  // mas o PISO continua o do widget — abaixo disso o bloco IA não cabe.
-  widget: [240, 180],
-  // Espelha Constants.clockMin* — o relógio nasce compacto e tem piso próprio,
-  // bem abaixo do widget: mostrador, abas e três botões cabem em 140×100.
-  clock: [140, 100]
-}
 
 interface MenuItem {
   id: string

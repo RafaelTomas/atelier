@@ -109,11 +109,20 @@ export function TerminalNode({
   const hostRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const [frozen, setFrozen] = useState(viewport.zoom < FREEZE_ZOOM)
-  const { theme, terminalEpoch } = useStore()
+  const { theme, terminalEpoch, focusTerminalRequest } = useStore()
   /** Sobe a cada recarregar: derruba o xterm e faz o PTY nascer de novo. */
   const epoch = terminalEpoch[node.id] ?? 0
 
   useEffect(() => viewport.subscribe((v) => setFrozen(v.zoom < FREEZE_ZOOM)), [])
+
+  // Texto/imagem entregue por fora do DOM (drop da árvore de arquivos) não move
+  // o foco do teclado sozinho — sem isto ele fica preso em quem começou o
+  // arrasto. O nó consome o pedido para não reafocar de novo à toa.
+  useEffect(() => {
+    if (focusTerminalRequest !== node.id) return
+    termRef.current?.focus()
+    store.consumeTerminalFocusRequest(node.id)
+  }, [focusTerminalRequest, node.id])
 
   // Troca de tema com o terminal já montado: repinta sem recriar o PTY.
   // No modo 'system' o valor da store não muda quando o SO alterna, então o

@@ -106,7 +106,8 @@ export function isValidKeyName(name: string): boolean {
  * `atelier vault set`: um agente pode acrescentar um segredo, jamais trocar o
  * valor de um que já está lá. Sobrescrever seria editar sem deixar rastro do
  * que havia antes — o usuário continuaria vendo o mesmo nome na lista, com
- * outro segredo embaixo. Apagar e recriar é ação dele, no nó.
+ * outro segredo embaixo. Trocar o valor é ação dele, no nó — é o que o botão
+ * de editar faz (ver `withSavedEntry`).
  *
  * A ordenação por nome é a mesma do `vault:set` do bridge: a lista do nó não
  * pode depender de quem escreveu primeiro.
@@ -114,6 +115,66 @@ export function isValidKeyName(name: string): boolean {
 export function withNewEntry(file: VaultFile, entry: VaultEntry): VaultFile | null {
   if (file.entries.some((e) => e.key === entry.key)) return null
   const entries = [...file.entries, entry].sort((a, b) => a.key.localeCompare(b.key))
+  return { ...file, entries }
+}
+
+/** O que a UI manda ao gravar — criando uma chave ou editando a que existe. */
+export interface VaultEntryFields {
+  key: string
+  /** Vazio numa EDIÇÃO significa "não mexi no segredo", não "apague-o". */
+  value: string
+  origin: string | null
+  inEnv: boolean
+  note: string | null
+}
+
+/**
+ * A entrada gravada pelo usuário — criar OU editar, no mesmo caminho.
+ *
+ * A edição existe porque o `atelier vault set` deixa o agente criar a chave com
+ * o segredo dele: o usuário precisa poder chegar depois e trocar só o valor,
+ * sem apagar a entrada e redigitar origem, nota e `inEnv`.
+ *
+ * Três decisões moram aqui, e nenhuma é detalhe:
+ *
+ *  • VALOR VAZIO NUMA EDIÇÃO PRESERVA O SEGREDO. O campo do formulário nasce em
+ *    branco — mostrar o valor atual num input seria imprimir o segredo na tela
+ *    sem ninguém pedir —, e em branco ele quer dizer "mudei só a ficha".
+ *  • TROCAR O VALOR ZERA A PROCEDÊNCIA. `source` volta a 'user' e `updatedAt` é
+ *    agora: o segredo que o agente viu deixou de existir, e a marca de troca no
+ *    nó tem de sumir. Mexer só na ficha NÃO mexe em nenhum dos dois — carimbar
+ *    a data ao editar uma nota rejuvenesceria um segredo de dois anos.
+ *  • CHAVE NOVA SEM VALOR É RECUSADA (`null`). Não há segredo anterior para
+ *    preservar, e uma entrada vazia mascararia o scrollback inteiro
+ *    (ver `maskSecrets`).
+ *
+ * A ordenação por nome é a mesma do `withNewEntry`: a lista do nó não pode
+ * depender de quem escreveu primeiro.
+ */
+export function withSavedEntry(
+  file: VaultFile,
+  fields: VaultEntryFields,
+  now: Date = new Date()
+): VaultFile | null {
+  const previous = file.entries.find((e) => e.key === fields.key) ?? null
+  const changedValue = fields.value !== ''
+  if (!changedValue && !previous) return null
+
+  const entry: VaultEntry = {
+    key: fields.key,
+    value: changedValue ? fields.value : (previous as VaultEntry).value,
+    origin: fields.origin,
+    inEnv: fields.inEnv,
+    note: fields.note,
+    updatedAt:
+      changedValue || !previous
+        ? now.toISOString().replace(/\.\d{3}Z$/, 'Z')
+        : previous.updatedAt,
+    source: changedValue || !previous ? 'user' : previous.source
+  }
+  const entries = [...file.entries.filter((e) => e.key !== entry.key), entry].sort((a, b) =>
+    a.key.localeCompare(b.key)
+  )
   return { ...file, entries }
 }
 

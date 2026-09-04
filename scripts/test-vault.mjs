@@ -49,7 +49,7 @@ await esbuild.build({
 
 const mod = await import(pathToFileURL(outfile).href)
 const { maskSecrets, isValidKeyName, sameOrigin, originOf, SECRET_MASK } = mod
-const { decodeVaultFile, emptyVaultFile, withNewEntry } = mod
+const { decodeVaultFile, emptyVaultFile, withNewEntry, withSavedEntry } = mod
 const { rotationReason, VAULT_ROTATE_AFTER_DAYS } = mod
 const { connectionKindForTypes, CONNECTABLE_TYPES } = mod
 const { decodeWorkspaceDocument, encodeWorkspaceDocument } = mod
@@ -263,6 +263,56 @@ test('version e kdf sobrevivem à escrita — o arquivo continua legível', () =
   const next = withNewEntry(emptyVaultFile(), entry('K'))
   assert.equal(next.version, 1)
   assert.equal(next.kdf, null)
+})
+
+// ─── withSavedEntry: a escrita do usuário, criando e editando ────────────────
+
+function fields(key, over = {}) {
+  return { key, value: 'novo', origin: null, inEnv: false, note: null, ...over }
+}
+
+test('editar sem digitar valor PRESERVA o segredo — o campo em branco não apaga', () => {
+  const file = { ...emptyVaultFile(), entries: [entry('API_KEY', { value: 'segredo' })] }
+  const next = withSavedEntry(file, fields('API_KEY', { value: '', inEnv: true }))
+  assert.equal(next.entries.length, 1)
+  assert.equal(next.entries[0].value, 'segredo')
+  assert.equal(next.entries[0].inEnv, true)
+})
+
+test('editar só a ficha NÃO rejuvenesce o segredo nem apaga a procedência', () => {
+  const file = {
+    ...emptyVaultFile(),
+    entries: [entry('API_KEY', { source: 'agent', updatedAt: '2020-01-01T00:00:00Z' })]
+  }
+  const next = withSavedEntry(file, fields('API_KEY', { value: '', note: 'a nota' }))
+  assert.equal(next.entries[0].updatedAt, '2020-01-01T00:00:00Z')
+  assert.equal(next.entries[0].source, 'agent')
+  assert.equal(next.entries[0].note, 'a nota')
+})
+
+test('trocar o valor devolve a chave ao usuário e carimba a data', () => {
+  const file = {
+    ...emptyVaultFile(),
+    entries: [entry('API_KEY', { source: 'agent', value: 'o do agente' })]
+  }
+  const quando = new Date('2026-09-03T10:20:30.456Z')
+  const next = withSavedEntry(file, fields('API_KEY', { value: 'o do usuário' }), quando)
+  assert.equal(next.entries[0].value, 'o do usuário')
+  assert.equal(next.entries[0].source, 'user')
+  assert.equal(next.entries[0].updatedAt, '2026-09-03T10:20:30Z')
+  assert.equal(rotationReason(next.entries[0], quando.getTime()), null)
+})
+
+test('chave NOVA sem valor é recusada — não há segredo anterior a preservar', () => {
+  assert.equal(withSavedEntry(emptyVaultFile(), fields('API_KEY', { value: '' })), null)
+})
+
+test('a edição não duplica a chave e não move a lista de lugar', () => {
+  let file = emptyVaultFile()
+  for (const k of ['ALFA', 'MEIO', 'ZETA']) file = withNewEntry(file, entry(k))
+  const next = withSavedEntry(file, fields('MEIO', { value: 'outro' }))
+  assert.deepEqual(next.entries.map((e) => e.key), ['ALFA', 'MEIO', 'ZETA'])
+  assert.equal(file.entries[1].value, 'v')
 })
 
 // ─── rotationReason: quando o nó pede a troca ────────────────────────────────

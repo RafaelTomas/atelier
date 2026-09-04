@@ -1390,18 +1390,35 @@ export function CanvasView(): JSX.Element {
    * no RÓTULO ele renomeia (é o texto que se quer trocar); no resto da faixa
    * ele enquadra o grupo, que é o "focar" do pedido. Sem essa divisão, o gesto
    * mais frequente — enquadrar — abriria um campo de texto por engano toda vez.
+   *
+   * Duplo-clique no vazio do canvas alterna select↔pan — o mesmo par que o
+   * botão da dock alterna, só sem soltar o mouse para ir buscá-lo. Só entra
+   * nesse par: com outra ferramenta ativa (desenho, caneta, borracha) o
+   * duplo-clique não faz nada, pra não interromper o que ela já faz no clique
+   * único.
    */
   const onDoubleClick = (e: React.MouseEvent): void => {
     const target = e.target as HTMLElement
     const band = target.closest('[data-group-title]') as HTMLElement | null
     const id = band?.dataset.groupTitle as UUID | undefined
-    if (!id) return
-    if (target.closest('.group-title-text')) {
-      setEditingGroup(id)
+    if (id) {
+      if (target.closest('.group-title-text')) {
+        setEditingGroup(id)
+        return
+      }
+      const group = groups.find((g) => g.id === id)
+      if (group) viewport.fit(group.frame)
       return
     }
-    const group = groups.find((g) => g.id === id)
-    if (group) viewport.fit(group.frame)
+
+    if (tool !== 'select' && tool !== 'pan') return
+    const interactive = target.closest(
+      '[data-node-id], [data-node-interactive], [data-resize-handle], [data-drawing-handle], [data-group-handle], [data-group-id]'
+    )
+    if (interactive) return
+    if (hitDrawing(viewport.toCanvas(screenPoint(e)))) return
+
+    store.setTool(tool === 'pan' ? 'select' : 'pan')
   }
 
   // Um portal acordado pelo agente renderiza mesmo fora da viewport: sem isso a

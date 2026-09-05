@@ -1828,6 +1828,63 @@ export interface FsEntry {
   isSymlink: boolean
 }
 
+// ─── Busca na árvore ─────────────────────────────────────────────────────────
+
+/**
+ * O que o usuário digitou e como quer que seja interpretado.
+ *
+ * Os três interruptores são os do VS Code (`Aa`, `ab|`, `.*`), porque é o
+ * vocabulário que quem usa este app já tem no dedo.
+ */
+export interface FileSearchOptions {
+  query: string
+  /** `Aa` — sem isto, `Store` acha `store`. */
+  caseSensitive: boolean
+  /** `ab|` — ignorado quando o termo começa em símbolo, onde `\b` não vale. */
+  wholeWord: boolean
+  /** `.*` — o termo é expressão regular. Expressão inválida vira `bad-regex`. */
+  regex: boolean
+}
+
+/** Nomes de arquivo e pasta que casaram, para a árvore filtrada. */
+export interface FileSearchNamesResult {
+  entries: FsEntry[]
+  /** Por que a varredura parou antes do fim. null = varreu tudo. */
+  stopped: 'results' | 'files' | 'time' | null
+}
+
+/**
+ * Um casamento dentro de um arquivo.
+ *
+ * `text` é a linha JÁ cortada no teto de caracteres, e `column` é o começo do
+ * casamento DENTRO desse texto cortado — não na linha original. Quem desenha o
+ * realce não precisa saber que houve corte.
+ */
+export interface FileSearchHit {
+  /** 1-based, como todo editor conta linha. */
+  line: number
+  text: string
+  column: number
+  length: number
+}
+
+export interface FileSearchFileHits {
+  path: string
+  name: string
+  hits: FileSearchHit[]
+  /** Casamentos neste arquivo que não couberam no teto. */
+  more: number
+}
+
+export interface FileSearchContentResult {
+  files: FileSearchFileHits[]
+  /** Casamentos devolvidos — não os que existem, os que couberam. */
+  total: number
+  /** Arquivos não lidos: binário, grande demais, sem permissão. */
+  skipped: number
+  stopped: 'results' | 'files' | 'time' | null
+}
+
 // ─── Git ─────────────────────────────────────────────────────────────────────
 
 /**

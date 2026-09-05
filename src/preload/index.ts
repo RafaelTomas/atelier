@@ -11,6 +11,9 @@ import type {
   AgentUsage,
   BootInfo,
   FileOpError,
+  FileSearchContentResult,
+  FileSearchNamesResult,
+  FileSearchOptions,
   CanvasNode,
   ClaudeAccount,
   ClaudeAccountInfo,
@@ -505,6 +508,23 @@ const api = {
     ): Promise<{ entries: FsEntry[]; truncated: number } | { error: string }> =>
       ipcRenderer.invoke('fs:list-dir', path),
     reveal: (path: string): Promise<boolean> => ipcRenderer.invoke('fs:reveal', path),
+    /**
+     * Busca por NOME de arquivo e pasta, na árvore inteira sob a raiz.
+     *
+     * Varre o disco, não filtra o que já está na tela: é o que permite achar
+     * `state/store.ts` sem antes abrir `src` e `renderer` na mão.
+     */
+    searchNames: (
+      path: string,
+      options: FileSearchOptions
+    ): Promise<FileSearchNamesResult | { error: string }> =>
+      ipcRenderer.invoke('fs:search-names', path, options),
+    /** Busca DENTRO dos arquivos, agrupada por arquivo. */
+    searchContent: (
+      path: string,
+      options: FileSearchOptions
+    ): Promise<FileSearchContentResult | { error: string }> =>
+      ipcRenderer.invoke('fs:search-content', path, options),
     /** URL `file://` do caminho — o que o <webview> de um PDF precisa. */
     fileUrl: (path: string): Promise<{ url: string } | { error: FileOpError }> =>
       ipcRenderer.invoke('fs:file-url', path),

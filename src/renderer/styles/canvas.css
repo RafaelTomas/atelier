@@ -755,6 +755,24 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
+/* Fantasma do encaixe: onde e com que tamanho o nó arrastado vai parar ao ser
+   solto ao lado de outro.
+
+   Mora DENTRO da .nodes-layer (coordenadas de canvas), então precisa de um andar
+   acima dos nós — senão encaixar contra um vizinho grande esconderia a
+   pré-visualização atrás dele. Fica um degrau abaixo do véu do foco
+   (FOCUS_Z - 1 em focus-frame.ts), que é o teto da camada.
+
+   Tracejado como o .is-placement pelo mesmo motivo: os dois dizem "isto ainda
+   não existe". O raio é o do nó, para o retângulo ler como o lugar dele. */
+.dock-ghost {
+  position: absolute; pointer-events: none;
+  z-index: 999998;
+  border: 2px dashed var(--accent);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
 /* Medida da área, no canto de dentro: o usuário vê o tamanho que vai receber —
    inclusive quando o piso do tipo segura o retângulo. */
 .placement-size {

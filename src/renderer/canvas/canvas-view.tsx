@@ -37,6 +37,7 @@ import {
 import { FOCUS_Z, focusFrame } from './focus-frame'
 import { enterFocus, exitFocus } from './focus-mode'
 import { DEFAULT_MIN_SIZE, minSizeForNode } from './node-min-size'
+import { SNAP_RANGE, type DockSnap, dockSnapFor } from './dock-snap'
 import { Minimap } from './minimap'
 import { ConnectionsLayer } from './connections-layer'
 import { ConnectionPreview, canLink } from './connection-preview'
@@ -236,6 +237,15 @@ export function CanvasView(): JSX.Element {
    * do React ela re-renderizaria o canvas a cada pixel do gesto.
    */
   const candidateGroup = useRef<UUID | null>(null)
+  /**
+   * Encaixe pendente do arrasto, e o fantasma que o mostra.
+   *
+   * Pelo mesmo motivo do `candidateGroup`: a pré-visualização é escrita no DOM
+   * durante o `mousemove`, e um `setState` a 60fps re-renderizaria a árvore de
+   * nós inteira com o dedo ainda no botão do mouse.
+   */
+  const dockSnap = useRef<DockSnap | null>(null)
+  const ghostRef = useRef<HTMLDivElement>(null)
   /** Espaço segurado: o canvas vira mão e qualquer arrasto é pan. */
   const [spacePan, setSpacePan] = useState(false)
   /** Espaço solto no meio do arrasto — a mão fica até o mouseup. */
@@ -940,6 +950,53 @@ export function CanvasView(): JSX.Element {
       }
     }
 
+    /** Apaga o fantasma e esquece o encaixe. Idempotente, e chamado em toda
+     * saída do gesto — um fantasma esquecido na tela é pior que nenhum. */
+    const clearSnap = (): void => {
+      dockSnap.current = null
+      const ghost = ghostRef.current
+      if (ghost) ghost.hidden = true
+    }
+
+    /**
+     * Procura o encaixe e desenha o fantasma onde o nó vai parar.
+     *
+     * Só com UM nó na mão: com vários selecionados não existe "o" nó que se
+     * ajusta ao vizinho, e um fantasma sobre um deles esconderia o que
+     * aconteceria com os outros. Arrastar a moldura de um grupo tampouco entra
+     * — lá quem anda é o retângulo, e os membros vão de carona.
+     */
+    const previewSnap = (state: DragTargets, dx: number, dy: number): void => {
+      if (state.ids.length !== 1 || state.group) return clearSnap()
+      const id = state.ids[0]
+      const start = state.frames.get(id)
+      const node = nodes.find((n) => n.id === id)
+      if (!start || !node) return clearSnap()
+
+      const moving = { ...start, x: start.x + dx, y: start.y + dy }
+      const candidates = nodes
+        .filter((n) => n.id !== id && !hiddenNodes.has(n.id))
+        .map((n) => ({ id: n.id, frame: n.frame }))
+      // A zona vale em pixels de TELA: dividir pelo zoom é o que faz a atração
+      // ter o mesmo tamanho na mão com o canvas afastado ou de perto.
+      const snap = dockSnapFor(moving, minSizeForNode(node), candidates, SNAP_RANGE / viewport.zoom)
+      dockSnap.current = snap
+
+      const ghost = ghostRef.current
+      if (!ghost) return
+      if (!snap) {
+        ghost.hidden = true
+        return
+      }
+      // Coordenadas de CANVAS direto: o fantasma mora dentro da .nodes-layer,
+      // que já carrega o transform do viewport.
+      ghost.style.left = `${snap.frame.x}px`
+      ghost.style.top = `${snap.frame.y}px`
+      ghost.style.width = `${snap.frame.width}px`
+      ghost.style.height = `${snap.frame.height}px`
+      ghost.hidden = false
+    }
+
     const onMove = (e: MouseEvent): void => {
       const state = interaction.current
       if (state.kind === 'idle') return
@@ -994,6 +1051,7 @@ export function CanvasView(): JSX.Element {
           } else {
             highlightCandidate(state, dx, dy)
           }
+          previewSnap(state, dx, dy)
           break
         }
         case 'groupResizing': {
@@ -1128,13 +1186,30 @@ export function CanvasView(): JSX.Element {
           const dx = cp.x - state.start.x
           const dy = cp.y - state.start.y
 
+          // O encaixe SUBSTITUI o translado: o fantasma prometeu um lugar e um
+          // tamanho, e soltar tem de entregar exatamente o que ele mostrava.
+          // Ele só existe com um nó na mão (ver previewSnap), então não há
+          // ambiguidade sobre a quem o frame pertence.
+          //
+          // Recalculado aqui com a posição de SOLTAR, e não lido do último
+          // mousemove: o `mouseup` chega numa coordenada própria, e decidir por
+          // um estado de um frame atrás é o caminho para encaixar quando o
+          // fantasma já tinha sumido.
+          previewSnap(state, dx, dy)
+          const snapped = dockSnap.current
+          clearSnap()
+
           const entries: { nodeId: UUID; frame: Rect }[] = []
           for (const id of state.ids) {
             const el = nodesRef.current?.querySelector<HTMLElement>(`[data-node-id="${id}"]`)
             if (el) el.style.transform = ''
             liveFrames.current.delete(id)
             const frame = state.frames.get(id)
-            if (frame) entries.push({ nodeId: id, frame: { ...frame, x: frame.x + dx, y: frame.y + dy } })
+            if (!frame) continue
+            entries.push({
+              nodeId: id,
+              frame: snapped ? snapped.frame : { ...frame, x: frame.x + dx, y: frame.y + dy }
+            })
           }
           // UM commit para a seleção inteira: N chamadas seriam N idas ao main
           // e N notificações da store, com o usuário já parado.
@@ -1755,6 +1830,13 @@ export function CanvasView(): JSX.Element {
       )}
 
       <div ref={nodesRef} className="nodes-layer">
+        {/* Fantasma do encaixe: onde e com que tamanho o nó arrastado vai
+            parar. Fica SEMPRE montado e some pelo atributo `hidden` — montar e
+            desmontar por estado do React poria uma re-renderização da árvore de
+            nós no caminho do mousemove, que é justamente o que este arquivo
+            evita. Dentro da .nodes-layer para receber de graça o pan e o zoom. */}
+        <div ref={ghostRef} className="dock-ghost" hidden />
+
         {/* O véu do foco mora DENTRO da camada de nós, e não ao lado dela: a
             .nodes-layer tem `transform`, portanto é um contexto de
             empilhamento, e um véu irmão cobriria também o nó em foco por mais

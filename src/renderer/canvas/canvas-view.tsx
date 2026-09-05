@@ -974,12 +974,24 @@ export function CanvasView(): JSX.Element {
       if (!start || !node) return clearSnap()
 
       const moving = { ...start, x: start.x + dx, y: start.y + dy }
+      // Todos os nós visíveis, e não só os vizinhos plausíveis: o módulo usa a
+      // lista inteira duas vezes — para escolher o alvo e para saber se o lugar
+      // proposto já está ocupado por um terceiro.
       const candidates = nodes
         .filter((n) => n.id !== id && !hiddenNodes.has(n.id))
-        .map((n) => ({ id: n.id, frame: n.frame }))
+        .map((n) => ({ id: n.id, frame: n.frame, z: n.zIndex }))
       // A zona vale em pixels de TELA: dividir pelo zoom é o que faz a atração
       // ter o mesmo tamanho na mão com o canvas afastado ou de perto.
-      const snap = dockSnapFor(moving, minSizeForNode(node), candidates, SNAP_RANGE / viewport.zoom)
+      //
+      // O encaixe anterior entra para dar inércia à ESCOLHA do alvo: num canvas
+      // cheio, vizinhos a distâncias parecidas trocariam a vez a cada pixel.
+      const snap = dockSnapFor(
+        moving,
+        minSizeForNode(node),
+        candidates,
+        SNAP_RANGE / viewport.zoom,
+        dockSnap.current
+      )
       dockSnap.current = snap
 
       const ghost = ghostRef.current

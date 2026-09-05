@@ -25,12 +25,22 @@ import type { Rect, UUID } from '@shared/types'
  *
  * De tela, e não de canvas: a zona tem de ter o mesmo tamanho na mão em
  * qualquer zoom. Quem chama divide pelo zoom antes de passar adiante.
+ *
+ * Começou em 28 e subiu para 44 no uso: com nós grandes, a mão chega perto do
+ * vizinho em movimentos largos, e uma zona estreita fazia o usuário mirar. O
+ * gesto é "põe este ao lado daquele", não "acerte a linha".
  */
-export const SNAP_RANGE = 28
+export const SNAP_RANGE = 44
 
-/** Respiro entre os dois encaixados. Colado de verdade (0) faz as duas bordas
- * virarem uma linha grossa só, e o par lê como um nó rachado no meio. */
-export const DOCK_GAP = 12
+/**
+ * Respiro entre os dois encaixados, em pontos de canvas.
+ *
+ * Colado de verdade (0) faz as duas bordas virarem uma linha grossa só, e o par
+ * lê como um nó rachado no meio. Começou em 12 e subiu para 28 no uso: 12 era o
+ * bastante para separar as bordas, mas não para os dois pararem de disputar a
+ * mesma faixa de pixels — o par ficava apertado em vez de arrumado.
+ */
+export const DOCK_GAP = 28
 
 /**
  * Quanto os dois precisam se cruzar no eixo PERPENDICULAR para o encaixe valer,
@@ -41,7 +51,40 @@ export const DOCK_GAP = 12
  */
 const MIN_OVERLAP_RATIO = 0.25
 
+/**
+ * Acima desta fração da área do candidato coberta pelo nó arrastado, ele deixa
+ * de ser candidato.
+ *
+ * Um vizinho que o nó na mão já escondeu não explica o fantasma: o usuário vê
+ * um retângulo aparecer apontando para algo que não está na tela. Num canvas
+ * cheio isso é a regra, não a exceção — sempre há um nó embaixo do outro.
+ *
+ * 0.8, e não menos, porque encaixar "empurrando para dentro" do vizinho é
+ * legítimo (ver a folga negativa): num nó pequeno, esse empurrão sozinho já
+ * cobre boa parte da área dele.
+ */
+const MAX_COVERAGE = 0.8
+
+/**
+ * Quanto um alvo NOVO precisa estar mais perto para roubar o encaixe do alvo
+ * atual — 0.75 é "pelo menos 25% mais perto".
+ *
+ * Sem esta inércia, vizinhos a distâncias parecidas trocam a vez a cada pixel
+ * do gesto e o fantasma pisca entre eles. O desempate exato não basta: num
+ * canvas cheio os empates são QUASE-empates, e quase-empate é justamente o que
+ * um número flutuante nunca repete duas vezes seguidas.
+ */
+const HYSTERESIS = 0.75
+
 export type DockSide = 'left' | 'right' | 'top' | 'bottom'
+
+/** Um vizinho parado. `z` é o `zIndex` do nó: entre dois empilhados, encaixa-se
+ * no de CIMA, que é o que o usuário está vendo. */
+export interface DockCandidate {
+  id: UUID
+  frame: Rect
+  z: number
+}
 
 export interface DockSnap {
   /** O nó parado que serviu de referência. */
@@ -58,23 +101,37 @@ function overlap(aStart: number, aEnd: number, bStart: number, bEnd: number): nu
   return Math.min(aEnd, bEnd) - Math.max(aStart, bStart)
 }
 
+/** Área da interseção de dois retângulos. Zero quando não se cruzam. */
+function intersection(a: Rect, b: Rect): number {
+  const w = overlap(a.x, a.x + a.width, b.x, b.x + b.width)
+  const h = overlap(a.y, a.y + a.height, b.y, b.y + b.height)
+  return w > 0 && h > 0 ? w * h : 0
+}
+
 /**
  * O encaixe mais próximo, ou null se nenhum vizinho está ao alcance.
  *
  * `moving` já vem deslocado pelo arrasto; `min` é o piso do TIPO do nó
- * arrastado (ver node-min-size); `range` é o raio JÁ em pontos de canvas.
+ * arrastado (ver node-min-size); `range` é o raio JÁ em pontos de canvas;
+ * `previous` é o encaixe do quadro anterior, que ganha a inércia do HYSTERESIS.
  */
 export function dockSnapFor(
   moving: Rect,
   min: [number, number],
-  candidates: { id: UUID; frame: Rect }[],
-  range: number
+  candidates: DockCandidate[],
+  range: number,
+  previous: DockSnap | null = null
 ): DockSnap | null {
-  let best: DockSnap | null = null
-  let bestDistance = Infinity
+  /** Todo encaixe possível deste quadro, já filtrado. */
+  const options: { snap: DockSnap; distance: number; z: number }[] = []
 
   for (const candidate of candidates) {
     const target = candidate.frame
+
+    // Vizinho que o nó na mão já cobriu não é vizinho: ele não está na tela
+    // para justificar o fantasma que apontaria para ele.
+    const area = target.width * target.height
+    if (area > 0 && intersection(moving, target) / area > MAX_COVERAGE) continue
 
     // Sobreposição no eixo perpendicular a cada tipo de encaixe.
     const vertical = overlap(
@@ -105,31 +162,69 @@ export function dockSnapFor(
 
     for (const { side, gap, ok } of gaps) {
       if (!ok || gap > range || gap < -range) continue
-      const distance = Math.abs(gap)
-      // `<` e não `<=`: em empate exato fica o primeiro da lista, e a ordem dos
-      // nós é estável — o fantasma não pode piscar entre dois vizinhos.
-      if (distance >= bestDistance) continue
-      bestDistance = distance
-      best = { targetId: candidate.id, side, frame: dockedFrame(moving, target, side, min) }
+      const frame = dockedFrame(moving, target, side, min)
+      // O lugar tem de estar VAGO. O Windows encaixa contra a borda da tela,
+      // onde não há nada; aqui o vizinho é a borda, e o outro lado dele
+      // costuma estar ocupado por um terceiro nó. Prometer aquele espaço seria
+      // prometer um empilhamento.
+      if (occupied(frame, candidates, candidate.id)) continue
+      options.push({ snap: { targetId: candidate.id, side, frame }, distance: Math.abs(gap), z: candidate.z })
     }
   }
 
-  return best
+  if (options.length === 0) return null
 
-  /** O frame final: iguala o eixo do encaixe, preserva o outro, cola no lado. */
-  function dockedFrame(source: Rect, target: Rect, side: DockSide, floor: [number, number]): Rect {
-    if (side === 'left' || side === 'right') {
-      // O piso do TIPO vence o tamanho do vizinho: um terminal não encolhe até
-      // a altura de um botão só porque encostou nele. O fantasma mostra o
-      // tamanho REAL que o nó vai ter, inclusive quando o piso segura.
-      const height = Math.max(target.height, floor[1])
-      const width = Math.max(source.width, floor[0])
-      const x = side === 'right' ? target.x + target.width + DOCK_GAP : target.x - width - DOCK_GAP
-      return { x, y: target.y, width, height }
-    }
-    const width = Math.max(target.width, floor[0])
-    const height = Math.max(source.height, floor[1])
-    const y = side === 'bottom' ? target.y + target.height + DOCK_GAP : target.y - height - DOCK_GAP
-    return { x: target.x, y, width, height }
+  // Mais perto vence; empate vai para o de CIMA; empate de novo, para o
+  // primeiro da lista — que é estável, porque a ordem dos nós é.
+  let best = options[0]
+  for (const option of options) {
+    if (option.distance < best.distance) best = option
+    else if (option.distance === best.distance && option.z > best.z) best = option
   }
+
+  // O alvo do quadro anterior fica, a menos que o novo esteja claramente mais
+  // perto. `kept` é recalculado agora — só a ESCOLHA tem inércia, nunca a
+  // geometria, que continua acompanhando o mouse.
+  if (previous) {
+    const kept = options.find(
+      (o) => o.snap.targetId === previous.targetId && o.snap.side === previous.side
+    )
+    if (kept && best.distance >= kept.distance * HYSTERESIS) return kept.snap
+  }
+
+  return best.snap
+}
+
+/** O frame final: iguala o eixo do encaixe, preserva o outro, cola no lado. */
+function dockedFrame(source: Rect, target: Rect, side: DockSide, floor: [number, number]): Rect {
+  if (side === 'left' || side === 'right') {
+    // O piso do TIPO vence o tamanho do vizinho: um terminal não encolhe até a
+    // altura de um botão só porque encostou nele. O fantasma mostra o tamanho
+    // REAL que o nó vai ter, inclusive quando o piso segura.
+    const height = Math.max(target.height, floor[1])
+    const width = Math.max(source.width, floor[0])
+    const x = side === 'right' ? target.x + target.width + DOCK_GAP : target.x - width - DOCK_GAP
+    return { x, y: target.y, width, height }
+  }
+  const width = Math.max(target.width, floor[0])
+  const height = Math.max(source.height, floor[1])
+  const y = side === 'bottom' ? target.y + target.height + DOCK_GAP : target.y - height - DOCK_GAP
+  return { x: target.x, y, width, height }
+}
+
+/**
+ * Há algum nó neste retângulo, tirando o próprio alvo do encaixe?
+ *
+ * A tolerância de 1 ponto é contra o encosto exato: dois retângulos que
+ * compartilham uma borda não estão um em cima do outro, e o arredondamento do
+ * arrasto não pode transformar isso em colisão.
+ */
+function occupied(frame: Rect, candidates: DockCandidate[], targetId: UUID): boolean {
+  for (const candidate of candidates) {
+    if (candidate.id === targetId) continue
+    const w = overlap(frame.x, frame.x + frame.width, candidate.frame.x, candidate.frame.x + candidate.frame.width)
+    const h = overlap(frame.y, frame.y + frame.height, candidate.frame.y, candidate.frame.y + candidate.frame.height)
+    if (w > 1 && h > 1) return true
+  }
+  return false
 }

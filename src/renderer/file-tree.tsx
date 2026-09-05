@@ -13,11 +13,18 @@
  *
  * Depois de uma mutação recarrega SÓ o diretório afetado. O estado de expansão
  * é do usuário: perdê-lo a cada renomear irrita mais do que a ação ajuda.
+ *
+ * A busca (⌘F/Ctrl+F, ou a lupa da barra) vive em `file-search.tsx`. No modo
+ * nome ela não desenha nada: entrega um conjunto de caminhos visíveis e ESTA
+ * árvore continua sendo a que aparece — com o menu, o arrastar e os pontos do
+ * git de sempre. No modo conteúdo ela substitui o corpo por sua própria lista.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { FileOpError, FsEntry } from '@shared/types'
 import { ContextMenu } from './context-menu'
+import { IconSearch } from './icons'
+import { FileSearchBar, FileSearchResults, highlightName, useFileSearch } from './file-search'
 import { FILE_OP_TEXT } from './file-ops-text'
 import { FILE_DRAG_TYPE, readFileDrag } from './drag'
 import { store, useStore } from './state/store'
@@ -79,6 +86,7 @@ export function FileTree({ root }: Props): JSX.Element {
    * saberia disso.
    */
   const [marks, setMarks] = useState<GitMarks | null>(null)
+  const search = useFileSearch(root)
   const renameInput = useRef<HTMLInputElement>(null)
   /**
    * Tirar o input do DOM dispara `blur`, e o blur também comita. Sem esta
@@ -158,6 +166,22 @@ export function FileTree({ root }: Props): JSX.Element {
   useEffect(() => {
     if (renaming) renameInput.current?.select()
   }, [renaming])
+
+  /**
+   * O filtro por nome mostra galhos que o usuário nunca abriu, e um galho só é
+   * desenhado se o diretório dele foi lido. Este efeito lê os que faltam — e
+   * SÓ eles, o que costuma ser um punhado de ancestrais, não a árvore inteira.
+   *
+   * A expansão do filtro não entra em `expanded` de propósito: ela é do filtro,
+   * não do usuário. Misturar as duas deixaria a árvore escancarada quando a
+   * busca fechasse, e o galho que a pessoa tinha fechado à mão nunca voltaria.
+   */
+  useEffect(() => {
+    if (!search.visibleDirs) return
+    for (const path of search.visibleDirs) {
+      if (path !== root && !dirs[path]) void load(path)
+    }
+  }, [search.visibleDirs, dirs, load, root])
 
   const toggle = (path: string): void => {
     setExpanded((prev) => {
@@ -277,6 +301,20 @@ export function FileTree({ root }: Props): JSX.Element {
     return <div className="file-tree is-empty">Nenhuma pasta definida.</div>
   }
 
+  /** O nome, com o trecho que casou realçado quando há busca por nome. */
+  const renderName = (name: string): JSX.Element | string => {
+    if (!search.visible) return name
+    const parts = highlightName(name, search)
+    if (!parts) return name
+    return (
+      <>
+        {parts.before}
+        <mark>{parts.match}</mark>
+        {parts.after}
+      </>
+    )
+  }
+
   /**
    * `parentUnversioned` desce por herança: o git colapsa diretório inteiramente
    * ignorado num registro só (`node_modules/`), então os filhos dele não
@@ -293,10 +331,25 @@ export function FileTree({ root }: Props): JSX.Element {
       )
     }
 
+    // Com o filtro ligado o nível é só o que casou (ou é caminho para algo que
+    // casou). Sem ele, `filter` é null e a lista é a de sempre.
+    const filter = search.visible
+    const entries = filter ? state.entries.filter((e) => filter.has(e.path)) : state.entries
+
+    if (filter && entries.length === 0 && depth === 0) {
+      return (
+        <div className="file-tree-more" style={{ paddingLeft: 8 }}>
+          {search.busy ? 'buscando…' : 'nenhum nome casa'}
+        </div>
+      )
+    }
+
     return (
       <>
-        {state.entries.map((entry) => {
-          const isOpen = expanded.has(entry.path)
+        {entries.map((entry) => {
+          // No filtro a pasta está aberta porque tem casamento dentro — é a
+          // única razão de ela estar na lista.
+          const isOpen = filter ? entry.isDirectory : expanded.has(entry.path)
           const indent = { paddingLeft: depth * 12 + 8 }
           const key = normalizePath(entry.path)
           const isUnversioned = parentUnversioned || (marks?.unversioned.has(key) ?? false)
@@ -347,7 +400,10 @@ export function FileTree({ root }: Props): JSX.Element {
                 title={entry.path}
                 onClick={() => {
                   setSelected(entry)
-                  if (entry.isDirectory) toggle(entry.path)
+                  // Sob filtro a pasta está aberta porque tem casamento dentro:
+                  // alternar não mudaria nada na tela e daria a impressão de
+                  // clique morto.
+                  if (entry.isDirectory && !search.visible) toggle(entry.path)
                 }}
                 onDoubleClick={() => {
                   // Em pasta o duplo clique já foi dois toggles: não faz nada
@@ -393,7 +449,7 @@ export function FileTree({ root }: Props): JSX.Element {
                   {entry.isDirectory ? (isOpen ? '▾' : '▸') : ''}
                 </span>
                 <span className="file-tree-icon">{entry.isDirectory ? '📁' : '📄'}</span>
-                <span className="file-tree-name">{entry.name}</span>
+                <span className="file-tree-name">{renderName(entry.name)}</span>
                 {isChanged && (
                   <span
                     className="file-tree-dot"
@@ -405,7 +461,7 @@ export function FileTree({ root }: Props): JSX.Element {
             </div>
           )
         })}
-        {state.truncated > 0 && (
+        {!filter && state.truncated > 0 && (
           <div className="file-tree-more" style={{ paddingLeft: depth * 12 + 8 }}>
             … mais {state.truncated} itens
           </div>
@@ -415,7 +471,30 @@ export function FileTree({ root }: Props): JSX.Element {
   }
 
   return (
-    <div className="file-tree" data-node-interactive>
+    <div
+      className="file-tree"
+      data-node-interactive
+      /**
+       * Focável, mas fora da ordem de tabulação: o ⌘F abaixo só chega aqui se
+       * o foco estiver DENTRO da árvore, e clicar numa linha já foca o botão
+       * dela. O que faltava era o clique no vazio — sem isto, clicar entre as
+       * linhas e apertar ⌘F não fazia nada.
+       */
+      tabIndex={-1}
+      /**
+       * ⌘F/Ctrl+F na árvore abre a busca — o mesmo atalho do editor e do
+       * navegador, porque é o gesto que a mão já faz. Com `stopPropagation`
+       * porque o canvas escuta teclas na janela: sem parar aqui, a mesma tecla
+       * chegaria também aos atalhos de ferramenta por baixo.
+       */
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') {
+          e.preventDefault()
+          e.stopPropagation()
+          search.setOpen(true)
+        }
+      }}
+    >
       <div className="file-tree-bar">
         {project?.description && (
           <span className="file-tree-desc" title={project.description}>
@@ -423,6 +502,15 @@ export function FileTree({ root }: Props): JSX.Element {
           </span>
         )}
         <div className="file-tree-actions">
+          <button
+            type="button"
+            className={`icon-btn ghost-btn${search.open ? ' is-active' : ''}`}
+            title="Buscar (⌘F)"
+            aria-pressed={search.open}
+            onClick={() => search.setOpen(!search.open)}
+          >
+            <IconSearch size={15} />
+          </button>
           <button
             type="button"
             className="icon-btn ghost-btn"
@@ -445,7 +533,17 @@ export function FileTree({ root }: Props): JSX.Element {
         </div>
       </div>
 
-      <div className="file-tree-body">{renderLevel(root, 0)}</div>
+      {search.open && <FileSearchBar search={search} />}
+
+      {search.open && search.mode === 'content' ? (
+        <FileSearchResults
+          search={search}
+          root={root}
+          onOpen={(path, line) => void store.openFileInWorkspace(path, undefined, line)}
+        />
+      ) : (
+        <div className="file-tree-body">{renderLevel(root, 0)}</div>
+      )}
 
       {selected && (
         <div className="file-tree-status" title={selected.path}>

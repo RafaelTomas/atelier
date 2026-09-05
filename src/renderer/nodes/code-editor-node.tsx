@@ -85,7 +85,7 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
   const [error, setError] = useState<FileOpError | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const { theme } = useStore()
+  const { theme, revealRequest } = useStore()
   const path = content.filePath
   const isMd = isMarkdownPath(path)
   // Um `.md` arrastado para o canvas nasce em prévia; o botão alterna para o
@@ -253,6 +253,32 @@ export function CodeEditorNode({ node, content }: Props): JSX.Element {
       window.atelier.editor.push(node.id, null)
     }
   }, [path, node.id])
+
+  /**
+   * "Mostre a linha N" — o clique num resultado da busca por conteúdo.
+   *
+   * Depende de `loading` de propósito: o pedido chega ANTES de o editor
+   * existir quando o nó acabou de nascer, e sem esperar a montagem a linha
+   * seria pedida a um `viewRef` nulo e perdida em silêncio.
+   */
+  useEffect(() => {
+    if (revealRequest?.nodeId !== node.id) return
+    const view = viewRef.current
+    if (!view) return
+    // Linha além do fim do arquivo (o disco mudou desde a busca) cai na última,
+    // em vez de derrubar o `line()` do CodeMirror.
+    const target = Math.min(revealRequest.line, view.state.doc.lines)
+    const pos = view.state.doc.line(target).from
+    view.dispatch({
+      selection: { anchor: pos },
+      // `center` e não `nearest`: quem vem de uma busca quer LER o contexto em
+      // volta, e a linha encostada na borda de baixo não mostra nada abaixo.
+      effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+      scrollIntoView: false
+    })
+    view.focus()
+    store.revealHandled(node.id)
+  }, [revealRequest, node.id, loading])
 
   // Troca de tema com o editor montado: reconfigura, não recria — recriar
   // perderia o histórico de desfazer e a posição do cursor.

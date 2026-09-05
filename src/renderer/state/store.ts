@@ -236,6 +236,18 @@ export interface AppSnapshot {
    * Sem isto o foco do teclado fica onde o arrasto começou. O nó consome e zera.
    */
   focusTerminalRequest: UUID | null
+  /**
+   * Pedido de "mostre a linha N" a um editor de código já montado.
+   *
+   * Existe porque `CodeEditorContent` guarda só o caminho, de propósito
+   * (ver o comentário do tipo): a linha é onde o usuário quer OLHAR agora,
+   * não uma propriedade do nó — gravá-la faria o editor reabrir no resultado
+   * de uma busca antiga na próxima sessão.
+   *
+   * O editor zera o pedido ao consumi-lo, e cada `set` monta um objeto novo:
+   * é o que faz clicar DUAS vezes no mesmo resultado disparar duas vezes.
+   */
+  revealRequest: { nodeId: UUID; line: number } | null
   /** Tema escolhido — espelha preferences.theme. */
   theme: ThemeMode
   /** Traçado das conexões — espelha preferences.ropeStyle. */
@@ -433,6 +445,7 @@ const initial: AppSnapshot = {
   placing: null,
   railRequest: null,
   focusTerminalRequest: null,
+  revealRequest: null,
   theme: 'system',
   ropeStyle: 'dotted',
   ropeThickness: 1,
@@ -1033,7 +1046,12 @@ class Store {
    * escondida, exatamente como o item "Documento PDF" da dock. Não é tipo de nó
    * novo: é o mesmo Portal.
    */
-  async openFileInWorkspace(path: string, position?: { x: number; y: number }): Promise<void> {
+  async openFileInWorkspace(
+    path: string,
+    position?: { x: number; y: number },
+    /** Linha a mostrar, 1-based — é o que um resultado de busca sabe a mais. */
+    line?: number
+  ): Promise<void> {
     if (!this.workspaceId) {
       this.showNotice('nenhum workspace aberto para receber o arquivo')
       return
@@ -1049,10 +1067,29 @@ class Store {
     )
     if (existing) {
       this.set({ selection: [existing.id] })
+      this.revealLine(existing.id, line)
       return
     }
     const at = position ?? centerOfViewport(620, 440)
-    await this.addNode('codeEditor', at, { filePath: path })
+    const created = await this.addNode('codeEditor', at, { filePath: path })
+    if (created) this.revealLine(created.id, line)
+  }
+
+  /**
+   * Pede ao editor daquele nó para mostrar a linha.
+   *
+   * O nó pode ainda não ter montado (acabou de nascer): o pedido fica no estado
+   * e o efeito do editor o consome quando aparecer, em vez de ser perdido numa
+   * corrida contra o React.
+   */
+  revealLine(nodeId: UUID, line?: number): void {
+    if (!line || line < 1) return
+    this.set({ revealRequest: { nodeId, line } })
+  }
+
+  /** O editor consumiu o pedido. Sem isto ele reagiria a cada re-render. */
+  revealHandled(nodeId: UUID): void {
+    if (this.state.revealRequest?.nodeId === nodeId) this.set({ revealRequest: null })
   }
 
   /**

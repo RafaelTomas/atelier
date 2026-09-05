@@ -213,6 +213,9 @@
   flex: 1; min-width: 0;
   background: var(--surface); font-size: var(--fs-sm); overflow: hidden;
 }
+/* A árvore é focável (tabIndex -1) só para o ⌘F ter onde chegar; o anel de foco
+   em volta do painel inteiro não diria nada a ninguém. */
+.file-tree:focus { outline: none; }
 
 /* ─── Coluna Arquivos ──────────────────────────────────────────────────────── */
 
@@ -318,6 +321,136 @@
 }
 .trash-warning { margin: 0 0 8px; font-size: var(--fs-md); color: var(--rope-error); }
 .trash-hint { margin: 0 0 14px; font-size: var(--fs-sm); color: var(--text-dim); line-height: 1.5; }
+
+/* ─── Árvore: busca ────────────────────────────────────────────────────────── */
+/* Duas peças: a barra (comum aos dois modos) e a lista de ocorrências (só no
+   modo conteúdo). No modo NOME não há CSS de resultado nenhum — quem aparece é
+   a própria árvore, filtrada, com as linhas que ela já tinha. */
+
+.file-search {
+  flex-shrink: 0; display: flex; flex-direction: column; gap: 4px;
+  padding: 5px 6px; border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.files-body .file-search { background: transparent; border-bottom-color: var(--dock-border); }
+
+/* Segmentado, não abas: são dois modos exclusivos de uma coisa só, e o par
+   inteiro cabe na largura mais estreita em que este nó é usado. */
+.file-search-modes {
+  display: flex; gap: 0; align-self: flex-start;
+  border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden;
+}
+.file-search-modes > button {
+  border: 0; background: transparent; cursor: pointer;
+  padding: 1px 8px; color: var(--text-dim);
+  font: inherit; font-size: var(--fs-xs); line-height: 1.7;
+}
+.file-search-modes > button:hover { background: var(--border); color: var(--text); }
+.file-search-modes > button.is-active { background: var(--accent); color: #fff; }
+
+.file-search-field {
+  display: flex; align-items: center; gap: 4px;
+  padding: 1px 4px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--surface);
+}
+/* O foco vai na CAIXA, não no input: o input não tem borda própria, e um anel
+   em volta dele deixaria os interruptores de fora do que está focado. */
+.file-search-field:focus-within { border-color: var(--accent); }
+/* `flex` e não `inline`: o SVG é um bloco de 13px e, numa caixa de linha, ele
+   assenta na linha de base e sobe 2px em relação ao texto do campo. */
+.file-search-icon {
+  flex-shrink: 0; display: flex; align-items: center;
+  color: var(--text-dim);
+}
+.file-search-input {
+  flex: 1; min-width: 0; border: 0; background: transparent; outline: none;
+  color: var(--text); font: inherit; font-size: var(--fs-sm); padding: 2px 0;
+}
+.file-search-clear {
+  flex-shrink: 0; border: 0; background: transparent; cursor: pointer;
+  color: var(--text-dim); font-size: var(--fs-xs); padding: 0 2px;
+}
+.file-search-clear:hover { color: var(--text); }
+
+.file-search-flags { display: flex; gap: 1px; flex-shrink: 0; }
+.file-search-flags > button {
+  border: 0; background: transparent; cursor: pointer;
+  padding: 0 4px; border-radius: var(--r-sm);
+  color: var(--text-dim); font-size: var(--fs-xs); line-height: 1.7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.file-search-flags > button:hover { background: var(--border); color: var(--text); }
+.file-search-flags > button.is-active { background: var(--accent); color: #fff; }
+
+/* Uma linha, sempre presente enquanto há termo: é onde o "parou no meio" mora,
+   e uma busca truncada em silêncio é uma busca que mente. */
+.file-search-note {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  font-size: var(--fs-xs); color: var(--text-dim); padding: 0 2px;
+}
+.file-search-note.is-error { color: #E5484D; }
+.file-search-stop { color: #F5A623; }
+
+.file-search-body { flex: 1; overflow: auto; overflow-x: hidden; padding: 4px 0; }
+.file-search-empty {
+  flex: 1; padding: 12px 10px; font-size: var(--fs-sm); color: var(--text-dim);
+}
+
+.file-search-group { margin-bottom: 2px; }
+
+/* O cabeçalho do arquivo e a ocorrência têm o mesmo desenho de linha da árvore
+   (`.file-tree-row`), mas não a reusam: aquela classe carrega arrastar, seleção
+   e alvo de soltura, e nenhum dos três existe aqui. */
+.file-search-file, .file-search-hit {
+  width: 100%; border: 0; background: transparent; cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 6px; text-align: left; color: var(--text);
+  font-size: var(--fs-sm); line-height: 1.6;
+}
+.file-search-file:hover, .file-search-hit:hover { background: var(--border); }
+
+.file-search-file-name { flex-shrink: 0; font-weight: 600; }
+/* A pasta é contexto, não o nome: esmaecida, e é ela quem cede espaço quando a
+   largura aperta. */
+.file-search-file-dir {
+  min-width: 0; color: var(--text-dim); font-size: var(--fs-xs);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
+}
+.file-search-count {
+  flex-shrink: 0; margin-left: auto;
+  padding: 0 5px; border-radius: 8px;
+  background: var(--border); color: var(--text-dim); font-size: var(--fs-xs);
+}
+
+/* A ocorrência recua para baixo do nome do arquivo, como um filho na árvore. */
+.file-search-hit { padding-left: 20px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.file-search-line {
+  flex-shrink: 0; min-width: 30px; text-align: right;
+  color: var(--text-dim); font-size: var(--fs-xs);
+}
+/* Uma linha só, sem quebra: o trecho já vem cortado do main, e deixar a linha
+   crescer para baixo faria a lista pular de altura a cada resultado. */
+.file-search-text {
+  min-width: 0; flex: 1; font-size: var(--fs-xs);
+  overflow: hidden; text-overflow: ellipsis; white-space: pre;
+}
+.file-search-more {
+  font-size: var(--fs-xs); color: var(--text-dim); padding: 1px 6px 1px 20px; font-style: italic;
+}
+
+/* O realce do casamento, nos dois modos. `mark` traz amarelo de agente de
+   usuário que ignora o tema — daí a cor explícita. Fundo translúcido do accent
+   em vez de opaco: o texto realçado continua sendo lido pela cor do tema, e o
+   trecho não vira um bloco sólido no meio do código. */
+.file-search-text mark, .file-tree-name mark {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: inherit; border-radius: 2px; padding: 0 1px;
+}
+/* Na linha selecionada o fundo já é o accent: o realce vira contraste claro,
+   senão azul sobre azul apagaria justamente o que se procurou. */
+.file-tree-row.is-selected .file-tree-name mark {
+  background: rgb(255 255 255 / .34);
+}
 
 /* ─── Modo seguro ──────────────────────────────────────────────────────────── */
 /* Permanente e no topo: o bug que ela evita é a perda silenciosa de nós que

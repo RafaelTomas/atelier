@@ -67,6 +67,12 @@ const CONHECIDOS = new Map(([
    'elementos distintos: a aba de modo do relógio não é uma aba do painel de git'],
   ['.code-editor-actions .ghost-btn|.git-file-actions .ghost-btn',
    'elementos distintos: um botão está em um container ou no outro, nunca nos dois'],
+  // O aviso da busca da árvore mora na barra dela, dentro do painel Arquivos ou
+  // do nó de árvore. Nenhum dos dois parceiros de git alcança esse elemento.
+  ['.file-search-note.is-error|.git-feedback.is-error',
+   'elementos distintos: o aviso da busca de arquivos não é o feedback do painel de git'],
+  ['.file-search-note.is-error|.git-popover-feedback.is-error',
+   'elementos distintos: o aviso da busca de arquivos não é o feedback do popover de git'],
   ['.file-tree-row.is-selected|.quick-card.is-selected',
    'elementos distintos: uma linha de árvore nunca é um cartão de início rápido'],
   ['.file-tree-row.is-selected|.icon-cell.is-selected',

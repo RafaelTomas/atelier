@@ -17,6 +17,7 @@ import type {
   AgentRole,
   AgentStatus,
   CanvasNode,
+  FileSearchOptions,
   GitStatus,
   NodeContent,
   Point,
@@ -47,6 +48,7 @@ import type { WorkspaceManager } from '../core/state/workspace-manager'
 import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir, isOverriddenHome, paths } from '../core/persistence/paths'
 import { listDirectory } from '../core/projects/file-tree'
+import { searchFileContents, searchFileNames } from '../core/projects/file-search'
 import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../core/projects/file-ops'
 import { fileWatcher } from '../core/projects/file-watcher'
 import type { EditorState } from '../core/editor/editor-registry'
@@ -742,6 +744,42 @@ export function registerIPC(): void {
     if (!allowed.ok) return { error: allowed.reason }
     try {
       return await listDirectory(allowed.path)
+    } catch {
+      return { error: 'error' as const }
+    }
+  })
+
+  /**
+   * Busca na árvore, os dois modos.
+   *
+   * A raiz passa pela MESMA portaria da listagem, e nada mais é aceito do
+   * renderer: o termo é dado, nunca comando, e a caminhada não sai da raiz
+   * autorizada. Sem isto, `fs:search-content` seria "leia todos os arquivos da
+   * máquina e me diga o que casa" — a versão mais generosa possível do
+   * `fs:read-file` que a allowlist existe para conter.
+   *
+   * Termo vazio não é busca, é a árvore inteira: recusado aqui, para uma tecla
+   * a mais no campo não disparar uma varredura de projeto inteiro.
+   */
+  ipcMain.handle('fs:search-names', async (_e, path: string, options: FileSearchOptions) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    const query = sanitizeSearch(options)
+    if (!query) return { error: 'empty' as const }
+    try {
+      return await searchFileNames(allowed.path, query)
+    } catch {
+      return { error: 'error' as const }
+    }
+  })
+
+  ipcMain.handle('fs:search-content', async (_e, path: string, options: FileSearchOptions) => {
+    const allowed = await resolveAllowedPath(path, allowedRoots())
+    if (!allowed.ok) return { error: allowed.reason }
+    const query = sanitizeSearch(options)
+    if (!query) return { error: 'empty' as const }
+    try {
+      return await searchFileContents(allowed.path, query)
     } catch {
       return { error: 'error' as const }
     }
@@ -1619,4 +1657,25 @@ export function registerIPC(): void {
   )
 
   log.debug('ipc', 'handlers registrados')
+}
+
+/**
+ * Normaliza o que veio do renderer, ou devolve null quando não é busca.
+ *
+ * Nada aqui confia no tipo declarado: o renderer hospeda `<webview>` com
+ * páginas arbitrárias, e um `options` que não seja objeto derrubaria o handler
+ * em `undefined.query`. O teto de comprimento é contra a expressão regular
+ * patológica — 10 KB de `(a+)+` já é um jeito de travar o processo principal.
+ */
+function sanitizeSearch(options: unknown): FileSearchOptions | null {
+  if (!options || typeof options !== 'object') return null
+  const raw = options as Partial<FileSearchOptions>
+  const query = typeof raw.query === 'string' ? raw.query.trim() : ''
+  if (!query || query.length > 1000) return null
+  return {
+    query,
+    caseSensitive: raw.caseSensitive === true,
+    wholeWord: raw.wholeWord === true,
+    regex: raw.regex === true
+  }
 }

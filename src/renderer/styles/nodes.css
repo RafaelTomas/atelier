@@ -27,6 +27,64 @@
    sai, senão o nó invisível interceptaria cliques em cima da moldura fechada. */
 .node-frame.is-hidden { visibility: hidden; pointer-events: none; }
 
+/* Modo foco: o nó ampliado, por cima do véu. A geometria e o z-index vêm por
+   `style` (a conta é `focusFrame`, e depende da janela); aqui fica só o que faz
+   ele parecer destacado do canvas em vez de um nó grande. */
+.node-frame.is-focused .node {
+  box-shadow: 0 24px 70px rgb(0 0 0 / 45%);
+}
+
+/* Modo foco: sem anel de seleção. O nó em foco é o único na tela e está por
+   cima de um véu — o tracejado só somaria ruído a uma moldura que já não
+   disputa atenção com nada. */
+.node-frame.is-focused .node.is-selected { outline: none; }
+
+/* A pílula de saída, CENTRADA na faixa do véu embaixo do nó — em pixels de
+   tela, porque o foco trava o zoom em 1. Ela é o caminho de saída que sempre
+   existe: num terminal em foco o `Esc` é do terminal, e o véu vira uma faixa
+   fina quando o nó ocupa quase tudo.
+
+   Fora do card e não dentro dele: no canto de dentro ela pousava sobre o `⇄` e
+   o `×` do cabeçalho, e dois `×` encostados com efeitos diferentes é a pior
+   vizinhança possível para um botão que fecha alguma coisa. */
+.focus-exit {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 14px 5px 8px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 999px;
+  background: rgb(22 22 24 / 92%);
+  color: rgb(255 255 255 / 80%);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.focus-exit:hover {
+  background: rgb(38 38 42 / 96%);
+  border-color: rgb(255 255 255 / 30%);
+  color: #fff;
+}
+
+.focus-exit-label { letter-spacing: .01em; }
+
+/* O × ganha um alvo redondo: ele é o ícone da ação, e sem o disco ficaria um
+   caractere solto encostado no texto. */
+.focus-exit-x {
+  display: grid;
+  place-items: center;
+  width: 18px; height: 18px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 12%);
+  font-size: 14px; line-height: 1;
+}
+
 .node {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;

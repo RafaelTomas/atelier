@@ -57,7 +57,17 @@ export function TextNode({ node, content }: { node: CanvasNode; content: TextCon
   }
 
   return (
-    <div className="text-node" style={wrapperStyle} onDoubleClick={() => setEditing(true)}>
+    <div
+      className="text-node"
+      style={wrapperStyle}
+      // O gesto já é do rótulo: duplo clique aqui é EDITAR. Sem parar a
+      // propagação ele subiria para o canvas e abriria o modo foco junto —
+      // dois efeitos para um clique. Focar o texto é duplo clique na borda.
+      onDoubleClick={(e) => {
+        e.stopPropagation()
+        setEditing(true)
+      }}
+    >
       <span className="text-node-measure" style={style}>
         {content.text || 'texto'}
       </span>

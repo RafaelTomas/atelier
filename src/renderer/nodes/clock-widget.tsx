@@ -70,7 +70,14 @@ export function ClockWidget({ node, content }: { node: CanvasNode; content: Widg
     void store.patchContent(node.id, { view: writeClockConfig(next, content.view) })
   }
 
-  const startEditing = (): void => {
+  /**
+   * `stopPropagation` porque o duplo clique no mostrador já TEM dono aqui — ele
+   * alterna 12/24h ou abre a edição da duração. Sem isto o mesmo gesto subiria
+   * para o canvas e abriria o modo foco por cima do que acabou de fazer. Focar
+   * o relógio continua sendo duplo clique na borda da moldura.
+   */
+  const startEditing = (e: React.MouseEvent): void => {
+    e.stopPropagation()
     if (config.mode === 'clock') {
       apply(setHour12(config, !config.hour12))
       return

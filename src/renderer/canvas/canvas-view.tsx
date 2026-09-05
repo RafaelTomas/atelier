@@ -34,6 +34,8 @@ import {
   groupAt,
   groupOf
 } from './group-geometry'
+import { FOCUS_Z, focusFrame } from './focus-frame'
+import { enterFocus, exitFocus } from './focus-mode'
 import { DEFAULT_MIN_SIZE, minSizeForNode } from './node-min-size'
 import { Minimap } from './minimap'
 import { ConnectionsLayer } from './connections-layer'
@@ -168,6 +170,7 @@ export function CanvasView(): JSX.Element {
     selectedGroupId,
     selectedDrawingId,
     isolatedGroupId,
+    focusedNodeId,
     connectingFrom,
     placing,
     tool,
@@ -194,6 +197,13 @@ export function CanvasView(): JSX.Element {
   const [visibleIds, setVisibleIds] = useState<Set<UUID>>(new Set())
   /** Espelho de `visibleIds` para o cálculo de culling — ver recomputeVisible. */
   const visibleRef = useRef<Set<UUID>>(new Set())
+  /**
+   * Espelho de `focusedNodeId` para quem roda FORA do ciclo do React — o
+   * culling e os listeners nativos de roda e mouse, que são registrados uma vez
+   * e leriam o valor da primeira renderização se dependessem do closure.
+   */
+  const focusedRef = useRef<UUID | null>(null)
+  focusedRef.current = focusedNodeId
   /** nodeId → instante em que o portal saiu da faixa de permanência. */
   const portalGrace = useRef(new Map<UUID, number>())
   const graceTimer = useRef<number | null>(null)
@@ -313,6 +323,9 @@ export function CanvasView(): JSX.Element {
       if (e.button !== 1) return
       e.preventDefault()
       e.stopImmediatePropagation()
+      // Em foco o quadro está travado: panoramizar levaria o nó ampliado para
+      // fora da tela, já que a moldura dele foi calculada para ESTE origin.
+      if (focusedRef.current) return
       interaction.current = { kind: 'panning', last: screenPoint(e) }
       markGesture()
       const active = document.activeElement as HTMLElement | null
@@ -378,6 +391,13 @@ export function CanvasView(): JSX.Element {
    * o PTY vive no main e sobrevive à desmontagem.
    */
   const recomputeVisible = useCallback((): void => {
+    // O modo foco CONGELA o conjunto montado, e essa é a linha que evita o
+    // estrago mais caro da feature: entrar no foco leva o zoom para 1, e com o
+    // canvas afastado isso encolhe muito a área visível. Recalcular aqui
+    // desmontaria todo portal que ficasse de fora — para recarregar a página do
+    // zero na saída, que é exatamente o que o foco no lugar existe para evitar.
+    if (focusedRef.current) return
+
     const prev = visibleRef.current
     const enter = viewport.visibleRect(CULL_MARGIN)
     const keep = viewport.visibleRect(KEEP_MARGIN)
@@ -660,6 +680,13 @@ export function CanvasView(): JSX.Element {
   }
 
   const beginInteraction = (e: React.MouseEvent): void => {
+    // Modo foco: o canvas não tem gesto nenhum. Nem pan, nem seleção por área,
+    // nem arrastar ou redimensionar o nó ampliado — a geometria dele é
+    // calculada a partir da janela, e qualquer um desses gestos escreveria no
+    // frame GRAVADO. O clique no véu já foi tratado pelo próprio véu (fecha), e
+    // o clique DENTRO do nó não passa por aqui de qualquer jeito.
+    if (focusedNodeId) return
+
     // Mão do espaço antes de qualquer outra coisa: com ela segurada o arrasto é
     // pan, venha de onde vier — a .nodes-layer fica transparente ao mouse, então
     // nem terminal nem portal chegam a ver o clique.
@@ -1291,6 +1318,12 @@ export function CanvasView(): JSX.Element {
     if (!host) return
 
     const onWheel = (e: WheelEvent): void => {
+      // Em foco a roda pertence ao CONTEÚDO do nó ampliado e a mais nada: nem
+      // zoom nem pan, porque os dois desalinhariam uma moldura que foi
+      // calculada para este origin e para zoom 1. Sem stopPropagation — o
+      // evento segue para o widget e rola a lista dele normalmente.
+      if (focusedRef.current) return
+
       // O modificador já diz que a intenção não é rolar o conteúdo sob o cursor.
       if (e.ctrlKey || e.metaKey) {
         // preventDefault contra o zoom de página do Chromium (mesmo gesto);
@@ -1345,6 +1378,17 @@ export function CanvasView(): JSX.Element {
         void store.removeDrawing(selectedDrawingId)
       }
       if (e.key === 'Escape') {
+        // O foco sai primeiro e sozinho: com ele aberto o Esc não deve trocar de
+        // ferramenta nem desfazer a isolação de um grupo pelas costas do
+        // usuário — uma tecla, um efeito.
+        //
+        // Num TERMINAL em foco esta linha não roda, e é o certo: a guarda lá em
+        // cima devolve a tecla a quem está digitando, e um vim aberto precisa
+        // dela. Por isso a pílula e o véu existem.
+        if (focusedNodeId) {
+          exitFocus()
+          return
+        }
         store.cancelPlacing()
         setPlaceBox(null)
         store.startConnecting(null)
@@ -1391,8 +1435,11 @@ export function CanvasView(): JSX.Element {
         }
       }
 
-      // Atalhos das ferramentas, no padrão de editor de canvas
-      if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+      // Atalhos das ferramentas, no padrão de editor de canvas. Mudos em foco:
+      // trocar para a caneta com o véu na tela deixaria o canvas com o cursor de
+      // desenho e nenhum traço possível (o gesto está travado), que é um estado
+      // que só confunde.
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && !focusedNodeId) {
         const key = e.key.toLowerCase()
         if (key === 'v') store.setTool('select')
         if (key === 'd') store.setTool('draw')
@@ -1403,7 +1450,10 @@ export function CanvasView(): JSX.Element {
       // Zoom pelo teclado, no padrão de todo editor. O `=` entra junto do `+`
       // porque no teclado sem numérico o mais exige Shift, e ninguém segura
       // Shift para dar zoom; `-` e `_` pelo mesmo motivo.
-      if (e.metaKey || e.ctrlKey) {
+      //
+      // Mudos em foco, pela mesma razão da roda: a moldura ampliada é uma conta
+      // feita para zoom 1, e mexer no zoom por baixo dela a desalinha.
+      if ((e.metaKey || e.ctrlKey) && !focusedNodeId) {
         if (e.key === '0') {
           e.preventDefault()
           viewport.setZoom(1)
@@ -1448,7 +1498,7 @@ export function CanvasView(): JSX.Element {
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
     }
-  }, [selection, selectedGroupId, selectedDrawingId, platform])
+  }, [selection, selectedGroupId, selectedDrawingId, platform, focusedNodeId])
 
   /**
    * Botão direito no canvas não CRIA nada.
@@ -1478,6 +1528,13 @@ export function CanvasView(): JSX.Element {
    * ele enquadra o grupo, que é o "focar" do pedido. Sem essa divisão, o gesto
    * mais frequente — enquadrar — abriria um campo de texto por engano toda vez.
    *
+   * Duplo-clique num NÓ abre o MODO FOCO nele — o mesmo verbo do grupo, uma
+   * escala abaixo. E o alvo válido é a MOLDURA, não o conteúdo: dentro de um
+   * terminal, de um editor ou de um portal o duplo-clique já tem dono (é assim
+   * que se seleciona uma palavra), e roubá-lo trocaria um gesto que se usa o
+   * dia inteiro por outro que se usa de vez em quando. Cabeçalho, borda e o
+   * corpo de quem não é interativo abrem o foco; o miolo do terminal, não.
+   *
    * Duplo-clique no vazio do canvas alterna select↔pan — o mesmo par que o
    * botão da dock alterna, só sem soltar o mouse para ir buscá-lo. Só entra
    * nesse par: com outra ferramenta ativa (desenho, caneta, borracha) o
@@ -1499,6 +1556,21 @@ export function CanvasView(): JSX.Element {
     }
 
     if (tool !== 'select' && tool !== 'pan') return
+
+    // Já em foco: o duplo-clique não refoca nem alterna. Sair é gesto próprio
+    // (pílula, véu, Esc) — um toggle aqui fecharia o foco no meio de um
+    // duplo-clique dado dentro do próprio nó ampliado.
+    if (focusedNodeId) return
+
+    const nodeEl = target.closest('[data-node-id]') as HTMLElement | null
+    if (nodeEl && !target.closest('[data-node-interactive]')) {
+      const nodeId = nodeEl.dataset.nodeId as UUID
+      if (nodes.some((n) => n.id === nodeId)) {
+        enterFocus(nodeId)
+        return
+      }
+    }
+
     const interactive = target.closest(
       '[data-node-id], [data-node-interactive], [data-resize-handle], [data-drawing-handle], [data-group-handle], [data-group-id]'
     )
@@ -1520,13 +1592,65 @@ export function CanvasView(): JSX.Element {
   // despertar de 10 em 10 segundos, indefinidamente — continuava desenhado por
   // cima do grupo fechado, enquanto os outros nós sumiam.
   const visibleNodes = renderOrder.filter(
-    (n) => portalWake.has(n.id) || (visibleIds.has(n.id) && !hiddenNodes.has(n.id))
+    (n) =>
+      n.id === focusedNodeId ||
+      portalWake.has(n.id) ||
+      (visibleIds.has(n.id) && !hiddenNodes.has(n.id))
   )
 
+  const focusedNode = focusedNodeId ? nodes.find((n) => n.id === focusedNodeId) ?? null : null
+
   /**
-   * Modo foco: os nós de FORA do grupo apagam. Só em memória — não vai para o
-   * disco, porque é como se está lendo o canvas agora, não uma propriedade do
-   * grupo.
+   * O foco é marcado na RAIZ do documento, e não numa classe do canvas.
+   *
+   * O cromo que precisa apagar não está todo dentro do canvas: a rail e os
+   * controles de vista (chip do workspace, dial de zoom, tema) são irmãos dele
+   * na árvore, e uma classe no `.canvas-host` não os alcança — foi o que
+   * apareceu no primeiro teste, com a rail e o chip acesos por cima do véu.
+   * `documentElement` é o único ancestral comum, e o app já usa esse caminho
+   * para a plataforma (ver app.tsx).
+   *
+   * No efeito, e não no `enterFocus`: o foco também termina por caminhos que
+   * não passam por lá — apagar o nó, trocar de workspace —, e um atributo preso
+   * na raiz deixaria a janela sem cromo nenhum.
+   */
+  useEffect(() => {
+    const root = document.documentElement
+    if (focusedNodeId) root.dataset.focusMode = 'on'
+    else delete root.dataset.focusMode
+    return () => {
+      delete root.dataset.focusMode
+    }
+  }, [focusedNodeId])
+
+  /**
+   * Redesenha quando a JANELA muda de tamanho, e só enquanto o foco está aberto.
+   *
+   * O viewport vive fora do React de propósito (pan e zoom são transform de
+   * GPU, não estado), então ele não avisa ninguém quando muda. Em foco isso
+   * importa por um caso só: redimensionar a janela muda a moldura ampliada, e
+   * sem este assinante ela ficaria com a medida da janela anterior. Pan, zoom e
+   * roda estão mudos, então não há mais nada que dispare isto.
+   */
+  const [, redraw] = useState(0)
+  useEffect(() => {
+    if (!focusedNodeId) return
+    return viewport.subscribe(() => redraw((n) => n + 1))
+  }, [focusedNodeId])
+
+  /**
+   * A moldura AMPLIADA do nó em foco, calculada na RENDERIZAÇÃO.
+   *
+   * Num efeito ela chegaria um quadro atrasada: o nó apareceria uma vez no
+   * tamanho gravado e só então saltaria para o ampliado, que é um piscar visível
+   * a cada duplo clique.
+   */
+  const focusedFrame = focusedNode ? focusFrame(focusedNode, viewport) : null
+
+  /**
+   * Modo foco de GRUPO: os nós de FORA dele apagam. Só em memória — não vai
+   * para o disco, porque é como se está lendo o canvas agora, não uma
+   * propriedade do grupo.
    */
   const isolatedMembers = isolatedGroupId
     ? new Set(groups.find((g) => g.id === isolatedGroupId)?.nodeIds ?? [])
@@ -1631,10 +1755,40 @@ export function CanvasView(): JSX.Element {
       )}
 
       <div ref={nodesRef} className="nodes-layer">
+        {/* O véu do foco mora DENTRO da camada de nós, e não ao lado dela: a
+            .nodes-layer tem `transform`, portanto é um contexto de
+            empilhamento, e um véu irmão cobriria também o nó em foco por mais
+            z-index que ele tivesse. Aqui dentro ele apaga de uma vez os nós, os
+            grupos, os cabos e os desenhos — tudo o que está por baixo da
+            camada — e ainda recebe o clique que fecha.
+
+            A geometria é a janela inteira em coordenadas de canvas, o que só é
+            uma cópia direta porque o foco travou o zoom em 1. */}
+        {focusedNodeId && (
+          <div
+            className="focus-backdrop"
+            style={{
+              left: viewport.origin.x,
+              top: viewport.origin.y,
+              width: viewport.width,
+              height: viewport.height,
+              zIndex: FOCUS_Z - 1
+            }}
+            onMouseDown={exitFocus}
+          />
+        )}
+
         {visibleNodes.map((node) => (
           <NodeShell
             key={node.id}
-            node={node}
+            /* Em foco o nó recebe a moldura CALCULADA, e não a gravada. É um
+               objeto novo a cada renderização, mas a chave continua sendo o id:
+               o React reconcilia no mesmo lugar da árvore e o componente não
+               remonta — que é a condição de existência desta feature. E como a
+               NodeActionBar e a FormatBar se posicionam a partir de
+               `node.frame`, elas acompanham o nó ampliado de graça. */
+            node={node.id === focusedNodeId ? { ...node, frame: focusedFrame ?? node.frame } : node}
+            focused={node.id === focusedNodeId}
             selected={selection.includes(node.id)}
             workspaceId={workspace?.id ?? ''}
             role={
@@ -1645,8 +1799,12 @@ export function CanvasView(): JSX.Element {
             customThemes={customThemes}
             status={terminalStatus[node.id] ?? null}
             projectName={widgetProjectName(node, projects)}
-            dimmed={isolatedMembers !== null && !isolatedMembers.has(node.id)}
-            hidden={hiddenNodes.has(node.id)}
+            dimmed={
+              node.id !== focusedNodeId &&
+              isolatedMembers !== null &&
+              !isolatedMembers.has(node.id)
+            }
+            hidden={node.id !== focusedNodeId && hiddenNodes.has(node.id)}
           />
         ))}
       </div>

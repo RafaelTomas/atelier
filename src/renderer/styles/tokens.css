@@ -193,11 +193,4 @@
      canvas/minimap.tsx); o resto é padding e borda. */
   --corner-height: 146px;
   --corner-inset: 14px;
-
-  /* No macOS a janela é `hiddenInset` (ver main/window.ts): os semáforos
-     flutuam sobre a página. Nos outros sistemas a moldura é nativa e a faixa
-     tem largura zero. */
-  --window-controls-width: 0px;
 }
-
-:root[data-platform='darwin'] { --window-controls-width: 72px; }

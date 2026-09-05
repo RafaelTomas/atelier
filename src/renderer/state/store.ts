@@ -216,6 +216,13 @@ export interface AppSnapshot {
    * vai para o disco — é modo de leitura, não propriedade do grupo. `Esc` sai.
    */
   isolatedGroupId: UUID | null
+  /**
+   * Nó em foco: ele cresce até quase a tela e o resto do canvas some atrás de
+   * um véu. Mesma natureza de `isolatedGroupId` — só em memória, é modo de
+   * leitura e não propriedade do nó, e por isso nunca chega ao arquivo. O
+   * canvas é quem guarda e devolve o zoom/pan de antes.
+   */
+  focusedNodeId: UUID | null
   /** Nó de origem enquanto o usuário arrasta uma conexão nova. */
   connectingFrom: UUID | null
   /** Componente esperando o usuário desenhar a área onde vai nascer. */
@@ -421,6 +428,7 @@ const initial: AppSnapshot = {
   selectedGroupId: null,
   selectedDrawingId: null,
   isolatedGroupId: null,
+  focusedNodeId: null,
   connectingFrom: null,
   placing: null,
   railRequest: null,
@@ -626,7 +634,8 @@ class Store {
       selection: [],
       selectedGroupId: null,
       selectedDrawingId: null,
-      isolatedGroupId: null
+      isolatedGroupId: null,
+      focusedNodeId: null
     })
   }
 
@@ -681,6 +690,7 @@ class Store {
         selectedGroupId: null,
         selectedDrawingId: null,
         isolatedGroupId: null,
+        focusedNodeId: null,
         integrity: null
       })
       return
@@ -917,7 +927,13 @@ class Store {
       },
       { history: true, removal: { snapshots, at: Date.now() } }
     )
-    this.set({ selection: this.state.selection.filter((sel) => !dead.has(sel)) })
+    this.set({
+      selection: this.state.selection.filter((sel) => !dead.has(sel)),
+      // Apagar o nó em foco sai do foco: sem isto o canvas ficaria com o véu
+      // por cima e nada por baixo dele, e nenhum dos três caminhos de saída
+      // (véu, pílula, Esc) estaria na tela para desfazer isso.
+      focusedNodeId: dead.has(this.state.focusedNodeId ?? '') ? null : this.state.focusedNodeId
+    })
     // O botão do aviso e o ⌘Z são o MESMO gesto agora — os dois desfazem o
     // topo do histórico, que acabou de ser este delete.
     this.showNotice(noticeForRemoval(snapshots), {
@@ -2330,6 +2346,18 @@ class Store {
   /** Foco: o grupo fica opaco e o resto do canvas apaga. Só em memória. */
   isolateGroup(id: UUID | null): void {
     this.set({ isolatedGroupId: id })
+  }
+
+  /**
+   * Foco num NÓ: ele cresce até quase a tela, atrás dele um véu apaga o canvas.
+   *
+   * O nó não é remontado em lugar nenhum — ele continua no mesmo ponto da
+   * árvore e só muda de geometria. Isso não é detalhe de implementação: um
+   * portal remontado recarrega a página e um editor remontado descarta o que
+   * não foi salvo, e o gesto de AMPLIAR não pode custar isso.
+   */
+  focusNode(id: UUID | null): void {
+    this.set({ focusedNodeId: id })
   }
 
   // ─── Seleção e interação ────────────────────────────────────────────────────

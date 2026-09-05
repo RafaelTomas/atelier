@@ -13,10 +13,13 @@
 .canvas-chip-row {
   position: absolute;
   top: var(--pill-inset-top); z-index: 100;
-  /* No macOS os semáforos flutuam sobre a página nesta mesma linha; fora dele
-     o token vale 0 e sobra a folga comum, que é por onde a pista das pílulas
-     também começa. */
-  left: max(var(--pill-pad), var(--window-controls-width));
+  /* A MESMA folga em todo sistema. No macOS ela já foi `max(--pill-pad, largura
+     dos semáforos)`, e o recuo de 72px era o que se via como desalinhamento: os
+     semáforos não dividem esta linha com o chip: eles moram na faixa de arrasto,
+     30px ACIMA dela (ver `.mac-drag-strip`), e o chip fugia de um obstáculo que
+     não estava ao lado dele. Agora os dois começam na mesma coluna — o
+     `trafficLightPosition` do main usa este mesmo 18. */
+  left: var(--pill-pad);
   height: var(--pill-row-h);
   display: flex; align-items: center; gap: 6px;
   max-width: calc(100% - 320px);
@@ -324,6 +327,42 @@ button.canvas-chip:hover { background: var(--dock-hover); }
    mesmo com os nós de fora — os dois têm de apagar na mesma medida, senão a
    moldura vazia de um grupo apagado continuaria chamando atenção. */
 .group.is-dimmed { opacity: .25; }
+
+/* ─── Modo foco de um NÓ ──────────────────────────────────────────────────── */
+
+/* O véu. Ele mora DENTRO da .nodes-layer (ver canvas-view), então a geometria
+   dele vem em coordenadas de canvas por `style` — aqui fica só a pintura.
+
+   Mais escuro que o `.modal-backdrop` dos diálogos (40%) de propósito: um
+   diálogo é uma caixa pequena que precisa do contexto atrás dela legível; o
+   foco é o contrário — o nó ocupa quase tudo e o que sobra é para SUMIR. */
+.focus-backdrop {
+  position: absolute;
+  background: rgb(0 0 0 / 62%);
+  cursor: zoom-out;
+}
+
+/* Todo o cromo sai de cena enquanto o foco está aberto — e a marca está na
+   RAIZ porque nem tudo que precisa apagar mora dentro do canvas: a rail e os
+   controles de vista são irmãos dele. As duas pílulas (dock e rail), o
+   minimapa, o contador, o chip do workspace, o dial de zoom e as barras do nó
+   selecionado são ferramentas de canvas, e o canvas está atrás do véu.
+
+   `.pill` cobre as TRÊS pílulas de uma vez — dock, rail e a tira do monitor —
+   porque é a casca comum delas (ver floating.css).
+
+   `opacity`, e não `display: none`: as pílulas são posicionadas por JS a partir
+   do tamanho delas, e tirá-las do layout as faria recalcular a borda ao voltar. */
+:root[data-focus-mode] .minimap,
+:root[data-focus-mode] .canvas-hud,
+:root[data-focus-mode] .pill,
+:root[data-focus-mode] .canvas-chip-row,
+:root[data-focus-mode] .view-controls,
+:root[data-focus-mode] .node-action-bar,
+:root[data-focus-mode] .format-bar {
+  opacity: 0;
+  pointer-events: none;
+}
 
 /* As alças, na mesma geometria das do nó, mas só na moldura selecionada: oito
    retângulos invisíveis por grupo, sempre montados, roubariam da borda o clique

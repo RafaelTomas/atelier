@@ -6,6 +6,8 @@
  */
 import type { AgentRole, AgentStatus, CanvasNode, TerminalTheme, UUID } from '@shared/types'
 import { formatTokens } from '@shared/types'
+import { FOCUS_Z } from '../canvas/focus-frame'
+import { exitFocus } from '../canvas/focus-mode'
 import { Icon } from '../node-icons'
 import { store } from '../state/store'
 import { CodeEditorNode, codeEditorLabel } from './code-editor-node'
@@ -46,6 +48,13 @@ interface Props {
    * layout para de renderizar, e o agente leria uma página congelada.
    */
   hidden?: boolean
+  /**
+   * Em MODO FOCO. O nó já chega aqui com a moldura ampliada — quem calcula é o
+   * canvas, com `focusFrame`. O que muda por aqui é só a casca: ele sobe para
+   * cima do véu, perde as alças de redimensionar (não há gesto de arrastar
+   * enquanto o foco está aberto) e ganha a pílula de saída.
+   */
+  focused?: boolean
 }
 
 function title(node: CanvasNode, projectName: string | null): string {
@@ -111,7 +120,8 @@ export function NodeShell({
   status = null,
   projectName = null,
   dimmed = false,
-  hidden = false
+  hidden = false,
+  focused = false
 }: Props): JSX.Element {
   const { frame } = node
   const terminal = node.content.type === 'terminal' ? node.content.value : null
@@ -162,7 +172,12 @@ export function NodeShell({
      */
     <div
       data-node-id={node.id}
-      className={['node-frame', dimmed ? 'is-dimmed' : '', hidden ? 'is-hidden' : '']
+      className={[
+        'node-frame',
+        dimmed ? 'is-dimmed' : '',
+        hidden ? 'is-hidden' : '',
+        focused ? 'is-focused' : ''
+      ]
         .filter(Boolean)
         .join(' ')}
       style={{
@@ -170,7 +185,11 @@ export function NodeShell({
         top: frame.y,
         width: frame.width,
         height: frame.height,
-        zIndex: node.zIndex
+        // Em foco o nó tem de vencer o véu, que por sua vez vence todo o resto.
+        // Os zIndex reais são `maxZ + 1` (ver bringToFront na store) e vivem na
+        // casa das dezenas — FOCUS_Z está uma ordem de grandeza acima de
+        // qualquer canvas plausível.
+        zIndex: focused ? FOCUS_Z : node.zIndex
       }}
     >
       <div
@@ -240,9 +259,43 @@ export function NodeShell({
         {terminal && status && <AgentStatusFooter status={status} />}
       </div>
 
-      {RESIZE_EDGES.map((edge) => (
-        <div key={edge} data-resize-handle={edge} />
-      ))}
+      {/* Sem alças em foco: o tamanho ali é calculado a partir da janela, e uma
+          alça arrastada escreveria no frame GRAVADO do nó — o usuário sairia do
+          foco e encontraria o nó do tamanho da tela. */}
+      {!focused &&
+        RESIZE_EDGES.map((edge) => (
+          <div key={edge} data-resize-handle={edge} />
+        ))}
+
+      {/* A pílula de saída, na FAIXA DO VÉU embaixo do nó.
+          Duas casas foram tentadas antes, e as duas colidiam com algo: acima da
+          moldura ela batia nos semáforos do macOS e no chip do workspace; no
+          canto superior direito de dentro do nó ela pousava exatamente sobre o
+          `⇄` e o `×` do cabeçalho — dois `×` encostados, e o de fora fazendo
+          uma coisa completamente diferente do de dentro.
+
+          A margem do foco (FOCUS_MARGIN) é uma faixa vazia dos quatro lados do
+          nó, e é o único lugar da tela que não pertence nem ao nó nem ao cromo
+          da janela. Embaixo e no meio, sobre o escuro do véu, ela não tem com o
+          que colidir e lê como o que é: controle do MODO, não do nó.
+
+          Existe porque o `Esc` NÃO é caminho garantido: num terminal em foco a
+          tecla é do terminal (vim depende disso), e o véu vira uma faixa fina
+          quando o nó ocupa quase tudo. */}
+      {focused && (
+        <button
+          type="button"
+          className="focus-exit"
+          data-node-interactive
+          title="Sair do foco"
+          onMouseDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onClick={exitFocus}
+        >
+          <span className="focus-exit-x">×</span>
+          <span className="focus-exit-label">Sair do foco</span>
+        </button>
+      )}
     </div>
   )
 }

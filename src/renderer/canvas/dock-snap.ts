@@ -93,6 +93,14 @@ export interface DockSnap {
   side: DockSide
   /** Onde e com que tamanho o arrastado fica ao soltar. */
   frame: Rect
+  /**
+   * Folga que elegeu este encaixe, em pontos de canvas — sempre positiva.
+   *
+   * Sai daqui porque quem chama não teria como recalculá-la sem repetir a
+   * escolha de lado. É o número que a etiqueta do fantasma mostra, e é o que
+   * torna possível responder "por que ele pegou?" olhando a tela.
+   */
+  distance: number
 }
 
 /** Sobreposição de dois intervalos [aStart, aEnd] e [bStart, bEnd]. Negativa
@@ -123,7 +131,7 @@ export function dockSnapFor(
   previous: DockSnap | null = null
 ): DockSnap | null {
   /** Todo encaixe possível deste quadro, já filtrado. */
-  const options: { snap: DockSnap; distance: number; z: number }[] = []
+  const options: { snap: DockSnap; z: number }[] = []
 
   for (const candidate of candidates) {
     const target = candidate.frame
@@ -168,7 +176,10 @@ export function dockSnapFor(
       // costuma estar ocupado por um terceiro nó. Prometer aquele espaço seria
       // prometer um empilhamento.
       if (occupied(frame, candidates, candidate.id)) continue
-      options.push({ snap: { targetId: candidate.id, side, frame }, distance: Math.abs(gap), z: candidate.z })
+      options.push({
+        snap: { targetId: candidate.id, side, frame, distance: Math.abs(gap) },
+        z: candidate.z
+      })
     }
   }
 
@@ -178,8 +189,8 @@ export function dockSnapFor(
   // primeiro da lista — que é estável, porque a ordem dos nós é.
   let best = options[0]
   for (const option of options) {
-    if (option.distance < best.distance) best = option
-    else if (option.distance === best.distance && option.z > best.z) best = option
+    if (option.snap.distance < best.snap.distance) best = option
+    else if (option.snap.distance === best.snap.distance && option.z > best.z) best = option
   }
 
   // O alvo do quadro anterior fica, a menos que o novo esteja claramente mais
@@ -189,7 +200,7 @@ export function dockSnapFor(
     const kept = options.find(
       (o) => o.snap.targetId === previous.targetId && o.snap.side === previous.side
     )
-    if (kept && best.distance >= kept.distance * HYSTERESIS) return kept.snap
+    if (kept && best.snap.distance >= kept.snap.distance * HYSTERESIS) return kept.snap
   }
 
   return best.snap

@@ -773,6 +773,26 @@ button.canvas-chip:hover { background: var(--dock-hover); }
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
+/* Tamanho e folga do encaixe, no canto do fantasma. A folga é o número que
+   explica a decisão: sem ela, "por que ele pegou tão longe?" só se discute de
+   memória. O contra-escala do zoom não vale a pena aqui — a etiqueta acompanha
+   o retângulo, e ler pequeno num canvas afastado é o mesmo que ler o nó. */
+.dock-ghost-info {
+  position: absolute; right: 4px; bottom: 3px; white-space: nowrap;
+  font-size: var(--fs-xs); font-variant-numeric: tabular-nums;
+  color: #fff; background: var(--accent);
+  padding: 1px 5px; border-radius: var(--r-sm);
+}
+
+/* O vizinho que serviu de referência para o encaixe. Um anel CHEIO, contra o
+   tracejado do fantasma e o da seleção: são três papéis diferentes na mesma
+   tela, e a pessoa precisa distinguir "o que vou virar", "o que está
+   selecionado" e "quem me deu o tamanho". */
+.node.is-snap-target {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Medida da área, no canto de dentro: o usuário vê o tamanho que vai receber —
    inclusive quando o piso do tipo segura o retângulo. */
 .placement-size {

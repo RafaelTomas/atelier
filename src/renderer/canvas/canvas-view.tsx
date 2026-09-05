@@ -246,6 +246,9 @@ export function CanvasView(): JSX.Element {
    */
   const dockSnap = useRef<DockSnap | null>(null)
   const ghostRef = useRef<HTMLDivElement>(null)
+  const ghostInfoRef = useRef<HTMLSpanElement>(null)
+  /** Nó realçado como alvo do encaixe — mesmo esquema do `candidateGroup`. */
+  const snapTarget = useRef<UUID | null>(null)
   /** Espaço segurado: o canvas vira mão e qualquer arrasto é pan. */
   const [spacePan, setSpacePan] = useState(false)
   /** Espaço solto no meio do arrasto — a mão fica até o mouseup. */
@@ -956,6 +959,33 @@ export function CanvasView(): JSX.Element {
       dockSnap.current = null
       const ghost = ghostRef.current
       if (ghost) ghost.hidden = true
+      if (snapTarget.current) {
+        nodesRef.current
+          ?.querySelector(`[data-node-id="${snapTarget.current}"]`)
+          ?.classList.remove('is-snap-target')
+        snapTarget.current = null
+      }
+    }
+
+    /**
+     * Realça o vizinho que serviu de referência.
+     *
+     * Sem ele o fantasma é um retângulo sem dono: aparece longe do cursor —
+     * porque um encaixe à esquerda de um nó largo cai longe dele — e não há
+     * nada na tela dizendo de quem ele saiu. Com o realce, "por que pegou?"
+     * vira uma pergunta que a própria tela responde.
+     */
+    const markSnapTarget = (id: UUID | null): void => {
+      if (id === snapTarget.current) return
+      if (snapTarget.current) {
+        nodesRef.current
+          ?.querySelector(`[data-node-id="${snapTarget.current}"]`)
+          ?.classList.remove('is-snap-target')
+      }
+      if (id) {
+        nodesRef.current?.querySelector(`[data-node-id="${id}"]`)?.classList.add('is-snap-target')
+      }
+      snapTarget.current = id
     }
 
     /**
@@ -998,6 +1028,7 @@ export function CanvasView(): JSX.Element {
       if (!ghost) return
       if (!snap) {
         ghost.hidden = true
+        markSnapTarget(null)
         return
       }
       // Coordenadas de CANVAS direto: o fantasma mora dentro da .nodes-layer,
@@ -1007,6 +1038,14 @@ export function CanvasView(): JSX.Element {
       ghost.style.width = `${snap.frame.width}px`
       ghost.style.height = `${snap.frame.height}px`
       ghost.hidden = false
+      markSnapTarget(snap.targetId)
+      // A folga é o número que explica a decisão: com ela na tela, "por que ele
+      // pegou tão longe?" deixa de ser uma discussão sobre a memória de quem
+      // viu. Em pontos de canvas, como o resto do retângulo.
+      const info = ghostInfoRef.current
+      if (info) {
+        info.textContent = `${Math.round(snap.frame.width)} × ${Math.round(snap.frame.height)} · folga ${Math.round(snap.distance)}`
+      }
     }
 
     const onMove = (e: MouseEvent): void => {
@@ -1847,7 +1886,9 @@ export function CanvasView(): JSX.Element {
             desmontar por estado do React poria uma re-renderização da árvore de
             nós no caminho do mousemove, que é justamente o que este arquivo
             evita. Dentro da .nodes-layer para receber de graça o pan e o zoom. */}
-        <div ref={ghostRef} className="dock-ghost" hidden />
+        <div ref={ghostRef} className="dock-ghost" hidden>
+          <span ref={ghostInfoRef} className="dock-ghost-info" />
+        </div>
 
         {/* O véu do foco mora DENTRO da camada de nós, e não ao lado dela: a
             .nodes-layer tem `transform`, portanto é um contexto de

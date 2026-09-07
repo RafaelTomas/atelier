@@ -82,6 +82,7 @@ const {
   MINUTES_IN_DAY,
   advancePomodoroPhase,
   applyClockSettings,
+  clockWillFire,
   alarmCountdown,
   alarmDaysLabel,
   alarmSummary,
@@ -1298,6 +1299,30 @@ test('applyClockSettings limpa o aviso de perdido, que é o que a tela promete',
   assert.ok(perdido.config.alarm.missedAt > 0)
   const salvo = applyClockSettings(perdido.config, perdido.config, T0 + 3 * HOUR)
   assert.equal(salvo.alarm.missedAt, 0)
+})
+
+
+test('clockWillFire separa "é capaz de disparar" de "vai disparar"', () => {
+  // É a distinção que o CABO precisa: `emitsEvents` fala do modo, esta fala do
+  // estado. Um relógio em modo Relógio mostrava o mesmo cabo aceso de um alarme
+  // armado para as 08:00.
+  assert.equal(clockWillFire(defaultClockConfig()), false, 'o modo relógio nunca dispara')
+  assert.equal(clockWillFire(setMode(defaultClockConfig(), 'stopwatch')), false)
+
+  const timer = setTimerDuration(setMode(defaultClockConfig(), 'timer'), 10 * MIN)
+  assert.equal(clockWillFire(timer), false, 'timer parado não vai disparar')
+  const correndo = startTimer(timer, T0)
+  assert.equal(clockWillFire(correndo), true)
+  assert.equal(clockWillFire(pauseTimer(correndo, T0 + MIN)), false, 'timer pausado não dispara')
+  // Terminado também não: o disparo dele já aconteceu.
+  assert.equal(clockWillFire(reconcile(correndo, T0 + 11 * MIN, { live: true }).config), false)
+
+  const pomo = setMode(defaultClockConfig(), 'pomodoro')
+  assert.equal(clockWillFire(pomo), false)
+  assert.equal(clockWillFire(startPomodoro(pomo, T0)), true)
+
+  assert.equal(clockWillFire(alarmAt(10, 0, SEG_A_SEX)), false, 'alarme desarmado não dispara')
+  assert.equal(clockWillFire(armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)), true)
 })
 
 await rm(outdir, { recursive: true, force: true })

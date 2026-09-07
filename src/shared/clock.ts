@@ -925,6 +925,33 @@ export function emitsEvents(config: ClockConfig): boolean {
   return config.mode === 'timer' || config.mode === 'pomodoro' || config.mode === 'alarm'
 }
 
+/**
+ * Este relógio, COMO ESTÁ AGORA, tem um disparo a caminho?
+ *
+ * `emitsEvents` responde sobre o MODO — se aquele tipo de relógio é capaz de
+ * disparar. Esta responde sobre o ESTADO, que é a pergunta que o cabo faz: um
+ * timer parado, um pomodoro pausado e um alarme desarmado são todos capazes e
+ * nenhum deles vai disparar coisa alguma enquanto ficarem assim.
+ *
+ * É o que permite ao cabo relógio→botão ter duas caras. Um cabo de cor única
+ * dizia só "existe uma ligação aqui", e a pergunta que o usuário faz olhando o
+ * canvas é outra: "isto vai rodar?". Sem a distinção, um relógio em modo
+ * Relógio — que nunca dispara — mostrava o mesmo cabo aceso de um alarme armado
+ * para as 08:00.
+ */
+export function clockWillFire(config: ClockConfig): boolean {
+  switch (config.mode) {
+    case 'timer':
+      return config.timer.state === 'running'
+    case 'pomodoro':
+      return config.pomodoro.state === 'running'
+    case 'alarm':
+      return config.alarm.state === 'armed' && config.alarm.armedAt > 0
+    default:
+      return false
+  }
+}
+
 // ─── Gestos ───────────────────────────────────────────────────────────────────
 // Cada um devolve uma configuração NOVA. Todos recebem `now`: um gesto ancora
 // um instante absoluto, e o instante é do chamador, não deste módulo.

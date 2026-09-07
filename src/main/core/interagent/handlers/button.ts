@@ -21,6 +21,7 @@
 import type { CanvasNode, UUID } from '@shared/types'
 import {
   buttonActionSummary,
+  clockFireBlock,
   readButtonConfig,
   writeButtonConfig,
   type ButtonConfig
@@ -38,7 +39,7 @@ import { requireTerminalId, workspaceForTerminal } from './context'
 const USAGE = 'error: usage: atelier button <propose|edit|list|remove> …'
 
 const PROPOSE_USAGE =
-  'error: usage: atelier button propose "Label" (--command "npm run dev" | --prompt "text" --target "Agent" | --url http://… | --agent "Name" [--preset claude] [--model sonnet] [--role "Role"] [--account "Account"] [--prompt "text"] [--artisan] [--no-reuse]) [--icon play] [--color "#34C759"] [--cwd <path>] [--confirm]'
+  'error: usage: atelier button propose "Label" (--command "npm run dev" | --prompt "text" --target "Agent" | --url http://… | --agent "Name" [--preset claude] [--model sonnet] [--role "Role"] [--account "Account"] [--prompt "text"] [--artisan] [--no-reuse]) [--icon play] [--color "#34C759"] [--cwd <path>] [--confirm [--unattended]]'
 
 export async function handleButton(args: string[], terminalId: UUID | null): Promise<string> {
   const tid = requireTerminalId(terminalId)
@@ -61,7 +62,7 @@ export async function handleButton(args: string[], terminalId: UUID | null): Pro
 const FLAGS = ['command', 'prompt', 'url', 'icon', 'color', 'cwd', 'target', 'agent', 'preset', 'model', 'role', 'account', 'label']
 
 const EDIT_USAGE =
-  'error: usage: atelier button edit "Label" [--prompt "…"] [--command "…"] [--url …] [--agent "Name"] [--preset claude] [--model sonnet] [--cwd <path>] [--role "Role"] [--account "Account"] [--artisan|--no-artisan] [--no-reuse] [--confirm|--no-confirm] [--label "New label"] [--icon play] [--color "#34C759"]'
+  'error: usage: atelier button edit "Label" [--prompt "…"] [--command "…"] [--url …] [--agent "Name"] [--preset claude] [--model sonnet] [--cwd <path>] [--role "Role"] [--account "Account"] [--artisan|--no-artisan] [--no-reuse] [--confirm|--no-confirm] [--unattended|--no-unattended] [--label "New label"] [--icon play] [--color "#34C759"]'
 
 function takeFlags(args: string[]): { rest: string[]; flags: Map<string, string> } {
   const rest: string[] = []
@@ -73,6 +74,8 @@ function takeFlags(args: string[]): { rest: string[]; flags: Map<string, string>
     else if (name === 'artisan') flags.set('artisan', '1')
     else if (name === 'no-artisan') flags.set('no-artisan', '1')
     else if (name === 'no-confirm') flags.set('no-confirm', '1')
+    else if (name === 'unattended') flags.set('unattended', '1')
+    else if (name === 'no-unattended') flags.set('no-unattended', '1')
     else if (name && FLAGS.includes(name)) flags.set(name, args[++i] ?? '')
     else rest.push(args[i])
   }
@@ -158,6 +161,12 @@ function proposeButton(argv: string[], tid: UUID): string {
   if (typeof agent === 'string') return agent
   const { preset, model, roleId, accountId, artisan } = agent
 
+  // `--unattended` sozinho não faz nada, e aceitar em silêncio deixaria o
+  // agente relatar uma permissão que ele não configurou.
+  if (flags.get('unattended') === '1' && flags.get('confirm') !== '1') {
+    return 'error: --unattended only matters with --confirm: without confirmation this button can already be fired by a clock.'
+  }
+
   const action: ButtonConfig['action'] =
     agentName !== undefined ? 'agent' : prompt ? 'prompt' : url ? 'url' : 'command'
 
@@ -181,6 +190,7 @@ function proposeButton(argv: string[], tid: UUID): string {
     cwd: flags.get('cwd') ?? '',
     target,
     confirm: flags.get('confirm') === '1',
+    unattended: flags.get('unattended') === '1',
     pending: true,
     proposedBy: nodeDisplayName(caller.content)
   }
@@ -360,7 +370,15 @@ function editButton(argv: string[], tid: UUID): string {
     ...agent,
     target,
     reuseAgent: flags.get('no-reuse') === '1' ? false : before.reuseAgent,
-    confirm: flags.get('confirm') === '1' ? true : flags.get('no-confirm') === '1' ? false : before.confirm
+    confirm: flags.get('confirm') === '1' ? true : flags.get('no-confirm') === '1' ? false : before.confirm,
+    // Desligar a confirmação NÃO apaga esta permissão, igual ao diálogo: o
+    // campo fica gravado e simplesmente não é lido enquanto `confirm` é falso.
+    unattended:
+      flags.get('unattended') === '1'
+        ? true
+        : flags.get('no-unattended') === '1'
+          ? false
+          : before.unattended
   }
 
   // O que o usuário leu quando aceitou. Rótulo, ícone e cor ficam de fora: são
@@ -379,7 +397,11 @@ function editButton(argv: string[], tid: UUID): string {
     'accountId',
     'artisan',
     'reuseAgent',
-    'confirm'
+    'confirm',
+    // Passar um botão já aceito a rodar sem ninguém por perto é a mudança de
+    // permissão mais forte que este arquivo permite. Ela entra aqui para o
+    // botão VOLTAR a pendente e ser relida antes de valer.
+    'unattended'
   ] as const
   const changed = EXECUTABLE.filter((k) => before[k] !== after[k])
   if (changed.length === 0 && after.label === before.label && after.icon === before.icon && after.color === before.color) {
@@ -420,7 +442,14 @@ function listButtons(tid: UUID): string {
     const config = readButtonConfig(node.content.value.view)
     const what = buttonActionSummary(config)
     const state = config.pending ? 'pending' : 'armed'
-    lines.push(`  ${config.label}  [${config.action}] ${what}  (${state}, ${node.id.slice(0, 8)})`)
+    // `unattended` aparece no ESTADO, ao lado de pending/armed: sem isso um
+    // agente não tem como responder "este botão pode ser agendado?" sem abrir o
+    // `view` na mão.
+    const scheduling =
+      clockFireBlock(config) === null && config.confirm ? ', unattended' : ''
+    lines.push(
+      `  ${config.label}  [${config.action}] ${what}  (${state}${scheduling}, ${node.id.slice(0, 8)})`
+    )
   }
   return lines.join('\n')
 }

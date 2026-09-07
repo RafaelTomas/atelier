@@ -14,7 +14,7 @@ import type {
   UUID,
   WorkspacePayload
 } from '@shared/types'
-import { connectionKindForTypes, readButtonConfig } from '@shared/types'
+import { clockFireBlock, connectionKindForTypes, readButtonConfig } from '@shared/types'
 import type { RemovedNodeSnapshot } from '@shared/node-undo'
 import { restoreRemoval } from '@shared/node-undo'
 import { nowISO } from '../coding'
@@ -238,9 +238,12 @@ export class WorkspaceManager {
     // replica para o cabo fantasma não prometer o que o main vai negar:
     //   • um relógio manda em NO MÁXIMO um cabo clockAction — um só fim não pode
     //     abrir dois terminais; trocar o alvo é cortar e ligar outro;
-    //   • um botão PENDENTE (proposto e não aceito) ou com `confirm: true` não
-    //     pode ser alvo automático: dispará-lo sem o aceite visual burlaria a
-    //     promessa da configuração.
+    //   • um botão PENDENTE (proposto e não aceito) não pode ser alvo
+    //     automático: dispará-lo sem o aceite visual burlaria a promessa da
+    //     configuração. Um botão com `confirm: true` também não, A NÃO SER que
+    //     ele traga `unattended: true` — a permissão explícita de rodar sem
+    //     ninguém por perto, que é uma pergunta diferente de "pergunte antes
+    //     quando eu clicar" (ver `clockFireBlock`).
     // Um botão pode receber vários relógios — a recusa é só do lado do relógio.
     if (kind === 'clockAction') {
       const nodeA = this.node(idA)
@@ -254,8 +257,10 @@ export class WorkspaceManager {
       if (clockBusy) return null
       const buttonNode = this.node(buttonId)
       if (buttonNode?.content.type === 'widget') {
-        const cfg = readButtonConfig(buttonNode.content.value.view)
-        if (cfg.pending || cfg.confirm) return null
+        // A regra mora em `clockFireBlock` (shared/types.ts) e é perguntada
+        // aqui, no preview do cabo, no diálogo do relógio e no `runButton`. Uma
+        // cópia local voltaria a divergir da lista que o usuário vê.
+        if (clockFireBlock(readButtonConfig(buttonNode.content.value.view)) !== null) return null
       }
       a = clockId
       b = buttonId

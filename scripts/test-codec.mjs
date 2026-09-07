@@ -32,6 +32,14 @@ async function loadCodec() {
       contents: `
         export * from './src/main/core/models/workspace.ts'
         export { connectionKindForTypes } from './src/shared/types.ts'
+        // clockFireBlock não é codec — é a regra de PERMISSÃO que decide se um
+        // relógio pode disparar um botão. Entra aqui porque este arquivo já
+        // compila shared/types.ts com o codec do botão ao lado, e um arquivo
+        // novo para uma função de quatro linhas custaria mais que o vizinho
+        // imperfeito. Se a permissão crescer, ela se muda com sua seção.
+        // (Sem acento grave neste comentário: ele vive dentro do template
+        // literal que alimenta o esbuild por stdin.)
+        export { clockFireBlock, readButtonConfig, writeButtonConfig } from './src/shared/types.ts'
         // As preferências entram aqui porque a posição das pílulas é gravada num
         // arquivo COMPARTILHADO com o app nativo Swift, que não conhece as
         // chaves novas e as apaga no save dele. O que este teste protege é que
@@ -69,6 +77,7 @@ function test(name, fn) {
 
 const { mod, cleanup } = await loadCodec()
 const { decodeWorkspaceDocument, encodeWorkspaceDocument, connectionKindForTypes } = mod
+const { clockFireBlock, readButtonConfig, writeButtonConfig } = mod
 const { decodePreferences, makePreferences } = mod
 
 const raw = JSON.parse(readFileSync(join(ROOT, 'fixtures/full-workspace.json'), 'utf8'))
@@ -1059,6 +1068,74 @@ test('valor não-string no view de um botão é filtrado', () => {
 test('schemaVersion e type ficam corretos na raiz', () => {
   assert.equal(reencoded.schemaVersion, 8)
   assert.equal(reencoded.type, 'workspace')
+})
+
+
+console.log('\npermissão: quem pode disparar um botão\n')
+
+/** Um `ButtonConfig` mínimo, para os casos falarem só do que estão provando. */
+function buttonWith(view) {
+  return readButtonConfig({ label: 'X', action: 'command', command: 'ls', ...view })
+}
+
+test('unattended faz round-trip e é OMITIDO quando falso', () => {
+  const on = buttonWith({ confirm: '1', unattended: '1' })
+  assert.equal(on.unattended, true)
+  assert.equal(writeButtonConfig(on).unattended, '1')
+  // A disciplina de `view` enxuto: a chave só existe quando a permissão existe.
+  assert.equal(writeButtonConfig(buttonWith({})).unattended, undefined)
+  assert.equal(readButtonConfig(writeButtonConfig(on)).unattended, true)
+})
+
+test('unattended com lixo cai em FALSO, nunca numa permissão que ninguém deu', () => {
+  // Um campo de permissão tem de falhar para o lado fechado. `'0'`, `'sim'`,
+  // `'true'` e um número são todos "não autorizado".
+  for (const raw of ['0', 'sim', 'true', 'TRUE', '', '2', 1, true, null, undefined]) {
+    assert.equal(buttonWith({ confirm: '1', unattended: raw }).unattended, false, `aceitou ${JSON.stringify(raw)}`)
+  }
+})
+
+test('clockFireBlock: pendente é barrado, e a mensagem é a do ACEITE', () => {
+  // A ordem importa: um botão pendente E com confirmação tem de reportar o
+  // aceite que falta, senão o usuário vai arrumar a coisa errada.
+  assert.equal(clockFireBlock(buttonWith({ pending: '1' })), 'pending')
+  assert.equal(clockFireBlock(buttonWith({ pending: '1', confirm: '1' })), 'pending')
+  assert.equal(clockFireBlock(buttonWith({ pending: '1', confirm: '1', unattended: '1' })), 'pending')
+})
+
+test('clockFireBlock: sem confirmação, um relógio já podia disparar', () => {
+  // O comportamento que existe desde o primeiro plano do relógio, e que esta
+  // mudança não pode ter alterado para nenhum botão já gravado.
+  assert.equal(clockFireBlock(buttonWith({})), null)
+  assert.equal(clockFireBlock(buttonWith({ unattended: '1' })), null)
+})
+
+test('clockFireBlock: confirmação barra, e unattended é o que a libera', () => {
+  assert.equal(clockFireBlock(buttonWith({ confirm: '1' })), 'confirm')
+  assert.equal(clockFireBlock(buttonWith({ confirm: '1', unattended: '1' })), null)
+})
+
+test('unattended NÃO mexe na confirmação do clique', () => {
+  // As duas perguntas voltaram a ser duas: liberar o disparo sem vigia não pode
+  // apagar a proteção do clique, que é o motivo pelo qual o campo existe.
+  const config = buttonWith({ confirm: '1', unattended: '1' })
+  assert.equal(config.confirm, true, 'a proteção do clique se perdeu')
+  assert.equal(config.unattended, true)
+})
+
+test('view de botão com unattended atravessa o codec do workspace', () => {
+  const view = { label: 'Pack Linux', action: 'command', command: 'npm run pack:linux', confirm: '1', unattended: '1' }
+  const doc = decodeWorkspaceDocument(widgetDoc({ kind: 'button', projectId: null, view }))
+  assert.deepEqual(doc.payload.nodes[0].content.value.view, view)
+  const back = encodeWorkspaceDocument(doc.payload).payload.nodes[0].content
+  assert.deepEqual(back.widget._0.view, view)
+})
+
+test('o schemaVersion NÃO subiu por causa da permissão nova', () => {
+  // A afirmação central do plano: o campo é aditivo num mapa de strings que já
+  // existe, então nenhum documento muda de forma. Se este teste falhar, é o
+  // plano que está errado.
+  assert.equal(reencoded.schemaVersion, 8)
 })
 
 await cleanup()

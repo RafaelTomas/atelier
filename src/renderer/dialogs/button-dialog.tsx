@@ -55,6 +55,7 @@ export function emptyButtonConfig(): ButtonConfig {
     artisan: false,
     reuseAgent: true,
     confirm: false,
+    unattended: false,
     // Botão feito PELO usuário nasce armado — o aceite existe para o que vem
     // do agente (ver ButtonWidget).
     pending: false,
@@ -618,6 +619,30 @@ function ActionTab({
         />
         Pedir confirmação antes de disparar
       </label>
+
+      {/* Aninhada, porque não significa nada sozinha: sem confirmação o botão
+          JÁ pode ser disparado por um relógio, e oferecer a caixa ali faria o
+          usuário achar que precisa dela.
+
+          Desmarcar a confirmação NÃO apaga esta permissão — o campo continua
+          gravado e simplesmente não é lido enquanto `confirm` é falso. Quem
+          marca, desmarca e remarca a confirmação não perde o que já autorizou. */}
+      <label className="check-row is-nested">
+        <input
+          type="checkbox"
+          disabled={!draft.confirm}
+          checked={draft.unattended}
+          onChange={(e) => patch({ unattended: e.target.checked })}
+        />
+        …mas um relógio pode disparar sem confirmar
+      </label>
+      {draft.confirm && (
+        <p className="field-hint">
+          {draft.unattended
+            ? 'Um relógio cabeado roda este botão no horário, sem diálogo e sem ninguém por perto. O clique continua pedindo confirmação.'
+            : 'Hoje este botão não pode ser alvo de um relógio: um diálogo esperando sozinho não é automação.'}
+        </p>
+      )}
     </div>
   )
 }

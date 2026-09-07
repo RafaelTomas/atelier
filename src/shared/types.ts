@@ -655,9 +655,48 @@ export interface ButtonConfig {
   /** Terminal onde a ação roda. null = cria um novo. */
   target: UUID | null
   confirm: boolean
+  /**
+   * Pode ser disparado SEM um humano presente — hoje, por um relógio cabeado.
+   *
+   * Existe porque `confirm` respondia a duas perguntas com um booleano só:
+   * "pergunte antes quando eu CLICAR" e "nunca rode sozinho". Um
+   * `npm run pack:linux` quer a primeira e não tem opinião sobre a segunda, e
+   * sem este campo o usuário tinha de abrir mão da proteção do clique para
+   * conseguir o agendamento — a proteção que ele ligou de propósito.
+   *
+   * Só tem efeito com `confirm: true`: sem confirmação o botão já podia ser
+   * disparado por um relógio desde o primeiro plano, e nada muda para ele.
+   *
+   * O nome fala da PRESENÇA de um humano, e não de relógios. Um `allowClock`
+   * viraria um nome que mente no dia em que houver um segundo disparador.
+   */
+  unattended: boolean
   /** Proposto por um agente e ainda não aceito — inerte até o usuário aceitar. */
   pending: boolean
   proposedBy: string | null
+}
+
+/** Por que um relógio não pode disparar um botão. Ver `clockFireBlock`. */
+export type ClockFireBlock = 'pending' | 'confirm'
+
+/**
+ * Um relógio pode disparar este botão? `null` = pode.
+ *
+ * **Autoridade única da regra.** Ela estava escrita quatro vezes — o
+ * `WorkspaceManager` recusando o cabo, o `canLink` não desenhando o fantasma, o
+ * diálogo do relógio filtrando a lista e o `runButton` recusando o disparo —, e
+ * quatro cópias que só coincidem por disciplina são como uma delas passa a
+ * oferecer o que outra nega. Foi o que quase aconteceu: o `<select>` do relógio
+ * chegou a listar um botão que o main ia recusar.
+ *
+ * A ordem importa. `pending` vence `confirm` porque a mensagem que o usuário lê
+ * tem de ser a do aceite que falta — dizer "pede confirmação" para um botão que
+ * ainda não foi aceito manda arrumar a coisa errada.
+ */
+export function clockFireBlock(config: ButtonConfig): ClockFireBlock | null {
+  if (config.pending) return 'pending'
+  if (config.confirm && !config.unattended) return 'confirm'
+  return null
 }
 
 export const DEFAULT_BUTTON_COLOR = '#34C759'
@@ -692,6 +731,10 @@ export function readButtonConfig(view: Record<string, string>): ButtonConfig {
     cwd: view.cwd ?? '',
     target: view.target ? (view.target as UUID) : null,
     confirm: view.confirm === '1',
+    // A comparação estrita é o que faz um campo de PERMISSÃO falhar para o lado
+    // fechado: `'sim'`, `'true'`, `'0'` ou um número viram `false`, nunca uma
+    // autorização que ninguém deu.
+    unattended: view.unattended === '1',
     pending: view.pending === '1',
     proposedBy: view.proposedBy || null
   }
@@ -719,6 +762,7 @@ export function writeButtonConfig(config: ButtonConfig): Record<string, string> 
   if (config.cwd) view.cwd = config.cwd
   if (config.target) view.target = config.target
   if (config.confirm) view.confirm = '1'
+  if (config.unattended) view.unattended = '1'
   if (config.pending) view.pending = '1'
   if (config.proposedBy) view.proposedBy = config.proposedBy
   return view

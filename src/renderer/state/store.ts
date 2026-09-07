@@ -39,6 +39,7 @@ import {
   MONITOR_PLACEMENT_DEFAULT,
   RAIL_PLACEMENT_DEFAULT,
   clampRopeThickness,
+  clockFireBlock,
   formatPlacement,
   isRopeStyleId,
   parsePlacement,
@@ -46,7 +47,13 @@ import {
   writeButtonConfig
 } from '@shared/types'
 import type { ClockConfig } from '@shared/clock'
-import { readClockConfig, setClockColor, writeClockConfig } from '@shared/clock'
+import {
+  applyClockSettings,
+  disarmAlarm,
+  readClockConfig,
+  setClockColor,
+  writeClockConfig
+} from '@shared/clock'
 import { normalizeURL } from '@shared/portal-url'
 import {
   ARTISAN_COLOR,
@@ -1421,18 +1428,71 @@ class Store {
     return readClockConfig(node.content.value.view)
   }
 
+  /** O botão hoje cabeado a este relógio. O relógio é sempre o lado A. */
+  clockTarget(nodeId: UUID): UUID | null {
+    const conn = this.state.workspace?.connections.find(
+      (c) => c.kind === 'clockAction' && c.nodeIdA === nodeId
+    )
+    return conn?.nodeIdB ?? null
+  }
+
   /**
    * Grava a configuração do relógio PRESERVANDO o `view` que já estava lá.
    *
    * Ao contrário do botão, aqui o `view` não é substituído inteiro: as chaves
    * que este binário não conhece — de uma versão mais nova do Atelier — têm de
    * atravessar o save intactas, e é `writeClockConfig` que as recopia.
+   *
+   * `target` é o botão escolhido no diálogo. Ele NÃO é parte do `view`: é uma
+   * conexão do workspace, e por isso viaja por fora e é aplicado aqui, no
+   * único momento em que o rascunho vira mudança de verdade.
+   *
+   * E o `config` que chega é um RASCUNHO congelado na abertura do diálogo: só a
+   * configuração dele é aproveitada (`applyClockSettings`), nunca as âncoras de
+   * corrida. Ver o porquê naquela função — é um caminho por onde o botão de um
+   * relógio chegava a rodar duas vezes.
    */
-  async saveClock(nodeId: UUID, config: ClockConfig): Promise<void> {
+  async saveClock(nodeId: UUID, config: ClockConfig, target: UUID | null): Promise<void> {
     const node = this.state.workspace?.nodes.find((n) => n.id === nodeId)
     const previous = node?.content.type === 'widget' ? node.content.value.view : {}
-    await this.patchContent(nodeId, { view: writeClockConfig(config, previous) })
+
+    const existing = this.state.workspace?.connections.find(
+      (c) => c.kind === 'clockAction' && c.nodeIdA === nodeId
+    )
+    const targetChanged = (existing?.nodeIdB ?? null) !== target
+
+    // O rascunho do diálogo é CONGELADO na abertura, então gravá-lo inteiro
+    // devolveria ao disco as âncoras daquele instante — e um Salvar dado depois
+    // de um disparo faria o botão rodar duas vezes. `applyClockSettings` deixa
+    // passar só a configuração; o checkpoint vivo fica.
+    let merged = applyClockSettings(readClockConfig(previous), config, Date.now())
+
+    // Trocar o ALVO desarma, pela mesma razão que trocar o horário desarma no
+    // CLI: o usuário armou depois de ler "às 08:00 este botão", e o botão
+    // mudou. Rearmar é um clique — e é o clique que registra que ele leu a
+    // promessa nova.
+    if (targetChanged && merged.alarm.state === 'armed') {
+      merged = disarmAlarm(merged)
+      this.showNotice('o alvo mudou, então o alarme foi desarmado — arme de novo no nó')
+    }
+
+    await this.patchContent(nodeId, { view: writeClockConfig(merged, previous) })
     this.set({ clockDialog: null })
+
+    if (!targetChanged) return
+
+    // Cortar ANTES de ligar, e com `await`: o main recusa um segundo cabo
+    // `clockAction` no mesmo relógio (`clockBusy`), então a ordem inversa
+    // devolveria `null` e o alvo antigo continuaria valendo em silêncio.
+    if (existing) await this.removeConnection(existing.id)
+    if (!target) return
+    const conn = await this.addConnection(nodeId, target)
+    if (!conn) {
+      // A configuração de horário JÁ foi salva; o que falhou é só o cabo. Dizer
+      // isso é o que separa "o alarme está sem alvo" de "o app engoliu o que eu
+      // pedi" — os dois parecem iguais na tela.
+      this.showNotice('Não foi possível ligar o relógio a esse botão. O horário foi salvo sem alvo.')
+    }
   }
 
   /**
@@ -1445,7 +1505,9 @@ class Store {
   async setClockColor(nodeId: UUID, color: string): Promise<void> {
     const config = this.clockConfig(nodeId)
     if (!config) return
-    await this.saveClock(nodeId, setClockColor(config, color))
+    // O alvo vai como ele JÁ é: trocar a cor do LED não pode mexer no cabo, e
+    // passar o atual faz o `saveClock` sair pelo caminho de "nada mudou".
+    await this.saveClock(nodeId, setClockColor(config, color), this.clockTarget(nodeId))
   }
 
   /** O diálogo mora no App (ver openNewTerminal para o porquê). */
@@ -1516,10 +1578,11 @@ class Store {
    *
    * `origin` é o que distingue o clique do disparo automático de um relógio
    * ligado por cabo, e a diferença é de SEGURANÇA, não de contabilidade. Um
-   * botão com `confirm: true` é recusado como alvo automático: dispará-lo sem a
-   * confirmação burlaria a promessa da configuração, e abrir uma confirmação no
-   * relógio quando o usuário pode estar longe não seria automação — seria um
-   * diálogo esperando sozinho. O relógio não duplica as três ações num
+   * botão com `confirm: true` é recusado como alvo automático — a não ser que
+   * ele traga `unattended: true`, a permissão explícita para rodar sem ninguém
+   * por perto. Sem ela, dispará-lo burlaria a promessa da configuração, e abrir
+   * uma confirmação no relógio quando o usuário pode estar longe não seria
+   * automação — seria um diálogo esperando sozinho. O relógio não duplica as três ações num
    * `ClockAction` próprio justamente por isto: uma fonte de verdade só, e nada
    * guarda um comando sem passar pelo aceite visual que torna o botão seguro.
    *
@@ -1539,8 +1602,14 @@ class Store {
       }
       return false
     }
-    if (opts.origin === 'clock' && config.confirm) {
-      this.showNotice('o botão deste relógio pede confirmação — ele não dispara sozinho')
+    // A MESMA regra do cabo (`clockFireBlock`), perguntada de novo na hora do
+    // disparo: o cabo pode ter sido criado quando o botão ainda era disparável
+    // e a configuração dele mudado depois. O `pending` acima fica separado
+    // porque a mensagem dele é outra.
+    if (opts.origin === 'clock' && clockFireBlock(config) === 'confirm') {
+      this.showNotice(
+        'o botão deste relógio pede confirmação — marque "um relógio pode disparar sem confirmar" no lápis dele'
+      )
       return false
     }
 

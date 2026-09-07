@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef } from 'react'
 import type { CanvasNode, Connection, Point, UUID } from '@shared/types'
-import { connectionKindForTypes, readButtonConfig } from '@shared/types'
+import { clockFireBlock, connectionKindForTypes, readButtonConfig } from '@shared/types'
 import { RopeSimulation, ropePath } from './rope'
 import { geometryPath, ropeLayers } from './rope-shapes'
 import { rectCenter, rectEdgePoint, viewport } from './viewport'
@@ -46,7 +46,7 @@ export function canLink(a: CanvasNode, b: CanvasNode, connections: Connection[])
   if (duplicate) return false
   // Mesma regra do WorkspaceManager para o cabo de relógio, para o fantasma não
   // prometer um cabo que o `addConnection` vai recusar: um relógio que já tem um
-  // clockAction não aceita outro, e um botão pendente ou com confirmação não
+  // clockAction não aceita outro, e um botão que `clockFireBlock` barra não
   // pode ser alvo automático.
   if (kind === 'clockAction') {
     const clock = a.content.type === 'widget' && a.content.value.kind === 'clock' ? a : b
@@ -56,11 +56,40 @@ export function canLink(a: CanvasNode, b: CanvasNode, connections: Connection[])
     )
     if (clockBusy) return false
     if (button.content.type === 'widget') {
-      const cfg = readButtonConfig(button.content.value.view)
-      if (cfg.pending || cfg.confirm) return false
+      if (clockFireBlock(readButtonConfig(button.content.value.view)) !== null) return false
     }
   }
   return true
+}
+
+/**
+ * Os botões que ESTE relógio pode disparar — a lista que o diálogo oferece.
+ *
+ * Mora aqui, e não no diálogo, porque a regra é a mesma que o `canLink` acima
+ * aplica ao cabo fantasma, e o `WorkspaceManager` aplica de novo ao recusar. Uma
+ * terceira cópia dela num formulário divergiria no primeiro ajuste, e a
+ * divergência apareceria como um `<select>` oferecendo o que o main nega.
+ *
+ * O relógio já cabeado não zera a lista: no diálogo escolher outro botão é
+ * TROCAR o alvo, não adicionar um segundo cabo. Por isso o cabo do próprio
+ * relógio é descontado antes de perguntar ao `canLink`.
+ */
+export function eligibleClockTargets(
+  clockId: UUID,
+  nodes: CanvasNode[],
+  connections: Connection[]
+): CanvasNode[] {
+  const clock = nodes.find((n) => n.id === clockId)
+  if (!clock) return []
+  const others = connections.filter(
+    (c) => !(c.kind === 'clockAction' && (c.nodeIdA === clockId || c.nodeIdB === clockId))
+  )
+  return nodes.filter(
+    (node) =>
+      node.content.type === 'widget' &&
+      node.content.value.kind === 'button' &&
+      canLink(clock, node, others)
+  )
 }
 
 export function ConnectionPreview({

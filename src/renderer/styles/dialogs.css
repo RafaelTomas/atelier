@@ -278,3 +278,28 @@
 .role-editor { display: flex; flex-direction: column; gap: 12px; }
 .role-editor-actions { display: flex; align-items: center; gap: 8px; }
 
+
+/* ─── Alarme do relógio ──────────────────────────────────────────────────────
+   Sete chips e quatro atalhos, e a razão de existirem em vez de sete
+   `<input type="checkbox">`: um alarme é conferido de RELANCE — "seg a sex" tem
+   de ser uma forma reconhecível, não sete linhas para ler uma por uma. É a
+   mesma leitura que o despertador de qualquer telefone oferece. */
+
+.alarm-days { display: flex; gap: 4px; }
+
+.alarm-day {
+  width: 26px; height: 26px;
+  border: 1px solid var(--border); border-radius: 50%;
+  background: var(--surface-2); color: var(--text-dim);
+  cursor: pointer; font: inherit; font-size: var(--fs-sm);
+}
+.alarm-day:hover { color: var(--text); }
+/* Aceso é o ACENTO, e não a cor do LED do nó: aqui é um controle de formulário
+   como qualquer outro, e a cor do visor é do visor. */
+.alarm-day.is-on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.alarm-presets { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -96,6 +96,7 @@ table, board and project names to use. Never guess a name.
 | a SQL/query result shown on the canvas | \`atelier table\` |
 | a chart, screenshot or diagram on the canvas | \`atelier image\` |
 | a one-click repeatable command | \`atelier button\` |
+| a clock, timer, pomodoro or alarm on the canvas | \`atelier clock\` |
 | to track or move work on a plan board | \`atelier todo\` |
 | to look up or describe an indexed dev project | \`atelier projects\` |
 | to see everything cabled to them | \`atelier list\` |
@@ -103,8 +104,9 @@ table, board and project names to use. Never guess a name.
 
 Details, syntax and the rules for each resource are in \`references/\`:
 \`recruit.md\`, \`portal.md\`, \`editor.md\`, \`vault.md\`, \`table.md\`,
-\`image.md\`, \`button.md\`, \`todo.md\`, \`projects.md\`, \`node.md\`. Read the
-one you need, not all of them — that is the whole point of this file being short.
+\`image.md\`, \`button.md\`, \`clock.md\`, \`todo.md\`, \`projects.md\`, \`node.md\`.
+Read the one you need, not all of them — that is the whole point of this file
+being short.
 
 ## Talk to another agent
 
@@ -501,7 +503,7 @@ command in a terminal, a prompt to an agent already running, a URL in a portal,
 or a NEW agent it opens and stays cabled to.
 
 \`\`\`
-atelier button propose "Label" --command "npm run dev" [--icon play] [--color "#34C759"] [--cwd <path>] [--target "Terminal"] [--confirm]
+atelier button propose "Label" --command "npm run dev" [--icon play] [--color "#34C759"] [--cwd <path>] [--target "Terminal"] [--confirm [--unattended]]
 atelier button propose "Label" --prompt "review the diff" --target "Claude"
 atelier button propose "Label" --url http://localhost:5173
 atelier button propose "Label" --agent "Name" [--preset claude] [--model sonnet] [--cwd <path>] [--role "Role"] [--account "Account"] [--prompt "first thing to say"] [--artisan] [--no-reuse]
@@ -512,10 +514,11 @@ atelier button remove "Label"
 ## A button that opens an agent
 
 \`--agent\` is a \`recruit\` saved on the canvas: same flags, same rules, but the
-click is what runs it — and a clock cabled to the button can be the one clicking.
-That is the difference from \`--prompt\`, which needs an agent that is already
-running: \`--agent\` starts one. Use it when the work should begin from the
-canvas rather than from someone typing.
+click is what runs it — and a clock cabled to the button can be the one clicking
+(see \`references/clock.md\` for how to build and arm one). That is the
+difference from \`--prompt\`, which needs an agent that is already running:
+\`--agent\` starts one. Use it when the work should begin from the canvas rather
+than from someone typing.
 
 The terminal it opens is **cabled to the button**, and that cable is the state:
 on the next press the button reuses the agent on the other end if it is still
@@ -542,6 +545,70 @@ Every button you propose arrives PENDING and does nothing until the user presses
 Accept on the node — that is where they read the exact command. Say so when you
 report back, or they will click a button that is not armed yet and think it is
 broken. \`remove\` only works on a pending button you proposed yourself.
+
+## Confirmation, and running with nobody watching
+
+These are two different questions, and \`--confirm\` only answers the first:
+
+- \`--confirm\` — ask the user before running, **when they click**. It is the
+  guard against the wrong click on a small button next to five others.
+- \`--unattended\` — this command may also run with **nobody present**, which
+  today means a cabled clock firing it. Only meaningful together with
+  \`--confirm\`; without confirmation a button can already be fired by a clock.
+
+So a \`npm run pack:linux\` that should ask on a click AND still run at 03:00
+is \`--confirm --unattended\`. Never reach for \`--no-confirm\` to make a button
+schedulable: that drops the protection on the user's own clicks, which is not
+what they asked for. On \`button edit\`, changing \`--unattended\` sends the
+button back to PENDING — it is the strongest permission here, and the user
+re-reads it before it takes effect. \`button list\` prints \`unattended\` in the
+state column when it is on.
+`,
+  'clock.md': `# Clocks: schedule, don't just remind
+
+A clock node is one tool with five modes — a plain clock, a stopwatch, a timer,
+a pomodoro, or a scheduled alarm — and, cabled to a button, it is how "run this
+every day at 8" gets built without the user touching a cron file.
+
+\`\`\`
+atelier clock create ["Label"] [--mode clock|stopwatch|timer|pomodoro|alarm] [--at-time 08:00] [--days mon-fri|mon,wed,fri|daily|weekend|once] [--timer 25m] [--focus 25m] [--break 5m] [--color "#ff3b2f"] [--12h|--24h] [--on "Button"] [--at x,y]
+atelier clock set "Clock" [same flags] [--name "New name"] [--on "Button"|--off] [--disarm]
+atelier clock list
+atelier clock remove "Clock"
+\`\`\`
+
+\`--at-time\` implies \`--mode alarm\` — asking for both is ceremony, and forgetting
+\`--mode\` would build an alarm that looks configured but never fires.
+\`--days\` takes either a shortcut (\`daily\`, \`mon-fri\`/\`weekdays\`, \`weekend\`,
+\`once\`) or a list (\`mon,wed,fri\`). Durations take \`25m\`, \`90s\`, \`1h30m\`, or a
+bare number as minutes.
+
+Three things every agent gets wrong on the first try:
+
+1. **A clock's alarm is created DISARMED, always, and there is no \`--arm\`.**
+   You configure the whole thing — mode, schedule, color, and the button it
+   fires — in one call, but pressing Arm on the node is the user's gesture,
+   never yours. \`--disarm\` is the one direction you may push it, any time.
+   Reconfiguring what the alarm EXECUTES (\`--mode\`, \`--at-time\`, \`--days\`,
+   \`--on\`/\`--off\`) disarms it again if it was already armed — the user read
+   the old schedule when they armed it, and the schedule changed.
+2. **The button a clock fires must be ACCEPTED, and cleared to run
+   unattended.** A button you just proposed is \`pending\`, and \`--on\` refuses
+   it — cable a clock only to a button the user has read and accepted. A button
+   that asks for confirmation on every run is refused too, unless it carries
+   \`--unattended\` (see \`references/button.md\`): confirmation guards the
+   click, \`unattended\` is the separate permission to run with nobody there.
+   When \`--on\` is refused for that reason, ask the user rather than reaching
+   for \`--no-confirm\`, which would drop the guard on their own clicks. One
+   button may take cables from several clocks; a clock only ever drives one
+   button, and pointing \`--on\` at a new one swaps the old cable for the new,
+   it does not add a second.
+3. **Nothing fires with the app closed.** Atelier reconciles time that passed
+   while it was shut and shows what was missed — it never runs the button
+   retroactively for it. The automation only works while Atelier is open.
+
+\`clock list\` shows one line per clock: mode, a summary of its configuration,
+armed/disarmed, the button it is cabled to, and the 8-char id.
 `,
   'todo.md': `# TODO board
 
@@ -618,7 +685,7 @@ verb, plus the group frame — and for SEEING the canvas before you add to it.
 atelier node map
 atelier node create text "content" [--at x,y]
 atelier node create fileTree <absolute path> [--name "Label"] [--at x,y]
-atelier node create widget <projects|git|monitor|clock> [--at x,y]
+atelier node create widget <projects|git|monitor> [--at x,y]
 atelier node move "Node" x,y
 atelier node group "Title" "Node" ["Node"…] [--color "#0A84FF"]
 atelier node shot [/absolute/destination.png]

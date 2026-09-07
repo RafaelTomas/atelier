@@ -3,11 +3,11 @@
  *
  * O CLI já criava quase tudo, mas cada tipo pelo verbo do RECURSO dele:
  * `note create`, `todo create`, `image create`, `table`, `vault set`,
- * `portal open`, `editor open`, `button propose`, `recruit`. Sobravam três
- * tipos sem dono — `text`, `fileTree` e os `widget` de painel (`projects`,
- * `git`, `monitor`, `clock`) — e a moldura de grupo. São exatamente as peças
- * de que um agente precisa para MONTAR um canvas em vez de só habitar um, e
- * era o que faltava para um canvas de apresentação nascer sem mouse
+ * `portal open`, `editor open`, `button propose`, `clock create`, `recruit`.
+ * Sobravam três tipos sem dono — `text`, `fileTree` e os `widget` de painel
+ * (`projects`, `git`, `monitor`) — e a moldura de grupo. São exatamente as
+ * peças de que um agente precisa para MONTAR um canvas em vez de só habitar
+ * um, e era o que faltava para um canvas de apresentação nascer sem mouse
  * (docs/2026-09-02-PLANO-demo-desenvolvedor.md, fatias F1 e F3).
  *
  * Este verbo NÃO é uma segunda porta para os tipos que já têm a sua: pedir
@@ -41,7 +41,7 @@ const USAGE = [
   '  atelier node shot [destination.png]',
   '  atelier node create text "content" [--at x,y]',
   '  atelier node create fileTree <absolute path> [--name "Label"] [--at x,y]',
-  '  atelier node create widget <projects|git|monitor|clock> [--at x,y]',
+  '  atelier node create widget <projects|git|monitor> [--at x,y]',
   '  atelier node group "Title" "Node" ["Node"…] [--color "#0A84FF"]'
 ].join('\n')
 
@@ -65,8 +65,8 @@ const OWNED_ELSEWHERE: Record<string, string> = {
   vault: 'atelier vault set'
 }
 
-/** Painéis que este verbo cria. `todo` e `button` têm verbo próprio. */
-const PANEL_KINDS = ['projects', 'git', 'monitor', 'clock']
+/** Painéis que este verbo cria. `todo`, `button` e `clock` têm verbo próprio. */
+const PANEL_KINDS = ['projects', 'git', 'monitor']
 
 /**
  * Painéis de que UM basta no canvas.
@@ -74,14 +74,18 @@ const PANEL_KINDS = ['projects', 'git', 'monitor', 'clock']
  * Os três leem o estado global — o índice de projetos, o repo da seleção, a
  * máquina — então dois nós mostram a mesma coisa e o segundo é só ruído. Pedir
  * um que já existe devolve o existente, no mesmo espírito da árvore que já
- * mostra aquela raiz. O `clock` fica FORA: dois relógios são dois timers, e
- * isso é uso legítimo.
+ * mostra aquela raiz.
  */
 const SINGLETON_KINDS = ['projects', 'git', 'monitor']
 
 const KIND_OWNED_ELSEWHERE: Record<string, string> = {
   todo: 'atelier todo create "Title"',
-  button: 'atelier button propose "Label" --command "…"'
+  button: 'atelier button propose "Label" --command "…"',
+  // Duas gramáticas para o mesmo nó envelheceriam separadas — a mesma razão
+  // pela qual o botão tem verbo próprio. `atelier clock` também é onde a
+  // autorização do alarme (nasce desarmado) mora; este verbo não pode
+  // reabrir um segundo caminho sem ela.
+  clock: 'atelier clock create'
 }
 
 export async function handleNode(args: string[], terminalId: UUID | null): Promise<string> {

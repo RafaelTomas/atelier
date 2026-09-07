@@ -23,6 +23,7 @@ import {
   setMode,
   setPomodoroDurations,
   setTimerDuration,
+  toggleAlarm,
   togglePomodoro,
   toggleStopwatch,
   toggleTimer,
@@ -83,6 +84,13 @@ export function ClockWidget({ node, content }: { node: CanvasNode; content: Widg
       return
     }
     if (config.mode === 'stopwatch') return
+    // No alarme o duplo clique abre o DIÁLOGO em vez de editar aqui: um
+    // horário mais sete dias da semana não cabem num `<input>` de uma linha, e
+    // é justamente o que o lápis já sabe mostrar.
+    if (config.mode === 'alarm') {
+      store.openClockDialog(node.id)
+      return
+    }
     setDraft(formatDuration(currentDuration(config)))
     setEditing(true)
   }
@@ -134,20 +142,39 @@ export function ClockWidget({ node, content }: { node: CanvasNode; content: Widg
         </div>
         <div className="clock-controls" aria-label="Controles">
           {config.mode === 'stopwatch' && <>
-            <button type="button" className="clock-btn is-primary" onMouseDown={stop} onClick={() => apply(toggleStopwatch(config, Date.now()))}>{config.stopwatch.state === 'running' ? 'Pausar' : 'Iniciar'}</button>
-            <button type="button" className="clock-btn" disabled={config.stopwatch.state !== 'running'} onMouseDown={stop} onClick={() => apply(lapStopwatch(config, Date.now()))}>Volta</button>
-            <button type="button" className="clock-btn" onMouseDown={stop} onClick={() => apply(resetStopwatch(config))}>Zerar</button>
+            <Ctrl glyph={config.stopwatch.state === 'running' ? 'pause' : 'play'} label={config.stopwatch.state === 'running' ? 'Pausar' : 'Iniciar'} primary onClick={() => apply(toggleStopwatch(config, Date.now()))} />
+            <Ctrl glyph="lap" label="Volta" disabled={config.stopwatch.state !== 'running'} onClick={() => apply(lapStopwatch(config, Date.now()))} />
+            <Ctrl glyph="reset" label="Zerar" onClick={() => apply(resetStopwatch(config))} />
           </>}
           {config.mode === 'timer' && <>
-            <button type="button" className="clock-btn is-primary" onMouseDown={stop} onClick={() => apply(toggleTimer(config, Date.now()))}>{config.timer.state === 'running' ? 'Pausar' : 'Iniciar'}</button>
-            <button type="button" className="clock-btn" onMouseDown={stop} onClick={() => apply(resetTimer(config))}>Zerar</button>
+            <Ctrl glyph={config.timer.state === 'running' ? 'pause' : 'play'} label={config.timer.state === 'running' ? 'Pausar' : 'Iniciar'} primary onClick={() => apply(toggleTimer(config, Date.now()))} />
+            <Ctrl glyph="reset" label="Zerar" onClick={() => apply(resetTimer(config))} />
           </>}
           {config.mode === 'pomodoro' && <>
-            <button type="button" className="clock-btn is-primary" onMouseDown={stop} onClick={() => apply(togglePomodoro(config, Date.now()))}>{config.pomodoro.state === 'running' ? 'Pausar' : 'Iniciar'}</button>
-            <button type="button" className="clock-btn" onMouseDown={stop} onClick={() => apply(advancePomodoroPhase(config, Date.now()))}>Fase</button>
-            <button type="button" className="clock-btn" onMouseDown={stop} onClick={() => apply(resetPomodoro(config))}>Zerar</button>
+            <Ctrl glyph={config.pomodoro.state === 'running' ? 'pause' : 'play'} label={config.pomodoro.state === 'running' ? 'Pausar' : 'Iniciar'} primary onClick={() => apply(togglePomodoro(config, Date.now()))} />
+            <Ctrl glyph="phase" label="Fase" onClick={() => apply(advancePomodoroPhase(config, Date.now()))} />
+            <Ctrl glyph="reset" label="Zerar" onClick={() => apply(resetPomodoro(config))} />
           </>}
+          {config.mode === 'alarm' && (
+            /* Um botão só: um alarme não acumula nada, então não há o que
+               zerar. Armar é o gesto que liga a automação, e é do USUÁRIO —
+               o CLI do Artesão configura tudo menos isto. */
+            <Ctrl
+              glyph={config.alarm.state === 'armed' ? 'bellOff' : 'bell'}
+              label={config.alarm.state === 'armed' ? 'Desarmar' : 'Armar'}
+              primary={config.alarm.state !== 'armed'}
+              onClick={() => apply(toggleAlarm(config, Date.now()))}
+            />
+          )}
           {config.mode === 'timer' && config.timer.state === 'finished' && <span className="clock-finished" title="O timer terminou; nada é disparado retroativamente.">Terminado</span>}
+          {config.mode === 'alarm' && config.alarm.missedAt > 0 && (
+            <span
+              className="clock-finished"
+              title="Este horário venceu com o Atelier fechado. Nada é disparado retroativamente — um comando pode não fazer mais sentido horas depois."
+            >
+              Perdido
+            </span>
+          )}
         </div>
       </div>
 
@@ -219,6 +246,11 @@ function parseDuration(value: string): number | null {
 function readoutHint(config: ClockConfig): string {
   if (config.mode === 'clock') return 'Duplo clique alterna 12/24 h'
   if (config.mode === 'stopwatch') return 'Cronômetro'
+  if (config.mode === 'alarm') {
+    return config.alarm.state === 'armed'
+      ? 'Duplo clique edita o horário e os dias. Nada dispara com o Atelier fechado.'
+      : 'Desarmado: nada vai disparar. Duplo clique edita o horário e os dias.'
+  }
   return config.mode === 'pomodoro'
     ? 'Duplo clique edita a duração da fase atual; a corrida só usa a mudança ao zerar.'
     : 'Duplo clique edita a duração; a corrida só usa a mudança ao zerar.'
@@ -226,6 +258,108 @@ function readoutHint(config: ClockConfig): string {
 
 function stop(event: React.MouseEvent): void {
   event.stopPropagation()
+}
+
+/**
+ * Um controle da barra: ÍCONE mais rótulo, e o rótulo é o que desaparece
+ * quando o nó aperta.
+ *
+ * O bug que isto conserta era de largura, não de estilo: cinco ícones de modo
+ * mais `Iniciar`/`Fase`/`Zerar` em texto pedem ~185px, e a largura mínima do nó
+ * dá ~126px úteis — os dois grupos se sobrepunham, e o pomodoro (que tem três
+ * controles) era o pior caso. Com o rótulo sumindo abaixo de 230px, os mesmos
+ * três controles ocupam ~54px e nada precisa ser escondido de verdade: o
+ * `title` continua dizendo a palavra, e o nó grande continua mostrando texto,
+ * que é mais legível que um glifo para quem nunca viu este painel.
+ */
+function Ctrl({
+  glyph,
+  label,
+  primary = false,
+  disabled = false,
+  onClick
+}: {
+  glyph: keyof typeof CTRL_PATHS
+  label: string
+  primary?: boolean
+  disabled?: boolean
+  onClick: () => void
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      className={primary ? 'clock-btn is-primary' : 'clock-btn'}
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onMouseDown={stop}
+      onClick={onClick}
+    >
+      <svg
+        className="clock-btn-glyph"
+        width={12}
+        height={12}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        {CTRL_PATHS[glyph]}
+      </svg>
+      <span className="clock-btn-label">{label}</span>
+    </button>
+  )
+}
+
+/**
+ * Os glifos dos controles. Locais, pelo MESMO motivo dos ícones de modo (ver
+ * `MODE_PATHS`): são um conjunto fechado de uma peça só, nunca escolhidos e
+ * nunca persistidos por nome, e publicá-los no catálogo de `node-icons.tsx`
+ * poluiria uma grade de escolha com desenhos que ninguém pode escolher.
+ */
+const CTRL_PATHS = {
+  play: <path d="M8 5.5v13l11-6.5z" fill="currentColor" stroke="none" />,
+  pause: <path d="M9 5.5v13M15 5.5v13" />,
+  // Zerar: a seta que volta ao começo, não um X — o gesto devolve ao valor
+  // configurado, ele não apaga o nó.
+  reset: (
+    <>
+      <path d="M4.5 12a7.5 7.5 0 1 0 2.6-5.7" />
+      <path d="M4.5 5v4h4" />
+    </>
+  ),
+  // Volta: a bandeirinha de quem marca uma passagem.
+  lap: (
+    <>
+      <path d="M6.5 21V4" />
+      <path d="M6.5 4.5h10l-2 3.5 2 3.5h-10" />
+    </>
+  ),
+  // Fase: pular para a próxima — a barra na frente diz que existe um fim.
+  phase: (
+    <>
+      <path d="M6 6l8 6-8 6z" fill="currentColor" stroke="none" />
+      <path d="M18 6v12" />
+    </>
+  ),
+  bell: (
+    <>
+      <path d="M12 4.5a5 5 0 0 0-5 5c0 3.6-1.4 5-1.4 5h12.8s-1.4-1.4-1.4-5a5 5 0 0 0-5-5z" />
+      <path d="M10.3 18a2 2 0 0 0 3.4 0" />
+    </>
+  ),
+  // Desarmar: o mesmo sino com o corte — a negação tem de ser lida sobre o
+  // desenho que ela nega, senão os dois estados parecem duas funções.
+  bellOff: (
+    <>
+      <path d="M12 4.5a5 5 0 0 0-5 5c0 3.6-1.4 5-1.4 5h12.8s-1.4-1.4-1.4-5a5 5 0 0 0-5-5z" />
+      <path d="M10.3 18a2 2 0 0 0 3.4 0" />
+      <path d="M4 20L20 4" />
+    </>
+  )
 }
 
 /**
@@ -290,6 +424,15 @@ const MODE_PATHS: Record<ClockMode, JSX.Element> = {
     <>
       <path d="M12 7.5c-4 0-6.8 2.8-6.8 6.4S8 21 12 21s6.8-3.5 6.8-7.1S16 7.5 12 7.5z" />
       <path d="M12 7.5V5M9.6 5.4c1.2-1.4 3.6-1.4 4.8 0-1.2.9-3.6.9-4.8 0z" />
+    </>
+  ),
+  // Alarme: o sino. O despertador de dois sinos seria mais literal e não
+  // sobrevive a 14px — o sino é o desenho que a interface de todo telefone já
+  // ensinou para "isto vai tocar num horário".
+  alarm: (
+    <>
+      <path d="M12 4a5.5 5.5 0 0 0-5.5 5.5c0 4-1.5 5.5-1.5 5.5h14s-1.5-1.5-1.5-5.5A5.5 5.5 0 0 0 12 4z" />
+      <path d="M10.2 18.5a2 2 0 0 0 3.6 0" />
     </>
   )
 }

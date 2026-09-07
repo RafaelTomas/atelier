@@ -933,6 +933,16 @@ export function setMode(config: ClockConfig, mode: ClockMode): ClockConfig {
   // Trocar de modo NÃO apaga o estado dos outros: um cronômetro pausado
   // continua pausado ao visitar o relógio. Só a apresentação e a emissão de
   // eventos seguem o modo ativo.
+  //
+  // O ALARME é a exceção, e ela é de segurança, não de simetria. `reconcile` só
+  // chama `reconcileAlarm` quando o alarme é o modo ATIVO, então um alarme
+  // armado num modo dormente atravessa o horário sem ninguém trazê-lo até o
+  // agora — e voltar ao alarme às 15:00 dispararia a ocorrência das 08:00, sete
+  // horas atrasada, contra a política de não disparar retroativamente. Sair do
+  // modo desarma; rearmar é um clique, e é do usuário.
+  if (mode !== 'alarm' && config.alarm.state === 'armed') {
+    return { ...disarmAlarm(config), mode }
+  }
   return { ...config, mode }
 }
 
@@ -1192,6 +1202,61 @@ export function disarmAlarm(config: ClockConfig): ClockConfig {
 
 export function toggleAlarm(config: ClockConfig, now: number): ClockConfig {
   return config.alarm.state === 'armed' ? disarmAlarm(config) : armAlarm(config, now)
+}
+
+/**
+ * Aplica a CONFIGURAÇÃO de um rascunho sobre a configuração VIVA, preservando
+ * todo checkpoint de corrida.
+ *
+ * Existe por um defeito concreto do diálogo: ele congela o rascunho ao abrir
+ * (`useState` com `key` no nó) e, se fosse gravado inteiro, devolveria ao disco
+ * as âncoras que estavam lá naquele instante. O caminho: alarme diário armado,
+ * o lápis aberto às 07:59, o disparo das 08:00 acontece e grava
+ * `firedAt = hoje 08:00`, e o Salvar às 08:01 — sem editar nada — reescrevia
+ * `armedAt = hoje 08:00` e um `firedAt` antigo. O tique seguinte via um horário
+ * vencido e não tratado, e o botão RODAVA DE NOVO. O mesmo valia para o
+ * `deadlineAt` de um timer e os ciclos de um pomodoro correndo.
+ *
+ * A regra é a divisão que o diálogo já anuncia: ali se edita CONFIGURAÇÃO —
+ * modo, formato, cor, durações, horário e dias. Iniciar, pausar, zerar, armar e
+ * as âncoras que eles produzem são do nó e do coordenador, e atravessam este
+ * merge intactos.
+ *
+ * `missedAt` é limpo: quem abriu esta tela leu o aviso, e mantê-lo depois de um
+ * Salvar faria o nó insistir num alarme perdido que já foi reconhecido.
+ */
+export function applyClockSettings(
+  current: ClockConfig,
+  draft: ClockConfig,
+  now: number
+): ClockConfig {
+  // Base: o que está VIVO. Do rascunho vêm só os campos de apresentação.
+  let next: ClockConfig = {
+    ...current,
+    hour12: draft.hour12,
+    color: readHexColor(draft.color)
+  }
+
+  // As durações passam pelos gestos puros, que já sabem não mexer numa corrida
+  // em andamento (`setTimerDuration` e `setPomodoroDurations`).
+  next = setTimerDuration(next, draft.timer.durationMs)
+  next = setPomodoroDurations(next, draft.pomodoro.focusMs, draft.pomodoro.breakMs)
+
+  // A agenda do alarme só é reancorada quando MUDOU: reancorar sempre moveria
+  // um alarme armado para a próxima ocorrência a cada Salvar, inclusive num
+  // Salvar que não tocou no horário.
+  const scheduleChanged =
+    draft.alarm.minutesOfDay !== current.alarm.minutesOfDay ||
+    draft.alarm.days !== current.alarm.days
+  if (scheduleChanged) {
+    next = setAlarm(next, draft.alarm.minutesOfDay, draft.alarm.days, now)
+  } else {
+    next = { ...next, alarm: { ...next.alarm, missedAt: 0 } }
+  }
+
+  // O modo vai por último, porque `setMode` desarma ao sair do alarme e essa
+  // decisão tem de valer sobre o resultado final, não sobre a base.
+  return setMode(next, draft.mode)
 }
 
 // ─── Gramática do CLI ─────────────────────────────────────────────────────────

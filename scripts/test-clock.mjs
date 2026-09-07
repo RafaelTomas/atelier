@@ -81,6 +81,7 @@ const {
   DEFAULT_ALARM_MINUTES,
   MINUTES_IN_DAY,
   advancePomodoroPhase,
+  applyClockSettings,
   alarmCountdown,
   alarmDaysLabel,
   alarmSummary,
@@ -1223,6 +1224,80 @@ test('o alarme é o quinto modo e não mexeu nos outros quatro', () => {
   assert.equal(comAlarme.alarm.state, 'armed')
   // E um timer correndo não emite evento enquanto o alarme é o modo ativo.
   assert.equal(reconcile(comAlarme, T0 + 11 * MIN, { live: true }).event?.kind, 'alarmFired')
+})
+
+
+test('sair do modo alarme DESARMA, para nada disparar retroativamente', () => {
+  // `reconcile` só traz o alarme até o agora quando ele é o modo ATIVO. Um
+  // alarme armado num modo dormente atravessaria o horário sem ninguém
+  // reconciliá-lo, e voltar ao alarme horas depois dispararia a ocorrência
+  // vencida — contra a política de não disparar retroativamente.
+  const armado = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  const noTimer = setMode(armado, 'timer')
+  assert.equal(noTimer.alarm.state, 'idle')
+  assert.equal(noTimer.alarm.armedAt, 0)
+  // De volta ao alarme, nada dispara: ele está desarmado, e rearmar é do usuário.
+  const devolta = setMode(noTimer, 'alarm')
+  assert.equal(devolta.alarm.state, 'idle')
+  assert.equal(reconcile(devolta, T0 + 5 * HOUR, { live: true }).event, null)
+  // Um alarme DESARMADO não sofre nada ao trocar de modo, e o estado dos
+  // outros modos continua intacto — a promessa original do `setMode`.
+  const parado = setMode(alarmAt(10, 0, SEG_A_SEX), 'timer')
+  assert.equal(parado.alarm.minutesOfDay, 10 * 60)
+  assert.equal(parado.alarm.days, SEG_A_SEX)
+})
+
+test('applyClockSettings preserva o checkpoint e só deixa passar configuração', () => {
+  // O caminho do defeito: o diálogo congela o rascunho ao abrir, o alarme
+  // dispara enquanto ele está aberto, e o Salvar devolvia ao disco as âncoras
+  // velhas — fazendo o botão rodar DE NOVO no tique seguinte.
+  const rascunho = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  // A ocorrência de HOJE, que é a que o rascunho congelado ainda espera.
+  const hoje = rascunho.alarm.armedAt
+  const disparado = reconcile(rascunho, hoje + SEC, { live: true }).config
+  assert.equal(disparado.alarm.firedAt, hoje)
+  assert.equal(disparado.alarm.armedAt, new Date(2026, 8, 1, 10, 0, 0, 0).getTime())
+
+  const salvo = applyClockSettings(disparado, rascunho, hoje + 2 * SEC)
+  assert.equal(salvo.alarm.firedAt, hoje, 'ressuscitou uma ocorrência tratada')
+  assert.equal(salvo.alarm.armedAt, disparado.alarm.armedAt, 'voltou a âncora antiga')
+  // O tique seguinte, no MESMO minuto do disparo: nada roda de novo.
+  assert.equal(reconcile(salvo, hoje + 3 * SEC, { live: true }).event, null)
+})
+
+test('applyClockSettings não mexe num timer nem num pomodoro correndo', () => {
+  let vivo = startTimer(setTimerDuration(setMode(defaultClockConfig(), 'timer'), 10 * MIN), T0)
+  const rascunho = { ...vivo }
+  const salvo = applyClockSettings(vivo, rascunho, T0 + MIN)
+  assert.equal(salvo.timer.state, 'running')
+  assert.equal(salvo.timer.deadlineAt, vivo.timer.deadlineAt, 'reancorou um timer correndo')
+
+  let pomo = startPomodoro(setMode(defaultClockConfig(), 'pomodoro'), T0)
+  const salvoP = applyClockSettings(pomo, { ...pomo }, T0 + MIN)
+  assert.equal(salvoP.pomodoro.deadlineAt, pomo.pomodoro.deadlineAt)
+})
+
+test('applyClockSettings aplica a configuração editada, e reancora só o que mudou', () => {
+  const atual = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  // Rascunho com horário NOVO: reancorar é obrigatório, senão o alarme
+  // continuaria esperando as 10:00 que o usuário acabou de trocar.
+  const editado = setAlarm(atual, 11 * 60, SEG_A_SEX, T0)
+  const salvo = applyClockSettings(atual, editado, T0)
+  assert.equal(salvo.alarm.minutesOfDay, 11 * 60)
+  assert.equal(salvo.alarm.armedAt, new Date(2026, 7, 31, 11, 0, 0, 0).getTime())
+  // Cor e formato passam; a duração do timer também.
+  const comCor = applyClockSettings(atual, { ...atual, hour12: true, color: '#32d74b' }, T0)
+  assert.equal(comCor.hour12, true)
+  assert.equal(comCor.color, '#32d74b')
+  // E um Salvar que não tocou na agenda NÃO move a ocorrência esperada.
+  assert.equal(applyClockSettings(atual, { ...atual }, T0 + MIN).alarm.armedAt, atual.alarm.armedAt)
+})
+
+test('applyClockSettings limpa o aviso de perdido, que é o que a tela promete', () => {
+  const perdido = reconcile(armAlarm(alarmAt(10, 0, SEG_A_SEX), T0), T0 + 3 * HOUR, { live: false })
+  assert.ok(perdido.config.alarm.missedAt > 0)
+  const salvo = applyClockSettings(perdido.config, perdido.config, T0 + 3 * HOUR)
+  assert.equal(salvo.alarm.missedAt, 0)
 })
 
 await rm(outdir, { recursive: true, force: true })

@@ -21,7 +21,6 @@
 import type { CanvasNode, UUID } from '@shared/types'
 import {
   buttonActionSummary,
-  clockFireBlock,
   readButtonConfig,
   writeButtonConfig,
   type ButtonConfig
@@ -349,6 +348,18 @@ function editButton(argv: string[], tid: UUID): string {
   )
   if (typeof agent === 'string') return agent
 
+  // O MESMO guarda do `propose`, e aqui ele evita um dano maior: `unattended`
+  // está em EXECUTABLE, então mexer nele devolve um botão aceito a PENDENTE — e
+  // sem confirmação o campo não muda comportamento nenhum. Sem este guarda, um
+  // `--unattended` inócuo pararia a automação de um botão já armado até o
+  // usuário aceitar de novo, em troca de nada.
+  const wantsUnattended = flags.get('unattended') === '1'
+  const confirmAfter =
+    flags.get('confirm') === '1' ? true : flags.get('no-confirm') === '1' ? false : before.confirm
+  if (wantsUnattended && !confirmAfter) {
+    return "error: --unattended only matters with --confirm: without confirmation this button can already be fired by a clock."
+  }
+
   let target = before.target
   const targetName = flags.get('target')
   if (targetName !== undefined) {
@@ -370,7 +381,7 @@ function editButton(argv: string[], tid: UUID): string {
     ...agent,
     target,
     reuseAgent: flags.get('no-reuse') === '1' ? false : before.reuseAgent,
-    confirm: flags.get('confirm') === '1' ? true : flags.get('no-confirm') === '1' ? false : before.confirm,
+    confirm: confirmAfter,
     // Desligar a confirmação NÃO apaga esta permissão, igual ao diálogo: o
     // campo fica gravado e simplesmente não é lido enquanto `confirm` é falso.
     unattended:
@@ -445,8 +456,11 @@ function listButtons(tid: UUID): string {
     // `unattended` aparece no ESTADO, ao lado de pending/armed: sem isso um
     // agente não tem como responder "este botão pode ser agendado?" sem abrir o
     // `view` na mão.
-    const scheduling =
-      clockFireBlock(config) === null && config.confirm ? ', unattended' : ''
+    // Sempre que a permissão está LIGADA, e não só quando ela tem efeito hoje:
+    // `references/button.md` promete que a lista mostra o campo, e um botão com
+    // `unattended` e sem confirmação precisa reportá-lo — a permissão volta a
+    // importar no instante em que alguém ligar a confirmação.
+    const scheduling = config.unattended ? ', unattended' : ''
     lines.push(
       `  ${config.label}  [${config.action}] ${what}  (${state}${scheduling}, ${node.id.slice(0, 8)})`
     )

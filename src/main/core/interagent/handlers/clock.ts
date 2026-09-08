@@ -189,7 +189,12 @@ function englishDaysLabel(days: number): string {
 }
 
 /** Resumo de uma linha do modo ativo, para a resposta e para `list`. */
-function describeMode(config: ClockConfig): string {
+/**
+ * O modo em palavras. Exportado porque o inventário (`handlers/references.ts`)
+ * imprime a MESMA frase: duas descrições do mesmo mostrador divergiriam, e o
+ * agente leria uma coisa no `list` e outra no `clock list`.
+ */
+export function describeMode(config: ClockConfig): string {
   switch (config.mode) {
     case 'alarm':
       return `alarm ${formatAlarmTime(config.alarm.minutesOfDay, config.hour12)}, ${englishDaysLabel(config.alarm.days)}`

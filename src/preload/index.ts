@@ -560,6 +560,16 @@ const api = {
   },
 
   /**
+   * O projeto selecionado, empurrado pela mesma razão e pelo mesmo caminho do
+   * editor: é o que o main precisa para dizer QUAL repositório um painel de git
+   * que segue a seleção está mostrando. `null` = nada selecionado.
+   */
+  selection: {
+    project: (projectId: UUID | null): void =>
+      ipcRenderer.send('selection:project', projectId)
+  },
+
+  /**
    * Quadro de TODO. O quadro vive num arquivo por nó, e não no workspace.json:
    * ele é reescrito a cada cartão movido.
    *

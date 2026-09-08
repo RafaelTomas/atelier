@@ -49,6 +49,7 @@ import { persistence } from '../core/persistence/persistence-manager'
 import { ipcSocketPath, dataDir, isOverriddenHome, paths } from '../core/persistence/paths'
 import { listDirectory } from '../core/projects/file-tree'
 import { searchFileContents, searchFileNames } from '../core/projects/file-search'
+import { setSelectedProject } from '../core/state/selection-registry'
 import { duplicateEntry, readTextFile, renameEntry, writeTextFile } from '../core/projects/file-ops'
 import { fileWatcher } from '../core/projects/file-watcher'
 import type { EditorState } from '../core/editor/editor-registry'
@@ -1556,6 +1557,17 @@ export function registerIPC(): void {
   ipcMain.on('editor:state', (_e, nodeId: UUID, state: EditorState | null) => {
     if (state) setEditorState(nodeId, state)
     else clearEditorState(nodeId)
+  })
+
+  /**
+   * O projeto selecionado na aplicação, espelhado para o main poder resolver a
+   * referência dos painéis que SEGUEM a seleção (`projectId: null`).
+   *
+   * `on`, não `handle`, pela mesma razão do `editor:state`: o renderer não tem o
+   * que fazer com uma resposta. Ver core/state/selection-registry.ts.
+   */
+  ipcMain.on('selection:project', (_e, projectId: UUID | null) => {
+    setSelectedProject(projectId)
   })
 
   // ─── Quadro de TODO ─────────────────────────────────────────────────────────

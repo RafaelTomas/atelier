@@ -1882,6 +1882,10 @@ class Store {
 
   selectProject(selectedProjectId: UUID | null): void {
     this.set({ selectedProjectId })
+    // O main não tem como perguntar quem está selecionado, e precisa saber: é a
+    // referência do painel de git que SEGUE a seleção (`projectId: null`), que
+    // é o estado padrão dele. Ver core/state/selection-registry.ts.
+    window.atelier.selection.project(selectedProjectId)
   }
 
   /**
@@ -1890,10 +1894,12 @@ class Store {
    */
   requestRail(tab: RailTab, projectId: UUID | null = null): void {
     const nonce = (this.state.railRequest?.nonce ?? 0) + 1
-    this.set({
-      railRequest: { tab, projectId, nonce },
-      selectedProjectId: projectId ?? this.state.selectedProjectId
-    })
+    const selectedProjectId = projectId ?? this.state.selectedProjectId
+    this.set({ railRequest: { tab, projectId, nonce }, selectedProjectId })
+    // Este caminho também troca a seleção, então o espelho do main tem de ouvir
+    // por aqui igual — senão a referência do painel de git envelhece sempre que
+    // o usuário chega ao projeto pela rail em vez de pelo clique na lista.
+    window.atelier.selection.project(selectedProjectId)
   }
 
   consumeRailRequest(): void {

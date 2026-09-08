@@ -78,6 +78,7 @@ await esbuild.build({
       // deixa de herdar o tamanho de painel do widget.
       export { minSize, defaultSize } from './src/main/core/node-sizes.ts'
       export { readButtonConfig, writeButtonConfig } from './src/shared/types.ts'
+      export { connectionKindForTypes, CONNECTABLE_TYPES } from './src/shared/types.ts'
       // O piso do renderer — o mesmo número, do outro lado da ponte. Ele guia o
       // redimensionamento, e enquanto vivia solto divergia do piso da criação:
       // um botão de 88 px saltava para 120 na primeira alça puxada.
@@ -113,6 +114,7 @@ const { scanAgentStatus } = core
 const { projectIndex, scanForProjects, isRepository, inferKind, isPathAllowed } = core
 const { resolveAllowedPath, resolveAllowedTarget } = core
 const { readTextFile, writeTextFile, renameEntry, duplicateEntry, MAX_TEXT_BYTES } = core
+const { connectionKindForTypes, CONNECTABLE_TYPES } = core
 const { useSafeStorage, makePortalContent, makeSecretVaultContent } = core
 const { envForTerminal, resolveTemplate, secretForPortal, maskForTerminal } = core
 const { quoteForShell } = core
@@ -218,13 +220,34 @@ await test('conecta terminal ↔ nota com o kind certo', () => {
   assert.equal(conn.nodeIdA, terminalId, 'terminal deve ser o lado A')
 })
 
-await test('par não conectável é recusado', () => {
+await test('terminal ↔ título aceita cabo `data` — todo nó cabeia', () => {
+  // Era o caso "par não conectável é recusado", com `text` no papel do recusado.
+  // Todo nó com cara própria aceita cabo agora: um nó que não cabeia não aparece
+  // em `atelier list` nem no brief, logo não existe para o agente.
   const text = makeCanvasNode(
     { x: 0, y: 0, width: 100, height: 40 },
     { type: 'text', value: { text: 'x', fontSize: 18, fontWeight: 'regular', color: '#000', alignment: 'left', fontFamily: 'sans' } }
   )
   ws.addNode(text)
-  assert.equal(ws.addConnection(terminalId, text.id), null)
+  const conn = ws.addConnection(terminalId, text.id)
+  assert.ok(conn, 'o título não foi cabeado')
+  assert.equal(conn.kind, 'data')
+  assert.equal(conn.nodeIdA, terminalId, 'terminal deve ser o lado A')
+})
+
+await test('par sem regra continua recusado', () => {
+  // O que garante que "todo nó cabeia" não virou "aceita tudo": pares entre dois
+  // não-terminais só existem onde há regra explícita (portal↔portal, nota↔nota,
+  // cofre↔portal, relógio↔botão). A checagem é sobre a FUNÇÃO, não sobre nós de
+  // verdade: pôr um portal neste workspace mexeria nas contagens dos casos de
+  // persistência que vêm depois.
+  assert.equal(connectionKindForTypes('stickyNote', 'portal'), null)
+  assert.equal(connectionKindForTypes('fileTree', 'fileTree'), null)
+  assert.equal(connectionKindForTypes('text', 'image'), null)
+  // E o que a mudança de hoje liberou, pela mesma função:
+  assert.equal(connectionKindForTypes('terminal', 'fileTree'), 'data')
+  assert.equal(connectionKindForTypes('terminal', 'text'), 'data')
+  assert.equal(connectionKindForTypes('terminal', 'codeEditor'), 'data')
 })
 
 // ─── Persistência ─────────────────────────────────────────────────────────────
@@ -239,8 +262,15 @@ await test('autosave grava só workspaces sujos', async () => {
 await test('workspace relê do disco preservando nós e conexões', async () => {
   const reloaded = await persistence.loadWorkspace(ws.id)
   assert.equal(reloaded.nodes.length, 3)
-  assert.equal(reloaded.connections.length, 1)
-  assert.equal(reloaded.connections[0].kind, 'note')
+  // Duas: a nota (`noteConnections`) e o título (`dataConnections`). O cabo do
+  // título sobreviver ao round-trip é a prova de que reusar o kind `data` não
+  // pediu lista nova em disco nem subida de `schemaVersion` — os campos de
+  // `dataConnections` são só referências de id.
+  assert.equal(reloaded.connections.length, 2)
+  assert.deepEqual(
+    reloaded.connections.map((c) => c.kind).sort(),
+    ['data', 'note']
+  )
 })
 
 // ─── Grupos ───────────────────────────────────────────────────────────────────

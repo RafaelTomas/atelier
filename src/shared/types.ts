@@ -912,7 +912,21 @@ export type NodeContent =
 
 export type NodeContentType = NodeContent['type']
 
-/** Só estes tipos aceitam conexão (espelha NodeContent.isConnectable). */
+/**
+ * Só estes tipos aceitam conexão (espelha NodeContent.isConnectable).
+ *
+ * Hoje é TODO nó com cara própria, e isso é a regra, não uma coincidência: um
+ * nó que não aceita cabo não aparece em `atelier list` nem no brief, logo não
+ * existe para o agente. Ficam fora apenas `shape`, `stroke` e `freehand`, que
+ * existem só no codec para um arquivo do app nativo Swift atravessar este
+ * binário intacto — nada neste porte os cria, e o desenho de verdade mora em
+ * `drawings`, que não é nó.
+ *
+ * `widget` entrou pelo quadro de TODO: para o agente escrever num quadro, o
+ * quadro precisa aceitar cabo. Vale para TODO widget — o de git, o de monitor e
+ * o de projetos junto —, e é por isso que a recusa acontece por `kind` no
+ * momento de aceitar a ligação (ver connectionKindForTypes abaixo), e não aqui.
+ */
 export const CONNECTABLE_TYPES: NodeContentType[] = [
   'terminal',
   'stickyNote',
@@ -920,11 +934,15 @@ export const CONNECTABLE_TYPES: NodeContentType[] = [
   'dataTable',
   'image',
   'secretVault',
-  // `widget` entrou pelo quadro de TODO: para o agente escrever num quadro, o
-  // quadro precisa aceitar cabo. Vale para TODO widget — o de git e o de
-  // projetos junto —, e é por isso que a recusa acontece por `kind` no momento
-  // de aceitar a ligação (ver connectionKindForTypes abaixo), e não aqui.
-  'widget'
+  'widget',
+  'fileTree',
+  'text',
+  // Faltava, embora `connectionKindForTypes` já casasse terminal↔codeEditor
+  // desde que o editor existe. A ausência não impedia o cabo — quem decide é
+  // aquela função —, mas fazia o editor contar como "tipo que nunca cabeia" nos
+  // dois usos desta lista em handlers/node.ts, e um deles imprimia o nome do
+  // arquivo aberto num editor que o usuário não cabeou a quem perguntou.
+  'codeEditor'
 ]
 
 export function isConnectable(content: NodeContent): boolean {
@@ -1248,6 +1266,20 @@ export function connectionKindForTypes(
   // `schemaVersion` não sobe. Um `kind: 'board'` próprio custaria uma migração
   // inteira para ganhar uma cor de cabo diferente.
   if (pair.has('terminal') && pair.has('widget')) return 'data'
+  // Árvore de arquivos e título ligados a um agente: MESMO cabo `data`, pela
+  // razão escrita acima para o editor e o quadro.
+  //
+  // Os dois eram a exceção declarada ("takes no cable, that is deliberate"), e
+  // a declaração estava errada nos dois casos. A árvore tem a coisa mais útil
+  // que um nó pode dar a um agente — um caminho absoluto que ele pode ler com
+  // as ferramentas dele — e não tinha como entregá-lo: sem cabo, ela não
+  // aparece em `atelier list` nem no brief. O título tem o texto que o usuário
+  // escreveu, que é contexto como o de uma nota curta.
+  //
+  // A regra que substitui a exceção: TODO nó aceita cabo, e o que ele entrega é
+  // a REFERÊNCIA (caminho, repositório, volume) — o conteúdo o agente lê
+  // sozinho. Ver docs/2026-09-08-PLANO-todo-no-cabeado-e-com-referencia.md.
+  if (pair.has('terminal') && (pair.has('fileTree') || pair.has('text'))) return 'data'
   // Um kind só para terminal↔cofre e portal↔cofre — e, mais tarde,
   // dataTable↔cofre. Em disco os campos são neutros (`nodeIdA`/`nodeIdB`),
   // como no crossFloor, justamente para o par novo não pedir lista nova.

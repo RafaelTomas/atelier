@@ -199,8 +199,16 @@ async function createFileTree(
   const existing = ws.nodes.find(
     (n) => n.content.type === 'fileTree' && n.content.value.rootPath === allowed.path
   )
+  // Raiz já na tela: o nó existente é a resposta, e o cabo entra se faltava —
+  // exatamente a regra de `editor open`. Sem cabear, o agente pediria uma
+  // árvore, receberia "já existe" e não a encontraria em `atelier list`.
   if (existing) {
-    return `'${nodeDisplayName(existing.content)}' already shows ${allowed.path}.`
+    const cabo = ws.addConnection(tid, existing.id)
+    if (cabo) notifyRenderer('workspace:changed', { workspaceId: ws.id })
+    return [
+      `'${nodeDisplayName(existing.content)}' already shows ${allowed.path}`,
+      cabo ? ' — now connected to this terminal.' : ' and is connected to this terminal.'
+    ].join('')
   }
 
   const label = name || allowed.path.split(/[\\/]/).filter(Boolean).pop() || 'Files'
@@ -261,12 +269,12 @@ function createWidget(
 
 /**
  * O caminho comum: acha um lugar livre à direita de quem pediu, cria o nó,
- * cabeia se o tipo aceitar cabo e avisa o renderer.
+ * cabeia e avisa o renderer.
  *
- * `text` e `fileTree` NÃO aceitam cabo (CONNECTABLE_TYPES em shared/types), e
- * isso não é uma falta: a navegação da árvore é do usuário e o título não tem
- * dado a trocar. A resposta diz que não há cabo em vez de omitir, senão o
- * agente procura o nó novo num `atelier list` que nunca vai listá-lo.
+ * Todo tipo criado por aqui aceita cabo. A checagem por `isConnectable`
+ * continua porque a resposta tem de dizer a verdade se algum dia entrar um tipo
+ * que não cabeia: sem essa frase, o agente procuraria o nó novo num
+ * `atelier list` que nunca vai listá-lo.
  */
 function spawn(
   ws: NonNullable<ReturnType<typeof workspaceForTerminal>>,
@@ -456,11 +464,19 @@ function groupOf(
  * `workspace.json` no disco — que é autosave, portanto às vezes velho.
  *
  * **O NOME segue a regra de sempre; a GEOMETRIA, não.** Nós cabeados a quem
- * chama (mais o próprio, mais os que nunca aceitam cabo) aparecem com nome; o
- * resto aparece só como tipo, tamanho e posição. A separação é deliberada: a
- * geometria é o que um agente precisa para não empilhar, e não conta nada sobre
- * o trabalho de ninguém. O nome de uma nota, sim — e uma nota que o usuário não
- * cabeou a este terminal não é assunto dele.
+ * chama, mais o próprio, aparecem com nome; o resto aparece só como tipo,
+ * tamanho e posição. A separação é deliberada: a geometria é o que um agente
+ * precisa para não empilhar, e não conta nada sobre o trabalho de ninguém. O
+ * nome de uma nota, sim — e uma nota que o usuário não cabeou a este terminal
+ * não é assunto dele.
+ *
+ * Havia aqui uma terceira fonte de nomes: "os tipos que nunca aceitam cabo".
+ * Ela existia porque `text` e `fileTree` não podiam ser cabeados, e sem ela um
+ * agente não conseguiria emoldurar o título que acabou de escrever. Agora todo
+ * nó aceita cabo e o nó cabeado responde por nome pelo caminho normal, então a
+ * abertura saiu — e com ela o vazamento que o `codeEditor` abria por estar
+ * fora de CONNECTABLE_TYPES: o nome de um editor é o NOME DO ARQUIVO aberto
+ * nele, e ele saía aqui mesmo para quem não estava cabeado.
  */
 function mapCanvas(tid: UUID): string {
   const ws = workspaceForTerminal(tid)
@@ -468,7 +484,6 @@ function mapCanvas(tid: UUID): string {
 
   const nomeavel = new Set<UUID>([tid])
   for (const n of connectedNodes(tid)) nomeavel.add(n.id)
-  for (const n of ws.nodes) if (!isConnectable(n.content)) nomeavel.add(n.id)
 
   const linhas = ws.nodes
     .map((n) => ({
@@ -571,19 +586,6 @@ async function shotCanvas(argv: string[], tid: UUID): Promise<string> {
 }
 
 /**
- * Quem um comando de LAYOUT (`group`, `move`) pode endereçar por nome.
- *
- * O alcance é o de sempre — o que está cabeado a quem chama, mais o próprio
- * chamador — com uma abertura: os tipos que NUNCA aceitam cabo (`text`,
- * `fileTree`) também respondem por nome. Sem ela, um agente que acabou de
- * escrever o título do canvas não conseguiria emoldurá-lo nem endireitá-lo,
- * hoje nem nunca.
- *
- * Por ID (8 caracteres) qualquer nó responde — é o id que o `node map` e o
- * `node create` imprimem. Layout é geometria: não lê o conteúdo de ninguém, e
- * o usuário vê acontecer na tela.
- */
-/**
  * Os pares de nós cujos retângulos se cruzam. PURA sobre a lista de nós, para
  * o teste poder montar o arranjo sem canvas.
  */
@@ -606,6 +608,19 @@ function overlappingPairs(nodes: CanvasNode[]): [CanvasNode, CanvasNode][] {
   return pares
 }
 
+/**
+ * Quem um comando de LAYOUT (`group`, `move`) pode endereçar por nome.
+ *
+ * O alcance é o de sempre: o que está cabeado a quem chama, mais o próprio
+ * chamador. Havia uma abertura para os tipos que nunca aceitavam cabo (`text`,
+ * `fileTree`), sem a qual um agente não conseguiria emoldurar o título que
+ * acabara de escrever — agora os dois cabeiam, `node create` os cabeia na
+ * criação, e a abertura virou só um vazamento de nome (ver mapCanvas).
+ *
+ * Por ID (8 caracteres) qualquer nó responde — é o id que o `node map` e o
+ * `node create` imprimem. Layout é geometria: não lê o conteúdo de ninguém, e
+ * o usuário vê acontecer na tela.
+ */
 function resolveLayoutTarget(
   ws: NonNullable<ReturnType<typeof workspaceForTerminal>>,
   caller: CanvasNode,
@@ -613,7 +628,7 @@ function resolveLayoutTarget(
   name: string
 ): CanvasNode | null {
   const needle = name.toLowerCase().trim()
-  const reachable = [caller, ...connectedNodes(tid), ...ws.nodes.filter((n) => !isConnectable(n.content))]
+  const reachable = [caller, ...connectedNodes(tid)]
 
   const exact = reachable.find((n) => nodeDisplayName(n.content).toLowerCase() === needle)
   if (exact) return exact

@@ -45,7 +45,9 @@ export const SKILL_DESCRIPTION =
   "localhost:5173'); reading the file or selection open in a connected code " +
   "editor ('what file is this', 'explain/refactor this selection'); reading a " +
   "secret or logging into a page from a connected vault ('use the API key', " +
-  "'log into this site'); publishing a SQL/query result as a table node on " +
+  "'log into this site'); saying which folder, repository, image or volume a " +
+  "node on the canvas points at ('what folder is this', 'which repo is on the " +
+  "canvas'); publishing a SQL/query result as a table node on " +
   "the canvas ('show this result on the canvas'); publishing an image, chart " +
   "or screenshot as a node ('put this chart on the canvas'); creating a " +
   "button that repeats a command ('make a button for this'); and looking up " +
@@ -92,7 +94,7 @@ table, board and project names to use. Never guess a name.
 | to see the canvas, or add a node/frame to it | \`atelier node\` |
 | to read or drive a browser page on the canvas | \`atelier portal\` |
 | to know what file/selection is open in an editor | \`atelier editor\` |
-| a secret, or to log into a page unseen | \`atelier vault\` |
+| a secret, a vault node, or to log into a page unseen | \`atelier vault\` |
 | a SQL/query result shown on the canvas | \`atelier table\` |
 | a chart, screenshot or diagram on the canvas | \`atelier image\` |
 | a one-click repeatable command | \`atelier button\` |
@@ -418,8 +420,13 @@ atelier vault list
 atelier vault get "Vault" <key>
 atelier vault set "Vault" <KEY> <value>
 atelier vault env ["Vault"]
+atelier vault create "Name"
 eval "$(atelier vault env --export)"
 \`\`\`
+
+\`create\` puts an EMPTY vault on the canvas, cabled to you — the node, no
+secret in it. Repeated names are allowed (two "AWS" for two accounts is a real
+arrangement) and the answer warns you when one already answers to that name.
 
 \`set\` CREATES a key, and that is the only write you have. It refuses a key that
 already exists — you cannot change a value, and you cannot delete one; both are
@@ -462,6 +469,11 @@ atelier table create "Title" <data> [--query "SELECT …"] [--format auto|json|c
 atelier table append "Title" <data> [--format …]
 atelier table list
 \`\`\`
+
+There is no read verb, and it is not missing: \`atelier list\` prints the
+absolute path of the JSON behind each cabled table, and you read the rows from
+it with your own tools. Same for a cabled image — the path of the file is in
+\`atelier list\`, and you open it yourself.
 
 \`<data>\` is one positional argument. \`--format auto\` (the default) detects it:
 text starting with \`[\` or \`{\` is JSON; otherwise a tab in the first line means
@@ -722,18 +734,24 @@ refusal tells them which switch to flip.
 Asking this verb for a type that has its own — \`node create note\` — answers
 with the right verb and creates nothing.
 
-**\`text\` and \`fileTree\` take no cable.** That is deliberate, not a gap: the
-title has no data to trade and browsing the tree is the user's gesture. They
-will never appear in \`atelier list\`, so keep the 8-char id the command prints
-if you mean to group them later.
+**Every node takes a cable, and every node is created cabled to you.** What a
+node hands you is a POINTER, not its content: the tree gives the absolute path
+of its root, the image and the table give the path of their file, the git panel
+gives the repository it watches, the monitor gives the volume. You read the
+target with your own tools — they are better than anything that would fit in
+this CLI. Content comes by verb only where it is not on disk (an editor's
+unsaved buffer, another agent's screen) or where it IS the node (a note, a
+board).
 
 **A file tree may only root where the canvas can already read** — an indexed
 project, the workspace working directory, or a folder already on the canvas as
 a tree. A tree root also authorizes \`editor open\` underneath it, so widening
-that reach is the user's gesture: ask them to index the project.
+that reach is the user's gesture: ask them to index the project. Asking for a
+root that is already on the canvas gives you that tree, cabled — not a second
+one.
 
-\`node group\` reaches by NAME what is cabled to you, this terminal, and the
-text/file-tree nodes; anything else needs the id. The frame is fitted around
+\`node group\` reaches by NAME what is cabled to you plus this terminal;
+anything else needs the id. The frame is fitted around
 the members, with the same padding the app uses when the user groups a
 selection.
 

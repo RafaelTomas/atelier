@@ -1,7 +1,14 @@
 /**
  * `atelier vault` — o cofre visto pelo agente.
  *
- * Quatro verbos, e o quarto é o único que escreve: `set` CRIA uma chave, e só
+ * Cinco verbos. `create` põe um cofre VAZIO no canvas — é o nó, não segredo
+ * nenhum: o `.vault` só passa a existir quando a primeira chave é gravada, e um
+ * nó a mais é reversível com um clique. Ele entrou porque o cofre era o único
+ * nó conectável que o agente não conseguia criar, e o padrão do canvas é que
+ * todo nó possa ser criado e cabeado (ver
+ * docs/2026-09-08-PLANO-todo-no-cabeado-e-com-referencia.md).
+ *
+ * Dos outros quatro, um só escreve: `set` CRIA uma chave, e só
  * isso. Não sobrescreve, não apaga, não liga `inEnv` e não declara `origin` —
  * as duas coisas que dariam poder à entrada continuam sendo decisão do usuário
  * no nó. É a resposta ao risco de sempre (um agente que grava segredo é vetor
@@ -23,11 +30,17 @@ import {
   getSecret,
   listKeys
 } from '../../vault/vault-manager'
-import { requireTerminalId } from './context'
+import { makeSecretVaultContent } from '../../models/node-content'
+import { makeCanvasNode } from '../../models/workspace'
+import { defaultSize } from '../../node-sizes'
+import { freeSpotRightOf } from '../../spawn-spot'
+import { notifyRenderer } from '../../../ipc/notify'
+import { requireTerminalId, workspaceForTerminal } from './context'
 
 const USAGE =
-  'error: usage: atelier vault <list|get|set|env> …\n' +
-  '  env [--export]   key names, or export lines to eval into your shell'
+  'error: usage: atelier vault <list|get|set|env|create> …\n' +
+  '  env [--export]     key names, or export lines to eval into your shell\n' +
+  '  create "Name"      an EMPTY vault node on the canvas, cabled to you'
 
 export async function handleVault(args: string[], terminalId: UUID | null): Promise<string> {
   const tid = requireTerminalId(terminalId)
@@ -42,6 +55,8 @@ export async function handleVault(args: string[], terminalId: UUID | null): Prom
       return setValue(args, tid)
     case 'env':
       return listEnv(args, tid)
+    case 'create':
+      return createVault(args, tid)
     default:
       return USAGE
   }
@@ -187,4 +202,54 @@ async function keysOfNamed(tid: UUID, name: string): Promise<string[] | string> 
   const entries = await listKeys(vault)
   if (typeof entries === 'string') return entries
   return entries.filter((e) => e.inEnv).map((e) => e.key)
+}
+
+/**
+ * `atelier vault create "Nome"` — um cofre VAZIO no canvas, já cabeado.
+ *
+ * O único verbo desta família que cria nó, e ele não é uma abertura no cuidado
+ * escrito no topo do arquivo: aquele cuidado é sobre GRAVAR segredo, e continua
+ * inteiro — `set` segue sendo a única escrita, a chave nasce inerte, e não há
+ * como alterar nem apagar. Um cofre sem chave não tem nada a proteger e nem
+ * arquivo em disco (ver `makeSecretVaultContent`).
+ *
+ * Nome repetido NÃO é recusado, ao contrário da árvore de arquivos: dois cofres
+ * chamados "AWS" para contas diferentes é arranjo legítimo, e a busca por nome
+ * dos outros verbos resolve pelo id quando o nome é ambíguo. O que a resposta
+ * faz é AVISAR, para o agente não achar que criou um segundo por engano.
+ */
+function createVault(args: string[], tid: UUID): string {
+  const name = args.slice(2).join(' ').trim()
+  if (!name) return 'error: usage: atelier vault create "Name"'
+
+  const ws = workspaceForTerminal(tid)
+  if (!ws) return 'error: no active workspace'
+  const caller = ws.node(tid)
+  if (!caller) return 'error: calling terminal is not on this canvas'
+
+  const content = makeSecretVaultContent(name)
+  const size = defaultSize('secretVault')
+  const node = makeCanvasNode({ ...freeSpotRightOf(ws, caller, size), ...size }, {
+    type: 'secretVault',
+    value: content
+  })
+
+  ws.addNode(node)
+  ws.addConnection(tid, node.id)
+  notifyRenderer('workspace:changed', { workspaceId: ws.id })
+
+  const homonimos = ws.nodes.filter(
+    (n) => n.content.type === 'secretVault' && n.content.value.name === name && n.id !== node.id
+  ).length
+
+  return [
+    `Created vault '${name}' (${node.id.slice(0, 8)}), empty and connected to this terminal.`,
+    homonimos > 0
+      ? `⚠ ${homonimos} other vault${homonimos === 1 ? '' : 's'} on this canvas already answer to '${name}' — address this one by id if a verb picks the wrong one.`
+      : '',
+    "Keys are added with 'atelier vault set' — each one inert (no origin, not in any environment)",
+    'until the user grants it those in the node.'
+  ]
+    .filter(Boolean)
+    .join('\n')
 }

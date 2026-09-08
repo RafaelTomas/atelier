@@ -40,8 +40,10 @@ await esbuild.build({
         makeCodeEditorContent,
         makeDataTableContent,
         makeSecretVaultContent,
+        makeImageContent,
         makeWidgetContent
       } from './src/main/core/models/node-content.ts'
+      export { projectIndex } from './src/main/core/state/project-store.ts'
     `,
     resolveDir: ROOT,
     loader: 'ts'
@@ -66,7 +68,9 @@ const {
   makeCodeEditorContent,
   makeDataTableContent,
   makeSecretVaultContent,
+  makeImageContent,
   makeWidgetContent,
+  projectIndex,
   withCodexInstructions,
   tomlSingleLine
 } = core
@@ -143,8 +147,14 @@ await test('brief de um nó comum: um grupo por linha, cada um com o verbo', asy
   assert.match(out, /atelier editor read "Name"/)
   assert.match(out, /Vaults: Cofre/)
   assert.match(out, /atelier vault list/)
-  assert.match(out, /Tables: Vendas/)
+  // A tabela mudou de forma: era `Tables: Vendas` (nomes numa linha), agora é uma
+  // linha por tabela com o CAMINHO do JSON — o ponteiro é a entrega, e é por
+  // isso que `atelier table` não tem verbo de leitura. Sem arquivo ainda, a
+  // linha diz isso em vez de inventar um caminho.
+  assert.match(out, /Tables:/)
+  assert.match(out, /Vendas\s+\S*[/\\]tables[/\\]\S+\.json/, 'o caminho do JSON da tabela não saiu')
   assert.match(out, /atelier table list/)
+  assert.match(out, /read the rows from that JSON yourself/)
   assert.match(out, /Boards: Sprint/)
   // O exemplo do quadro leva o NOME, e leva um verbo que não é `list`: `list` é o
   // único que aceita omitir o quadro, e a forma curta daqui era copiada para
@@ -308,6 +318,80 @@ await test('o brief do argv é o MESMO texto que o CLI devolve', () => {
 
 await rm(outdir, { recursive: true, force: true })
 await rm(home, { recursive: true, force: true })
+
+
+// ─── Todo tipo aparece, e o teto continua de pé ─────────────────────────────
+//
+// A afirmação central do plano de 08/09: um nó que não aparece no inventário
+// não existe para o agente. Sete tipos não apareciam — árvore, imagem, painel
+// de git, de monitor, de projetos, botão e título —, e a correção é justamente
+// a que arrisca estourar o teto de linhas deste arquivo. Os dois casos abaixo
+// andam juntos de propósito: um exige que tudo apareça, o outro que a resposta
+// continue caber.
+
+let cheioCaller
+let cheioOut
+await test('todo tipo de nó cabeado aparece no brief', async () => {
+  cheioCaller = node(3000, { type: 'terminal', value: makeTerminalContent('Cheio') })
+  const arvore = node(3100, { type: 'fileTree', value: { name: 'Projeto', rootPath: home, viewMode: 'list' } })
+  const imagem = node(3200, { type: 'image', value: makeImageContent('Gráfico', { mimeType: 'image/png' }) })
+  const git = node(3300, { type: 'widget', value: makeWidgetContent('git', null, {}) })
+  const monitor = node(3400, { type: 'widget', value: makeWidgetContent('monitor', null, { disk: '/', interval: '2000' }) })
+  const projetos = node(3500, { type: 'widget', value: makeWidgetContent('projects', null, {}) })
+  const botao = node(3600, { type: 'widget', value: makeWidgetContent('button', null, { label: 'Testes', action: 'command', command: 'npm test' }) })
+  const relogio = node(3700, { type: 'widget', value: makeWidgetContent('clock', null, { mode: 'stopwatch' }) })
+  const titulo = node(3800, { type: 'text', value: { text: 'Fluxo de deploy', fontSize: 18, fontWeight: 'regular', color: '#000', alignment: 'left', fontFamily: 'sans' } })
+
+  wire(cheioCaller, arvore, imagem, git, monitor, projetos, botao, relogio, titulo)
+  cheioOut = await routeCLI(['brief'], cheioCaller.id)
+
+  // A árvore leva o CAMINHO — o requisito inteiro dela, e o que ela não tinha
+  // como entregar enquanto não aceitava cabo.
+  assert.match(cheioOut, /Trees:/)
+  assert.match(cheioOut, new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'a raiz da árvore não saiu')
+
+  // A imagem leva o caminho do arquivo gerenciado, para o agente abrir sozinho.
+  assert.match(cheioOut, /Images:/)
+  assert.match(cheioOut, /Gráfico\s+\S*[/\\]images[/\\]\S+/, 'o caminho do arquivo da imagem não saiu')
+
+  // Os painéis: uma linha cada, com a referência resolvida. O de git sem
+  // projeto selecionado DIZ isso, em vez de calar ou de supor um repo.
+  assert.match(cheioOut, /Panels:/)
+  assert.match(cheioOut, /no project selected/)
+  assert.match(cheioOut, /volume \//)
+
+  assert.match(cheioOut, /Buttons & clocks:/)
+  assert.match(cheioOut, /Testes\s+\[command\]/)
+  assert.match(cheioOut, /stopwatch/)
+
+  assert.match(cheioOut, /Text:/)
+  assert.match(cheioOut, /Fluxo de deploy/)
+
+  // A frase que diz ao agente o que fazer com um ponteiro — é ela que evita a
+  // pergunta seguinte ("e como eu leio isso?").
+  assert.match(cheioOut, /pointer, not their content/)
+})
+
+await test('nove nós de tipos diferentes ainda cabem no teto do brief', async () => {
+  // O teto é requisito, não estilo: o brief entra no contexto de TODA sessão.
+  // Sete grupos novos em forma de bloco-com-verbo dobrariam a resposta; a forma
+  // escolhida é uma linha por nó mais UMA frase para o conjunto.
+  const linhas = cheioOut.split('\n').length
+  assert.ok(linhas <= 30, `o brief de um canvas cheio estourou o teto: ${linhas} linhas`)
+})
+
+// ─── A referência do painel de git, resolvida ───────────────────────────────
+
+await test('painel de git FIXADO num projeto diz o caminho e o branch', async () => {
+  const projeto = await projectIndex.add({ path: home, name: 'lab' })
+  const caller2 = node(4000, { type: 'terminal', value: makeTerminalContent('Git') })
+  const git = node(4100, { type: 'widget', value: makeWidgetContent('git', projeto.id, {}) })
+  wire(caller2, git)
+
+  const out = await routeCLI(['brief'], caller2.id)
+  assert.match(out, new RegExp(home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), 'o caminho do repo não saiu')
+  assert.match(out, /\[pinned\]/, 'não disse que o painel está fixado, e não seguindo a seleção')
+})
 
 console.log(`\n${passed} passaram, ${failed} falharam\n`)
 process.exit(failed > 0 ? 1 : 0)

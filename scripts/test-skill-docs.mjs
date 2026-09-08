@@ -100,6 +100,9 @@ const EXPECTED_REFERENCES = [
   'table.md',
   'image.md',
   'button.md',
+  // Entrou com o verbo `atelier clock` e esta lista não foi atualizada junto —
+  // é justamente o que os três casos abaixo existem para pegar.
+  'clock.md',
   'projects.md',
   'recruit.md',
   'node.md'
@@ -217,7 +220,7 @@ test('os quatro comandos ausentes de propósito aparecem como contra-exemplo, co
   }
 })
 
-await testAsync('installSkillsIfNeeded() escreve SKILL.md e as nove references em disco', async () => {
+await testAsync('installSkillsIfNeeded() escreve SKILL.md e as references em disco', async () => {
   await installSkillsIfNeeded()
   const dir = join(fakeHome, '.claude', 'skills', 'atelier')
   const skillFile = await readFile(join(dir, 'SKILL.md'), 'utf8')

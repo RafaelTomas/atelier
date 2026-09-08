@@ -11,6 +11,7 @@ import { handleBrief } from './handlers/brief'
 import { handleConnect } from './handlers/connect'
 import { handleButton } from './handlers/button'
 import { handleCheck } from './handlers/check'
+import { handleClock } from './handlers/clock'
 import { handleDismiss } from './handlers/dismiss'
 import { handleEditor } from './handlers/editor'
 import { handleImage } from './handlers/image'
@@ -29,7 +30,7 @@ import { handleVault } from './handlers/vault'
 import { interAgentServer } from './server'
 
 const COMMANDS =
-  'list ask check recruit dismiss note node portal editor table image todo vault button role projects debug'
+  'list ask check recruit dismiss note node portal editor table image todo vault button clock role projects debug'
 
 export async function routeCLI(args: string[], terminalId: UUID | null): Promise<string> {
   const command = args[0]
@@ -64,6 +65,8 @@ export async function routeCLI(args: string[], terminalId: UUID | null): Promise
       return handleVault(args, terminalId)
     case 'button':
       return handleButton(args, terminalId)
+    case 'clock':
+      return handleClock(args, terminalId)
     case 'role':
       return handleRole(args, terminalId)
     case 'projects':

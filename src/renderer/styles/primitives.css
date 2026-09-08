@@ -49,6 +49,9 @@
 .btn.is-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.is-primary:hover:not(:disabled) { filter: brightness(1.08); }
 .btn.is-danger { color: var(--rope-error); }
+/* Atalho dentro de um formulário — "Dias úteis", "Uma vez". Menor que um botão
+   de rodapé porque não é uma decisão, é um caminho curto para uma. */
+.btn.is-small { padding: 3px 8px; font-size: var(--fs-sm); }
 
 /* ─── Superfície flutuante ───────────────────────────────────────────────────
    O vidro que fica sobre o canvas: dock, rail, minimapa, chips do topo,
@@ -136,6 +139,11 @@
 
 /* Checkbox com legenda em duas linhas, como o do diálogo de scan. */
 .check-row.is-stacked { align-items: flex-start; }
+/* Caixa que só significa algo sob outra — o recuo é o que diz isso sem uma
+   linha de texto. Desabilitada ela some pela metade: uma caixa que não tem
+   efeito nenhum no estado atual não pode disputar atenção com a que tem. */
+.check-row.is-nested { margin-left: 24px; }
+.check-row.is-nested:has(input:disabled) { opacity: .5; cursor: not-allowed; }
 .check-row.is-stacked input { margin-top: 2px; }
 .check-row.is-stacked span { display: flex; flex-direction: column; gap: 2px; }
 .check-row.is-stacked em { font-style: normal; font-size: var(--fs-sm); color: var(--text-dim); }

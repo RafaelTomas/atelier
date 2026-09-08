@@ -446,8 +446,31 @@ button.canvas-chip:hover { background: var(--dock-hover); }
    cabo permanentemente azul lê como "este está selecionado".
 
    Tráfego e erro continuam falando com as cores de todo cabo — quando o disparo
-   acontece, o `--rope-active` toma a corda, e é exatamente o que se quer ver. */
-.rope-kind-clockAction.rope-idle { --rope-state-color: var(--rope-clock); }
+   acontece, o `--rope-active` toma a corda, e é exatamente o que se quer ver.
+
+   ─── Duas caras, porque o cabo responde a duas perguntas ───────────────────
+
+   A cor única dizia só "existe uma ligação aqui". A pergunta que se faz olhando
+   o canvas é outra: "isto vai rodar?". Um relógio em modo Relógio nunca
+   dispara, um timer parado e um alarme desarmado também não — e todos os quatro
+   mostravam o mesmo cabo aceso de um alarme armado para as 08:00.
+
+   Então o âmbar cheio passa a ser o estado ARMADO (`clockWillFire`), e o
+   repouso é o mesmo âmbar diluído no cinza da corda: continua legível como "é
+   um cabo de relógio", e para de prometer automação. É diluição, e não uma cor
+   diferente, porque as duas caras precisam ser lidas como o MESMO cabo em dois
+   estados — dois matizes seriam lidos como dois tipos de ligação.
+
+   O glow existe só no armado: um brilho é o que a interface usa para dizer
+   "isto está ligado", e gastá-lo no cabo inerte apagaria a distinção que a
+   diluição acabou de criar. */
+.rope-kind-clockAction.rope-idle {
+  --rope-state-color: color-mix(in srgb, var(--rope-clock) 40%, var(--rope));
+}
+.rope-kind-clockAction.rope-idle.rope-armed {
+  --rope-state-color: var(--rope-clock);
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--rope-clock) 55%, transparent));
+}
 .rope-communicating { --rope-state-color: var(--rope-active); }
 .rope-error { --rope-state-color: var(--rope-error); animation: none; }
 

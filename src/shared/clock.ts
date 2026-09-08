@@ -104,6 +104,29 @@ export const DEFAULT_TIMER_MS = 25 * 60 * 1000
 export const DEFAULT_FOCUS_MS = 25 * 60 * 1000
 export const DEFAULT_BREAK_MS = 5 * 60 * 1000
 
+/**
+ * Dias da semana do alarme, como bitmask — domingo é o bit 0, para casar com
+ * `Date.getDay()` sem tabela de conversão no meio.
+ */
+export const ALARM_ALL_DAYS = 0b1111111
+export const ALARM_WEEKDAYS = 0b0111110
+export const ALARM_WEEKEND = 0b1000001
+/** Nenhum dia marcado: alarme de UMA vez, que se desarma ao disparar. */
+export const ALARM_ONCE = 0
+
+export const MINUTES_IN_DAY = 24 * 60
+export const DEFAULT_ALARM_MINUTES = 9 * 60
+
+/**
+ * Quantos dias `nextAlarmAt` varre antes de desistir.
+ *
+ * Oito, e não sete: com sete, um alarme cujo único dia marcado é HOJE e cujo
+ * horário já passou não encontraria a ocorrência da semana que vem — o sétimo
+ * candidato cai no mesmo dia da semana, mas a varredura começa em `from`, que
+ * já é depois dele.
+ */
+const ALARM_SEARCH_DAYS = 8
+
 // ─── Contrato ─────────────────────────────────────────────────────────────────
 
 /**
@@ -114,9 +137,9 @@ export const DEFAULT_BREAK_MS = 5 * 60 * 1000
  * domínios diferentes — e cada kind novo é um item a mais na lista que o app
  * nativo precisa conhecer.
  */
-export type ClockMode = 'clock' | 'stopwatch' | 'timer' | 'pomodoro'
+export type ClockMode = 'clock' | 'stopwatch' | 'timer' | 'pomodoro' | 'alarm'
 
-export const CLOCK_MODES: ClockMode[] = ['clock', 'stopwatch', 'timer', 'pomodoro']
+export const CLOCK_MODES: ClockMode[] = ['clock', 'stopwatch', 'timer', 'pomodoro', 'alarm']
 
 /** Relógio NÃO tem estado: enquanto o nó existe, ele mostra o agora. */
 export type RunState = 'idle' | 'running' | 'paused'
@@ -125,6 +148,12 @@ export type RunState = 'idle' | 'running' | 'paused'
 export type TimerState = RunState | 'finished'
 
 export type PomodoroPhase = 'focus' | 'break'
+
+/**
+ * O alarme tem dois estados, e só dois: ou espera uma ocorrência, ou não
+ * espera nada. Não há `paused` — pausar um despertador é desarmá-lo.
+ */
+export type AlarmState = 'idle' | 'armed'
 
 export interface StopwatchConfig {
   state: RunState
@@ -182,6 +211,47 @@ export interface PomodoroConfig {
   firedSequence: number
 }
 
+/**
+ * O alarme: um horário do dia e os dias em que ele repete.
+ *
+ * É o único modo cuja âncora NÃO nasce de um gesto de iniciar. Timer e
+ * pomodoro contam "a partir de agora"; aqui a ocorrência é uma data civil —
+ * 08:00 de segunda —, e o instante absoluto é DERIVADO dela pelo fuso do
+ * sistema no momento do cálculo. É por isso que `minutesOfDay`/`days` são a
+ * verdade persistida e `armedAt` é um checkpoint recalculável: mudar de fuso,
+ * ou atravessar o horário de verão, tem de manter "às oito" às oito.
+ */
+export interface AlarmConfig {
+  state: AlarmState
+  /** Minutos desde a meia-noite LOCAL, 0–1439. */
+  minutesOfDay: number
+  /** Bitmask de dias (domingo = bit 0). 0 = uma vez, e desarma ao disparar. */
+  days: number
+  /**
+   * A ocorrência ESPERADA, em epoch ms, ou 0 quando desarmado.
+   *
+   * Persistida — e não recalculada a cada tique — porque é ela que dá
+   * identidade ao evento: um alarme reaberto tem de saber QUAL ocorrência
+   * estava esperando, senão não há como distinguir "ainda não chegou" de "já
+   * tratei essa".
+   */
+  armedAt: number
+  /**
+   * A ocorrência já TRATADA, disparada ou pulada. É o que torna o disparo no
+   * máximo um, e o que impede um alarme vencido com o app fechado de disparar
+   * no primeiro tique depois da abertura.
+   */
+  firedAt: number
+  /**
+   * A última ocorrência que passou SEM disparar porque o app estava fechado.
+   *
+   * Existe só para a UI poder dizer isso. Sem o campo, "não disparou" é
+   * indistinguível de defeito — e a política de não disparar retroativamente
+   * (ver `reconcile`) só é defensável se ela for visível.
+   */
+  missedAt: number
+}
+
 export interface ClockConfig {
   mode: ClockMode
   /** Só apresentação. O FUSO é sempre o do sistema naquele momento. */
@@ -191,6 +261,7 @@ export interface ClockConfig {
   stopwatch: StopwatchConfig
   timer: TimerConfig
   pomodoro: PomodoroConfig
+  alarm: AlarmConfig
 }
 
 export function defaultClockConfig(): ClockConfig {
@@ -218,6 +289,17 @@ export function defaultClockConfig(): ClockConfig {
       generation: 0,
       sequence: 0,
       firedSequence: 0
+    },
+    alarm: {
+      // Desarmado no padrão, e é uma decisão: um relógio recém-criado — pelo
+      // usuário ou por um agente — não pode nascer prometendo rodar um comando
+      // sozinho. Armar é gesto de quem leu o que está cabeado.
+      state: 'idle',
+      minutesOfDay: DEFAULT_ALARM_MINUTES,
+      days: ALARM_WEEKDAYS,
+      armedAt: 0,
+      firedAt: 0,
+      missedAt: 0
     }
   }
 }
@@ -252,7 +334,13 @@ const KNOWN_KEYS = [
   'pCycles',
   'pGen',
   'pSeq',
-  'pFiredSeq'
+  'pFiredSeq',
+  'aState',
+  'aTime',
+  'aDays',
+  'aArmedAt',
+  'aFiredAt',
+  'aMissedAt'
 ] as const
 
 /** Inteiro dentro de [min, max]. O que não for número finito cai no padrão. */
@@ -345,6 +433,17 @@ export function readClockConfig(view: Record<string, string>): ClockConfig {
       generation: int(view.pGen, 0, 0, Number.MAX_SAFE_INTEGER),
       sequence: int(view.pSeq, 0, 0, Number.MAX_SAFE_INTEGER),
       firedSequence: int(view.pFiredSeq, 0, 0, Number.MAX_SAFE_INTEGER)
+    },
+    alarm: {
+      state: pick(view.aState, ['idle', 'armed'] as const, 'idle'),
+      minutesOfDay: int(view.aTime, d.alarm.minutesOfDay, 0, MINUTES_IN_DAY - 1),
+      // Fora de 0–127 cai no PADRÃO, não em zero: zero é "uma vez", um
+      // significado próprio, e um `aDays` corrompido não pode virar
+      // silenciosamente um alarme de disparo único.
+      days: int(view.aDays, d.alarm.days, 0, ALARM_ALL_DAYS),
+      armedAt: int(view.aArmedAt, 0, 0, MAX_EPOCH_MS),
+      firedAt: int(view.aFiredAt, 0, 0, MAX_EPOCH_MS),
+      missedAt: int(view.aMissedAt, 0, 0, MAX_EPOCH_MS)
     }
   }
 }
@@ -402,6 +501,18 @@ export function writeClockConfig(
   if (p.sequence > 0) view.pSeq = String(p.sequence)
   if (p.firedSequence > 0) view.pFiredSeq = String(p.firedSequence)
 
+  const a = config.alarm
+  if (a.state !== 'idle') view.aState = a.state
+  // Horário e dias vão SEMPRE, como `tDuration` e `pFocus`: são a configuração
+  // que o usuário digitou, e omiti-la por coincidir com o padrão faria um
+  // alarme de 09:00 seg–sex ficar indistinguível de um nó nunca configurado —
+  // inclusive para o app nativo, que lê o mesmo `view`.
+  view.aTime = String(Math.round(a.minutesOfDay))
+  view.aDays = String(Math.round(a.days))
+  if (a.armedAt > 0) view.aArmedAt = String(Math.round(a.armedAt))
+  if (a.firedAt > 0) view.aFiredAt = String(Math.round(a.firedAt))
+  if (a.missedAt > 0) view.aMissedAt = String(Math.round(a.missedAt))
+
   return view
 }
 
@@ -437,6 +548,114 @@ export function pomodoroPhaseMs(config: ClockConfig): number {
   return config.pomodoro.phase === 'focus' ? config.pomodoro.focusMs : config.pomodoro.breakMs
 }
 
+/** 0–1439. Um valor torto cai no padrão, nunca em `NaN` no `new Date`. */
+function clampMinutes(raw: number): number {
+  if (!Number.isFinite(raw)) return DEFAULT_ALARM_MINUTES
+  return Math.min(MINUTES_IN_DAY - 1, Math.max(0, Math.round(raw)))
+}
+
+function clampDays(raw: number): number {
+  if (!Number.isFinite(raw)) return ALARM_WEEKDAYS
+  return Math.min(ALARM_ALL_DAYS, Math.max(0, Math.round(raw)))
+}
+
+/**
+ * A primeira ocorrência do alarme em `from` ou depois, em epoch ms.
+ *
+ * Puro: `from` é do chamador, como todo o resto do módulo — é o que permite
+ * provar "sexta 23:50 com alarme de segunda" sem esperar o fim de semana.
+ *
+ * A conta é feita em DATA CIVIL e não em aritmética de milissegundos, e essa é
+ * a decisão que importa: `armedAt + 24h` erraria por uma hora duas vezes por
+ * ano em qualquer fuso com horário de verão, e um alarme de trabalho que
+ * dispara às 07:00 num domingo de outubro é exatamente o tipo de bug que ninguém
+ * consegue reproduzir. Aqui cada candidato é "meia-noite local do dia N mais
+ * `minutesOfDay` minutos de parede", então 08:00 continua 08:00 dos dois lados
+ * da virada.
+ *
+ * O caso patológico é o dia em que aquele horário NÃO existe (o salto para
+ * frente cai exatamente nele): `Date` normaliza para a hora seguinte, o alarme
+ * sai uma vez mais tarde naquele dia e volta ao normal no dia seguinte. Pular o
+ * dia ou recusar seria pior — um alarme diário que simplesmente não toca é
+ * defeito; um que toca uma hora tarde, uma vez, é o comportamento de qualquer
+ * despertador.
+ *
+ * `0` = nada encontrado, que na prática só acontece com um `from` absurdo.
+ */
+export function nextAlarmAt(config: ClockConfig, from: number): number {
+  if (!Number.isFinite(from)) return 0
+  const minutes = clampMinutes(config.alarm.minutesOfDay)
+  const days = clampDays(config.alarm.days)
+  const base = new Date(from)
+  for (let i = 0; i < ALARM_SEARCH_DAYS; i++) {
+    const candidate = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i, 0, 0, 0, 0)
+    // O dia da semana é lido na MEIA-NOITE, antes de somar os minutos: é o dia
+    // que o usuário marcou no chip, e ele não pode mudar por causa de uma
+    // normalização de horário de verão dentro do próprio dia.
+    const weekday = candidate.getDay()
+    candidate.setMinutes(minutes)
+    const at = candidate.getTime()
+    if (at < from) continue
+    if (days === ALARM_ONCE) return at
+    if ((days & (1 << weekday)) !== 0) return at
+  }
+  return 0
+}
+
+/** `true` quando um alarme armado tem o que esperar. */
+export function alarmIsArmed(config: ClockConfig): boolean {
+  return config.alarm.state === 'armed'
+}
+
+const DAY_LABELS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
+
+/** `08:00`, ou `8:00 AM` — o formato segue o 12/24 h escolhido no nó. */
+export function formatAlarmTime(minutesOfDay: number, hour12: boolean): string {
+  const minutes = clampMinutes(minutesOfDay)
+  const at = new Date(2000, 0, 1, 0, 0, 0, 0)
+  at.setMinutes(minutes)
+  return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hour12 }).format(at)
+}
+
+/** `seg a sex`, `todos os dias`, `fim de semana`, `uma vez`, `seg, qua, sex`. */
+export function alarmDaysLabel(days: number): string {
+  const mask = clampDays(days)
+  if (mask === ALARM_ONCE) return 'uma vez'
+  if (mask === ALARM_ALL_DAYS) return 'todos os dias'
+  if (mask === ALARM_WEEKDAYS) return 'seg a sex'
+  if (mask === ALARM_WEEKEND) return 'fim de semana'
+  const names: string[] = []
+  for (let day = 0; day < 7; day++) {
+    if ((mask & (1 << day)) !== 0) names.push(DAY_LABELS[day])
+  }
+  return names.join(', ')
+}
+
+/** `08:00 · seg a sex`. Só a AGENDA — o estado é assunto de quem chama. */
+export function alarmSummary(config: ClockConfig): string {
+  return `${formatAlarmTime(config.alarm.minutesOfDay, config.hour12)} · ${alarmDaysLabel(config.alarm.days)}`
+}
+
+/**
+ * `em 14 h 20 min` — quanto falta para a próxima ocorrência.
+ *
+ * Vale desarmado também, e de propósito: é assim que o diálogo mostra o efeito
+ * de um horário que o usuário está digitando, antes de salvar e antes de armar.
+ */
+export function alarmCountdown(config: ClockConfig, now: number): string {
+  const at = config.alarm.state === 'armed' && config.alarm.armedAt > 0
+    ? config.alarm.armedAt
+    : nextAlarmAt(config, now)
+  if (at <= 0) return ''
+  const total = Math.max(0, Math.round((at - now) / 60_000))
+  const days = Math.floor(total / (24 * 60))
+  const hours = Math.floor((total % (24 * 60)) / 60)
+  const minutes = total % 60
+  if (days > 0) return hours > 0 ? `em ${days} d ${hours} h` : `em ${days} d`
+  if (hours > 0) return minutes > 0 ? `em ${hours} h ${minutes} min` : `em ${hours} h`
+  return minutes > 0 ? `em ${minutes} min` : 'agora'
+}
+
 /** 0..1. `null` onde progresso não significa nada (relógio e cronômetro). */
 export function clockProgress(config: ClockConfig, now: number): number | null {
   if (config.mode === 'timer') {
@@ -459,7 +678,7 @@ function clamp01(n: number): number {
 
 // ─── Máquina de estados: reconciliação com o agora ────────────────────────────
 
-export type ClockEventKind = 'timerFinished' | 'phaseChanged'
+export type ClockEventKind = 'timerFinished' | 'phaseChanged' | 'alarmFired'
 
 /**
  * A identidade de um evento. É ela que torna o disparo NO MÁXIMO UMA VEZ: o
@@ -516,6 +735,7 @@ export function reconcile(
 ): Reconciliation {
   if (config.mode === 'timer') return reconcileTimer(config, now, opts.live)
   if (config.mode === 'pomodoro') return reconcilePomodoro(config, now, opts.live)
+  if (config.mode === 'alarm') return reconcileAlarm(config, now, opts.live)
   // Relógio e cronômetro não têm o que reconciliar: o valor é derivado de
   // `now`, e nem um nem outro produz evento. Um cronômetro `running` continua
   // correndo enquanto o app está fechado de propósito — ele mede tempo de
@@ -599,6 +819,72 @@ function reconcilePomodoro(config: ClockConfig, now: number, live: boolean): Rec
 }
 
 /**
+ * O alarme, trazido até `now`.
+ *
+ * Três caminhos, e o primeiro é o que faz o resto funcionar: um alarme armado
+ * sem `armedAt` (acabou de ser armado, ou a chave se perdeu) ARMA aqui, no
+ * primeiro tique, sem disparar nada. Isso mantém o cálculo da ocorrência num
+ * lugar só — este — em vez de espalhá-lo por cada gesto que pode mexer no
+ * horário.
+ *
+ * Ocorrências perdidas numa suspensão longa coalescem em UM evento, como no
+ * pomodoro: um alarme diário que atravessou um fim de semana fechado não pode
+ * abrir três terminais ao acordar.
+ */
+function reconcileAlarm(config: ClockConfig, now: number, live: boolean): Reconciliation {
+  const a = config.alarm
+  if (a.state !== 'armed') return { config, changed: false, event: null }
+
+  if (a.armedAt <= 0) {
+    const armedAt = nextAlarmAt(config, now)
+    if (armedAt <= 0) return { config, changed: false, event: null }
+    return { config: { ...config, alarm: { ...a, armedAt } }, changed: true, event: null }
+  }
+
+  if (now < a.armedAt) return { config, changed: false, event: null }
+
+  // A ÚLTIMA ocorrência atravessada é a que vale como tratada: coalescer é
+  // exatamente isso — reconhecer que várias passaram e responder uma vez.
+  let occurrence = a.armedAt
+  let armedAt = a.armedAt
+  let crossed = 0
+  while (now >= armedAt && crossed < MAX_ADVANCE_STEPS) {
+    occurrence = armedAt
+    crossed++
+    if (a.days === ALARM_ONCE) {
+      armedAt = 0
+      break
+    }
+    // `+1` para não reencontrar a MESMA ocorrência: `nextAlarmAt` devolve o
+    // primeiro instante `>= from`, e sem o milissegundo o laço não andaria.
+    armedAt = nextAlarmAt(config, armedAt + 1)
+    if (armedAt <= 0) break
+  }
+
+  const alarm: AlarmConfig = {
+    ...a,
+    // Um alarme de uma vez se desarma ao disparar; um repetido já está armado
+    // na próxima ocorrência. Nos dois casos o estado que a UI mostra é o certo
+    // sem nenhum gesto do usuário.
+    state: armedAt > 0 ? 'armed' : 'idle',
+    armedAt,
+    // Marcado nos DOIS caminhos, vivo e morto: é o que garante que o alarme
+    // vencido com o app fechado não dispare no primeiro tique da abertura.
+    firedAt: occurrence,
+    missedAt: live ? 0 : occurrence
+  }
+
+  return {
+    config: { ...config, alarm },
+    changed: true,
+    event:
+      live && occurrence > a.firedAt
+        ? { kind: 'alarmFired', generation: 0, sequence: occurrence, crossed }
+        : null
+  }
+}
+
+/**
  * Quando o coordenador precisa acordar de novo, em ms a partir de `now`.
  *
  * `null` = nada a agendar por causa DESTE relógio. Quem chama toma o menor de
@@ -625,12 +911,45 @@ export function nextWakeMs(config: ClockConfig, now: number): number | null {
       if (config.pomodoro.state !== 'running') return null
       return Math.max(0, Math.min(untilNextSecond, config.pomodoro.deadlineAt - now))
     }
+    case 'alarm': {
+      // Nunca `null`, nem desarmado: o modo alarme mostra a HORA, e sem tique
+      // de segundo o mostrador congelaria no instante da montagem.
+      if (config.alarm.state !== 'armed' || config.alarm.armedAt <= 0) return untilNextSecond
+      return Math.max(0, Math.min(untilNextSecond, config.alarm.armedAt - now))
+    }
   }
 }
 
-/** Só timer e pomodoro emitem. Relógio, cronômetro e voltas nunca disparam ação. */
+/** Só timer, pomodoro e alarme emitem. Relógio, cronômetro e voltas nunca disparam ação. */
 export function emitsEvents(config: ClockConfig): boolean {
-  return config.mode === 'timer' || config.mode === 'pomodoro'
+  return config.mode === 'timer' || config.mode === 'pomodoro' || config.mode === 'alarm'
+}
+
+/**
+ * Este relógio, COMO ESTÁ AGORA, tem um disparo a caminho?
+ *
+ * `emitsEvents` responde sobre o MODO — se aquele tipo de relógio é capaz de
+ * disparar. Esta responde sobre o ESTADO, que é a pergunta que o cabo faz: um
+ * timer parado, um pomodoro pausado e um alarme desarmado são todos capazes e
+ * nenhum deles vai disparar coisa alguma enquanto ficarem assim.
+ *
+ * É o que permite ao cabo relógio→botão ter duas caras. Um cabo de cor única
+ * dizia só "existe uma ligação aqui", e a pergunta que o usuário faz olhando o
+ * canvas é outra: "isto vai rodar?". Sem a distinção, um relógio em modo
+ * Relógio — que nunca dispara — mostrava o mesmo cabo aceso de um alarme armado
+ * para as 08:00.
+ */
+export function clockWillFire(config: ClockConfig): boolean {
+  switch (config.mode) {
+    case 'timer':
+      return config.timer.state === 'running'
+    case 'pomodoro':
+      return config.pomodoro.state === 'running'
+    case 'alarm':
+      return config.alarm.state === 'armed' && config.alarm.armedAt > 0
+    default:
+      return false
+  }
 }
 
 // ─── Gestos ───────────────────────────────────────────────────────────────────
@@ -641,6 +960,16 @@ export function setMode(config: ClockConfig, mode: ClockMode): ClockConfig {
   // Trocar de modo NÃO apaga o estado dos outros: um cronômetro pausado
   // continua pausado ao visitar o relógio. Só a apresentação e a emissão de
   // eventos seguem o modo ativo.
+  //
+  // O ALARME é a exceção, e ela é de segurança, não de simetria. `reconcile` só
+  // chama `reconcileAlarm` quando o alarme é o modo ATIVO, então um alarme
+  // armado num modo dormente atravessa o horário sem ninguém trazê-lo até o
+  // agora — e voltar ao alarme às 15:00 dispararia a ocorrência das 08:00, sete
+  // horas atrasada, contra a política de não disparar retroativamente. Sair do
+  // modo desarma; rearmar é um clique, e é do usuário.
+  if (mode !== 'alarm' && config.alarm.state === 'armed') {
+    return { ...disarmAlarm(config), mode }
+  }
   return { ...config, mode }
 }
 
@@ -858,6 +1187,175 @@ export function setPomodoroDurations(
   }
 }
 
+// ─── Gestos do alarme ─────────────────────────────────────────────────────────
+
+/**
+ * Horário e dias. Rearma quando já estava armado — mudar a agenda de um alarme
+ * ligado não pode deixá-lo esperando a ocorrência antiga.
+ *
+ * `firedAt` é PRESERVADO: mexer no horário não pode ressuscitar uma ocorrência
+ * já tratada. `missedAt` é limpo — configurar é o reconhecimento do aviso.
+ */
+export function setAlarm(
+  config: ClockConfig,
+  minutesOfDay: number,
+  days: number,
+  now: number
+): ClockConfig {
+  const alarm: AlarmConfig = {
+    ...config.alarm,
+    minutesOfDay: clampMinutes(minutesOfDay),
+    days: clampDays(days),
+    missedAt: 0
+  }
+  const next = { ...config, alarm }
+  if (alarm.state !== 'armed') return { ...next, alarm: { ...alarm, armedAt: 0 } }
+  return { ...next, alarm: { ...alarm, armedAt: nextAlarmAt(next, now) } }
+}
+
+/** Arma na próxima ocorrência. Gesto do USUÁRIO — ver o diálogo e o CLI. */
+export function armAlarm(config: ClockConfig, now: number): ClockConfig {
+  const armed = { ...config, alarm: { ...config.alarm, state: 'armed' as AlarmState, missedAt: 0 } }
+  return { ...armed, alarm: { ...armed.alarm, armedAt: nextAlarmAt(armed, now) } }
+}
+
+/**
+ * Desarma. `armedAt` volta a 0 e `firedAt` fica — rearmar depois não pode
+ * disparar de novo a ocorrência que já passou enquanto estava desarmado.
+ */
+export function disarmAlarm(config: ClockConfig): ClockConfig {
+  return { ...config, alarm: { ...config.alarm, state: 'idle', armedAt: 0 } }
+}
+
+export function toggleAlarm(config: ClockConfig, now: number): ClockConfig {
+  return config.alarm.state === 'armed' ? disarmAlarm(config) : armAlarm(config, now)
+}
+
+/**
+ * Aplica a CONFIGURAÇÃO de um rascunho sobre a configuração VIVA, preservando
+ * todo checkpoint de corrida.
+ *
+ * Existe por um defeito concreto do diálogo: ele congela o rascunho ao abrir
+ * (`useState` com `key` no nó) e, se fosse gravado inteiro, devolveria ao disco
+ * as âncoras que estavam lá naquele instante. O caminho: alarme diário armado,
+ * o lápis aberto às 07:59, o disparo das 08:00 acontece e grava
+ * `firedAt = hoje 08:00`, e o Salvar às 08:01 — sem editar nada — reescrevia
+ * `armedAt = hoje 08:00` e um `firedAt` antigo. O tique seguinte via um horário
+ * vencido e não tratado, e o botão RODAVA DE NOVO. O mesmo valia para o
+ * `deadlineAt` de um timer e os ciclos de um pomodoro correndo.
+ *
+ * A regra é a divisão que o diálogo já anuncia: ali se edita CONFIGURAÇÃO —
+ * modo, formato, cor, durações, horário e dias. Iniciar, pausar, zerar, armar e
+ * as âncoras que eles produzem são do nó e do coordenador, e atravessam este
+ * merge intactos.
+ *
+ * `missedAt` é limpo: quem abriu esta tela leu o aviso, e mantê-lo depois de um
+ * Salvar faria o nó insistir num alarme perdido que já foi reconhecido.
+ */
+export function applyClockSettings(
+  current: ClockConfig,
+  draft: ClockConfig,
+  now: number
+): ClockConfig {
+  // Base: o que está VIVO. Do rascunho vêm só os campos de apresentação.
+  let next: ClockConfig = {
+    ...current,
+    hour12: draft.hour12,
+    color: readHexColor(draft.color)
+  }
+
+  // As durações passam pelos gestos puros, que já sabem não mexer numa corrida
+  // em andamento (`setTimerDuration` e `setPomodoroDurations`).
+  next = setTimerDuration(next, draft.timer.durationMs)
+  next = setPomodoroDurations(next, draft.pomodoro.focusMs, draft.pomodoro.breakMs)
+
+  // A agenda do alarme só é reancorada quando MUDOU: reancorar sempre moveria
+  // um alarme armado para a próxima ocorrência a cada Salvar, inclusive num
+  // Salvar que não tocou no horário.
+  const scheduleChanged =
+    draft.alarm.minutesOfDay !== current.alarm.minutesOfDay ||
+    draft.alarm.days !== current.alarm.days
+  if (scheduleChanged) {
+    next = setAlarm(next, draft.alarm.minutesOfDay, draft.alarm.days, now)
+  } else {
+    next = { ...next, alarm: { ...next.alarm, missedAt: 0 } }
+  }
+
+  // O modo vai por último, porque `setMode` desarma ao sair do alarme e essa
+  // decisão tem de valer sobre o resultado final, não sobre a base.
+  return setMode(next, draft.mode)
+}
+
+// ─── Gramática do CLI ─────────────────────────────────────────────────────────
+// Mora aqui, e não no handler do main, por dois motivos: o formato tem um dono
+// só, e `scripts/test-clock.mjs` já compila este módulo — o que faz a gramática
+// ser testável sem subir nada do Electron.
+
+const CLI_DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+
+const CLI_DAY_ALIASES: Record<string, number> = {
+  daily: ALARM_ALL_DAYS,
+  all: ALARM_ALL_DAYS,
+  everyday: ALARM_ALL_DAYS,
+  weekdays: ALARM_WEEKDAYS,
+  'mon-fri': ALARM_WEEKDAYS,
+  weekday: ALARM_WEEKDAYS,
+  weekend: ALARM_WEEKEND,
+  'sat-sun': ALARM_WEEKEND,
+  once: ALARM_ONCE,
+  none: ALARM_ONCE
+}
+
+/**
+ * `--days` nas duas formas que um agente escreve sem consultar nada: o atalho
+ * (`daily`, `mon-fri`, `weekend`, `once`) e a lista (`mon,wed,fri`).
+ *
+ * `null` = não entendi. E é importante que seja `null` e não uma máscara
+ * "melhor esforço": um `--days mmon` que virasse segunda-feira em silêncio
+ * criaria um alarme que dispara num dia que ninguém pediu.
+ */
+export function parseAlarmDays(raw: string): number | null {
+  const value = raw.trim().toLowerCase()
+  if (!value) return null
+  if (value in CLI_DAY_ALIASES) return CLI_DAY_ALIASES[value]
+  let mask = 0
+  for (const part of value.split(',')) {
+    const index = CLI_DAY_NAMES.indexOf(part.trim())
+    if (index < 0) return null
+    mask |= 1 << index
+  }
+  return mask
+}
+
+/** `08:00`, `8:00`. `null` para qualquer outra coisa — inclusive `25:00`. */
+export function parseAlarmTime(raw: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(raw.trim())
+  if (!match) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours > 23 || minutes > 59) return null
+  return hours * 60 + minutes
+}
+
+/**
+ * `25m`, `90s`, `1h30m`, `2h`, e um número solto como minutos — o mesmo
+ * costume do campo do nó, onde `25` já significa 25 minutos.
+ *
+ * Devolve ms JÁ presos pelo `clampDuration`, ou `null` quando não entendeu.
+ */
+export function parseDurationSpec(raw: string): number | null {
+  const value = raw.trim().toLowerCase()
+  if (!value) return null
+  if (/^\d+$/.test(value)) return clampDuration(Number(value) * 60_000)
+  if (!/^(\d+h)?(\d+m)?(\d+s)?$/.test(value)) return null
+  const hours = Number(/(\d+)h/.exec(value)?.[1] ?? 0)
+  const minutes = Number(/(\d+)m/.exec(value)?.[1] ?? 0)
+  const seconds = Number(/(\d+)s/.exec(value)?.[1] ?? 0)
+  const ms = hours * 3_600_000 + minutes * 60_000 + seconds * 1_000
+  if (ms <= 0) return null
+  return clampDuration(ms)
+}
+
 export function clampDuration(ms: number): number {
   if (!Number.isFinite(ms)) return MIN_DURATION_MS
   return Math.min(MAX_DURATION_MS, Math.max(MIN_DURATION_MS, Math.round(ms)))
@@ -908,6 +1406,8 @@ export function clockModeLabel(mode: ClockMode): string {
       return 'Timer'
     case 'pomodoro':
       return 'Pomodoro'
+    case 'alarm':
+      return 'Alarme'
     default:
       return 'Relógio'
   }

@@ -20,6 +20,14 @@
  *
  * Uso: node scripts/test-clock.mjs
  */
+/**
+ * O fuso é FIXADO antes de qualquer `Date`, e não por gosto: o alarme é o
+ * único modo cuja âncora é uma data CIVIL ("08:00 de segunda"), então metade
+ * do que ele promete só é verificável com um fuso conhecido. Os testes dos
+ * outros modos não se importam — todos usam `Date.UTC` e durações relativas.
+ */
+process.env.TZ = 'America/Sao_Paulo'
+
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -66,8 +74,28 @@ const {
   MAX_DURATION_MS,
   MAX_LAPS,
   MIN_DURATION_MS,
+  ALARM_ALL_DAYS,
+  ALARM_ONCE,
+  ALARM_WEEKDAYS,
+  ALARM_WEEKEND,
+  DEFAULT_ALARM_MINUTES,
+  MINUTES_IN_DAY,
   advancePomodoroPhase,
+  applyClockSettings,
+  clockWillFire,
+  alarmCountdown,
+  alarmDaysLabel,
+  alarmSummary,
+  armAlarm,
   clockProgress,
+  disarmAlarm,
+  formatAlarmTime,
+  nextAlarmAt,
+  parseAlarmDays,
+  parseAlarmTime,
+  parseDurationSpec,
+  setAlarm,
+  toggleAlarm,
   defaultClockConfig,
   emitsEvents,
   formatDuration,
@@ -221,7 +249,13 @@ test('nenhum campo derivado por segundo aparece no view gravado', () => {
     'swState', 'swAccum', 'swStartedAt', 'swLaps', 'swLastLap',
     'tState', 'tDuration', 'tDeadlineAt', 'tRemaining', 'tGen', 'tFiredGen',
     'pState', 'pFocus', 'pBreak', 'pPhase', 'pDeadlineAt', 'pRemaining',
-    'pCycles', 'pGen', 'pSeq', 'pFiredSeq'
+    'pCycles', 'pGen', 'pSeq', 'pFiredSeq',
+    // `aTime` e `aDays` entram por serem CONFIGURAÇÃO, na mesma linha de
+    // `tDuration` e `pFocus`: são o que o usuário digitou, não o que o
+    // mostrador desenha, e por isso vão sempre — omiti-los por coincidirem com
+    // o padrão faria um alarme de 09:00 seg–sex ser indistinguível de um nó
+    // nunca configurado, inclusive para o app nativo, que lê o mesmo `view`.
+    'aState', 'aTime', 'aDays', 'aArmedAt', 'aFiredAt', 'aMissedAt'
   ])
   for (const key of Object.keys(view)) {
     assert.ok(permitidas.has(key), `chave inesperada no view: ${key}`)
@@ -851,6 +885,444 @@ test('trocar a cor não mexe em corrida nenhuma', () => {
   assert.equal(depois.timer.deadlineAt, antes)
   assert.equal(depois.timer.state, 'running')
   assert.equal(timerRemainingMs(depois, T0 + MIN), 9 * MIN)
+})
+
+
+// ─── 5. Alarme ────────────────────────────────────────────────────────────────
+// O quinto modo, e o primeiro cuja âncora é uma data CIVIL em vez de uma
+// duração. O que estes testes guardam é justamente o que a aritmética de
+// milissegundos erraria: o dia da semana certo, o horário que não anda com o
+// horário de verão, o disparo único, e a coalescência de um fim de semana
+// inteiro com o app suspenso.
+//
+// `T0` é segunda, 31/08/2026, 09:00 em America/Sao_Paulo (o fuso fixado no topo
+// deste arquivo).
+
+/** Um alarme em `hh:mm` nos dias `days`, já no modo alarme. */
+function alarmAt(hh, mm, days) {
+  const base = setMode(defaultClockConfig(), 'alarm')
+  return setAlarm(base, hh * 60 + mm, days, T0)
+}
+
+const SEG_A_SEX = ALARM_WEEKDAYS
+
+test('T0 é segunda 09:00 local — a premissa dos testes de alarme', () => {
+  const at = new Date(T0)
+  assert.equal(at.getDay(), 1, 'T0 deixou de ser segunda; revise os testes abaixo')
+  assert.equal(at.getHours(), 9)
+})
+
+test('nextAlarmAt pega HOJE quando o horário ainda não passou', () => {
+  const c = alarmAt(10, 0, SEG_A_SEX)
+  assert.equal(nextAlarmAt(c, T0), new Date(2026, 7, 31, 10, 0, 0, 0).getTime())
+})
+
+test('nextAlarmAt pula para amanhã quando o horário já passou', () => {
+  const c = alarmAt(8, 0, SEG_A_SEX)
+  // Terça, 01/09 — e não "T0 mais 24 h", que é a conta que erra na virada.
+  assert.equal(nextAlarmAt(c, T0), new Date(2026, 8, 1, 8, 0, 0, 0).getTime())
+})
+
+test('nextAlarmAt pula os dias NÃO marcados', () => {
+  const soSabado = alarmAt(8, 0, 1 << 6)
+  assert.equal(nextAlarmAt(soSabado, T0), new Date(2026, 8, 5, 8, 0, 0, 0).getTime())
+  // Fim de semana a partir de uma segunda: o sábado vem antes do domingo.
+  const fds = alarmAt(8, 0, ALARM_WEEKEND)
+  assert.equal(nextAlarmAt(fds, T0), new Date(2026, 8, 5, 8, 0, 0, 0).getTime())
+})
+
+test('nextAlarmAt acha a ocorrência da semana que vem quando o único dia é hoje', () => {
+  // O caso que uma varredura de sete dias perderia: segunda 08:00 já passou, e
+  // o próximo candidato do mesmo dia da semana é o OITAVO dia.
+  const soSegunda = alarmAt(8, 0, 1 << 1)
+  assert.equal(nextAlarmAt(soSegunda, T0), new Date(2026, 8, 7, 8, 0, 0, 0).getTime())
+})
+
+test('sem dia marcado é UMA vez: hoje se ainda não passou, senão amanhã', () => {
+  assert.equal(nextAlarmAt(alarmAt(10, 0, ALARM_ONCE), T0), new Date(2026, 7, 31, 10, 0, 0, 0).getTime())
+  assert.equal(nextAlarmAt(alarmAt(8, 0, ALARM_ONCE), T0), new Date(2026, 8, 1, 8, 0, 0, 0).getTime())
+})
+
+test('a ocorrência atravessa a virada de mês e de ano sem aritmética de 24 h', () => {
+  const virada = Date.UTC(2026, 11, 31, 12, 0, 0) // 31/12 09:00 local, quinta
+  const c = setAlarm(setMode(defaultClockConfig(), 'alarm'), 10 * 60, ALARM_ALL_DAYS, virada)
+  assert.equal(nextAlarmAt(c, virada), new Date(2026, 11, 31, 10, 0, 0, 0).getTime())
+  const depois = nextAlarmAt(c, new Date(2026, 11, 31, 10, 0, 0, 1).getTime())
+  assert.equal(depois, new Date(2027, 0, 1, 10, 0, 0, 0).getTime())
+})
+
+test('o horário de verão NÃO desloca o alarme: 08:00 continua 08:00', () => {
+  // Brasília não tem horário de verão desde 2019, então este é o único teste
+  // que troca de fuso — e ele existe porque `armedAt + 24h` erraria por uma
+  // hora duas vezes por ano, num bug que ninguém consegue reproduzir.
+  const antes = process.env.TZ
+  try {
+    process.env.TZ = 'America/New_York'
+    // Sábado 07/03/2026 09:00 EST; o salto para frente é no domingo 08/03 às 02:00.
+    const from = new Date(2026, 2, 7, 9, 0, 0, 0).getTime()
+    const c = setAlarm(setMode(defaultClockConfig(), 'alarm'), 8 * 60, ALARM_ALL_DAYS, from)
+    const proxima = nextAlarmAt(c, from)
+    assert.equal(proxima, new Date(2026, 2, 8, 8, 0, 0, 0).getTime())
+    assert.equal(new Date(proxima).getHours(), 8, 'o alarme andou com o relógio')
+    // E a prova de que não é soma de 24 h: de 09:00 de sábado às 08:00 de
+    // domingo são 23 horas de PAREDE, e o salto come uma delas — 22 horas
+    // absolutas. É exatamente esse desconto que uma soma de milissegundos
+    // ignoraria, deslocando o alarme para as 09:00 no dia seguinte.
+    assert.equal(proxima - from, 22 * HOUR)
+  } finally {
+    process.env.TZ = antes
+  }
+})
+
+test('um horário que NÃO existe no dia do salto sai na hora seguinte, uma vez', () => {
+  const antes = process.env.TZ
+  try {
+    process.env.TZ = 'America/New_York'
+    const from = new Date(2026, 2, 8, 0, 0, 0, 0).getTime()
+    const c = setAlarm(setMode(defaultClockConfig(), 'alarm'), 2 * 60 + 30, ALARM_ALL_DAYS, from)
+    const proxima = new Date(nextAlarmAt(c, from))
+    // 02:30 não existe naquele domingo: `Date` normaliza para 03:30. Pular o
+    // dia deixaria um alarme diário simplesmente sem tocar, que é pior.
+    assert.equal(proxima.getHours(), 3)
+    assert.equal(proxima.getMinutes(), 30)
+    assert.equal(proxima.getDate(), 8)
+  } finally {
+    process.env.TZ = antes
+  }
+})
+
+test('o codec do alarme faz round-trip e preserva chave desconhecida', () => {
+  let c = alarmAt(8, 30, SEG_A_SEX)
+  c = armAlarm(c, T0)
+  const view = writeClockConfig(c, { aFuturo: 'de uma versão mais nova' })
+  assert.equal(view.aFuturo, 'de uma versão mais nova', 'apagou chave desconhecida')
+  const volta = readClockConfig(view)
+  assert.equal(volta.alarm.state, 'armed')
+  assert.equal(volta.alarm.minutesOfDay, 8 * 60 + 30)
+  assert.equal(volta.alarm.days, SEG_A_SEX)
+  assert.equal(volta.alarm.armedAt, c.alarm.armedAt)
+  assert.equal(volta.mode, 'alarm')
+})
+
+test('o codec do alarme recusa valores tortos sem inventar um alarme novo', () => {
+  const d = defaultClockConfig()
+  // Duas políticas diferentes, e as duas são as do resto do codec (`int`):
+  // número fora de faixa é PRESO no limite, e o que não é número cai no padrão.
+  // A distinção importa — `aTime: '9999'` é um valor exagerado, e 23:59 é a
+  // leitura mais próxima dele; `aTime: 'oito'` não é um horário nenhum.
+  assert.equal(readClockConfig({ mode: 'alarm', aTime: '9999' }).alarm.minutesOfDay, MINUTES_IN_DAY - 1)
+  assert.equal(readClockConfig({ mode: 'alarm', aTime: 'oito' }).alarm.minutesOfDay, d.alarm.minutesOfDay)
+  // `aDays` preso no teto é "todos os dias" — e o que importa é que NÃO caia em
+  // zero, porque zero significa "uma vez", um comportamento próprio.
+  assert.equal(readClockConfig({ mode: 'alarm', aDays: '999' }).alarm.days, ALARM_ALL_DAYS)
+  assert.equal(readClockConfig({ mode: 'alarm', aDays: 'seg' }).alarm.days, d.alarm.days)
+  assert.equal(readClockConfig({ mode: 'alarm', aState: 'tocando' }).alarm.state, 'idle')
+  // `aDays: '0'` é legítimo — é o alarme de uma vez, não um valor corrompido.
+  assert.equal(readClockConfig({ mode: 'alarm', aDays: '0' }).alarm.days, ALARM_ONCE)
+})
+
+test('nada derivado por segundo entra no view do alarme', () => {
+  const c = armAlarm(alarmAt(8, 0, SEG_A_SEX), T0)
+  const view = writeClockConfig(c)
+  for (const key of Object.keys(view)) {
+    assert.ok(
+      ['mode', 'hour12', 'color', 'tDuration', 'pFocus', 'pBreak', 'aState', 'aTime', 'aDays', 'aArmedAt', 'aFiredAt', 'aMissedAt'].includes(key),
+      `chave inesperada no view: ${key}`
+    )
+  }
+})
+
+test('um alarme desarmado nunca dispara', () => {
+  const c = alarmAt(10, 0, SEG_A_SEX)
+  const r = reconcile(c, T0 + 2 * HOUR, { live: true })
+  assert.equal(r.event, null)
+  assert.equal(r.changed, false)
+})
+
+test('armar não dispara nada, só ancora a próxima ocorrência', () => {
+  const c = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  assert.equal(c.alarm.state, 'armed')
+  assert.equal(c.alarm.armedAt, new Date(2026, 7, 31, 10, 0, 0, 0).getTime())
+  const r = reconcile(c, T0, { live: true })
+  assert.equal(r.event, null)
+})
+
+test('vencido com o app VIVO dispara uma vez, e só uma', () => {
+  const c = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  const agora = c.alarm.armedAt + 2 * SEC
+  const primeiro = reconcile(c, agora, { live: true })
+  assert.equal(primeiro.event?.kind, 'alarmFired')
+  assert.equal(primeiro.event.sequence, c.alarm.armedAt, 'a identidade do evento é a ocorrência')
+  assert.equal(primeiro.config.alarm.firedAt, c.alarm.armedAt)
+  // O MESMO tique de novo, sobre a configuração já reconciliada: nada.
+  const segundo = reconcile(primeiro.config, agora, { live: true })
+  assert.equal(segundo.event, null)
+})
+
+test('vencido com o app FECHADO reconcilia, marca perdido e não dispara', () => {
+  const c = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  const ocorrencia = c.alarm.armedAt
+  const morto = reconcile(c, ocorrencia + 3 * HOUR, { live: false })
+  assert.equal(morto.event, null, 'disparou retroativamente')
+  assert.equal(morto.changed, true)
+  assert.equal(morto.config.alarm.missedAt, ocorrencia)
+  assert.equal(morto.config.alarm.firedAt, ocorrencia)
+  // E o primeiro tique VIVO depois disso também não dispara a ocorrência morta.
+  const depois = reconcile(morto.config, ocorrencia + 3 * HOUR + SEC, { live: true })
+  assert.equal(depois.event, null)
+})
+
+test('depois de disparar, um alarme repetido já está armado na PRÓXIMA ocorrência', () => {
+  const c = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  const r = reconcile(c, c.alarm.armedAt + SEC, { live: true })
+  assert.equal(r.config.alarm.state, 'armed')
+  assert.equal(r.config.alarm.armedAt, new Date(2026, 8, 1, 10, 0, 0, 0).getTime())
+})
+
+test('um alarme de UMA vez se desarma ao disparar', () => {
+  const c = armAlarm(alarmAt(10, 0, ALARM_ONCE), T0)
+  const r = reconcile(c, c.alarm.armedAt + SEC, { live: true })
+  assert.equal(r.event?.kind, 'alarmFired')
+  assert.equal(r.config.alarm.state, 'idle')
+  assert.equal(r.config.alarm.armedAt, 0)
+})
+
+test('três dias suspensos viram UM evento, não três', () => {
+  const c = armAlarm(alarmAt(10, 0, ALARM_ALL_DAYS), T0)
+  const tresDiasDepois = new Date(2026, 8, 3, 12, 0, 0, 0).getTime()
+  const r = reconcile(c, tresDiasDepois, { live: true })
+  assert.equal(r.event?.kind, 'alarmFired')
+  assert.equal(r.event.crossed, 4, 'não coalesceu as fronteiras atravessadas')
+  // A ocorrência tratada é a ÚLTIMA, e o próximo armado é o dia seguinte: uma
+  // rajada abriria quatro terminais de uma vez.
+  assert.equal(r.config.alarm.firedAt, new Date(2026, 8, 3, 10, 0, 0, 0).getTime())
+  assert.equal(r.config.alarm.armedAt, new Date(2026, 8, 4, 10, 0, 0, 0).getTime())
+})
+
+test('mudar o horário de um alarme armado REARMA sem ressuscitar o que já tocou', () => {
+  let c = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  const r = reconcile(c, c.alarm.armedAt + SEC, { live: true })
+  c = r.config
+  const jaTocou = c.alarm.firedAt
+  const mudado = setAlarm(c, 11 * 60, SEG_A_SEX, T0)
+  assert.equal(mudado.alarm.firedAt, jaTocou, 'perdeu o registro do que já tocou')
+  assert.equal(mudado.alarm.armedAt, new Date(2026, 7, 31, 11, 0, 0, 0).getTime())
+  assert.equal(mudado.alarm.missedAt, 0, 'configurar não limpou o aviso de perdido')
+})
+
+test('desarmar e rearmar não dispara a ocorrência que passou desarmada', () => {
+  let c = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  c = disarmAlarm(c)
+  assert.equal(c.alarm.armedAt, 0)
+  // Duas horas depois — a ocorrência das 10:00 passou com o alarme desligado.
+  const depois = T0 + 2 * HOUR
+  c = armAlarm(c, depois)
+  assert.equal(c.alarm.armedAt, new Date(2026, 8, 1, 10, 0, 0, 0).getTime())
+  assert.equal(reconcile(c, depois, { live: true }).event, null)
+})
+
+test('toggleAlarm alterna armar e desarmar', () => {
+  const c = alarmAt(10, 0, SEG_A_SEX)
+  const armado = toggleAlarm(c, T0)
+  assert.equal(armado.alarm.state, 'armed')
+  assert.equal(toggleAlarm(armado, T0).alarm.state, 'idle')
+})
+
+test('o alarme emite eventos e o relógio não', () => {
+  assert.equal(emitsEvents(setMode(defaultClockConfig(), 'alarm')), true)
+  assert.equal(emitsEvents(defaultClockConfig()), false)
+})
+
+test('nextWakeMs do alarme respeita o disparo próximo e nunca é null', () => {
+  const c = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  // 300 ms antes do disparo: não pode esperar o segundo cheio para virar.
+  assert.equal(nextWakeMs(c, c.alarm.armedAt - 300), 300)
+  // Longe do disparo, é o alinhamento com o próximo segundo.
+  assert.equal(nextWakeMs(c, T0 + 500), 500)
+  // Desarmado continua tiquetaqueando: o mostrador é a HORA.
+  assert.equal(nextWakeMs(alarmAt(10, 0, SEG_A_SEX), T0 + 500), 500)
+})
+
+test('o alarme não tem barra de progresso', () => {
+  const c = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  assert.equal(clockProgress(c, T0), null)
+})
+
+test('o mostrador do alarme é a hora, e a linha de baixo é a agenda', () => {
+  const armado = armAlarm(alarmAt(8, 0, SEG_A_SEX), T0)
+  const { readout, detail } = readoutFor(armado, T0)
+  assert.match(readout, /^\d{2}:\d{2}:\d{2}$/, 'o mostrador deixou de ser a hora')
+  assert.equal(detail, '08:00 · seg a sex')
+  assert.equal(readoutFor(alarmAt(8, 0, SEG_A_SEX), T0).detail, 'desarmado')
+  const perdido = { ...armado, alarm: { ...armado.alarm, missedAt: T0 } }
+  assert.equal(readoutFor(perdido, T0).detail, '08:00 · seg a sex · perdido')
+})
+
+test('os rótulos da agenda dizem a forma, não a lista de bits', () => {
+  assert.equal(alarmDaysLabel(ALARM_WEEKDAYS), 'seg a sex')
+  assert.equal(alarmDaysLabel(ALARM_ALL_DAYS), 'todos os dias')
+  assert.equal(alarmDaysLabel(ALARM_WEEKEND), 'fim de semana')
+  assert.equal(alarmDaysLabel(ALARM_ONCE), 'uma vez')
+  assert.equal(alarmDaysLabel((1 << 1) | (1 << 3) | (1 << 5)), 'seg, qua, sex')
+  assert.equal(formatAlarmTime(8 * 60 + 5, false), '08:05')
+  assert.equal(alarmSummary(alarmAt(8, 0, SEG_A_SEX)), '08:00 · seg a sex')
+})
+
+test('a contagem até o disparo é legível em minutos, horas e dias', () => {
+  const c = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  assert.equal(alarmCountdown(c, T0), 'em 1 h')
+  assert.equal(alarmCountdown(c, c.alarm.armedAt - 20 * MIN), 'em 20 min')
+  assert.equal(alarmCountdown(c, c.alarm.armedAt), 'agora')
+  const soSabado = armAlarm(alarmAt(8, 0, 1 << 6), T0)
+  assert.match(alarmCountdown(soSabado, T0), /^em 4 d/)
+})
+
+test('a gramática de --days aceita atalho e lista, e recusa lixo', () => {
+  assert.equal(parseAlarmDays('daily'), ALARM_ALL_DAYS)
+  assert.equal(parseAlarmDays('mon-fri'), ALARM_WEEKDAYS)
+  assert.equal(parseAlarmDays('weekdays'), ALARM_WEEKDAYS)
+  assert.equal(parseAlarmDays('weekend'), ALARM_WEEKEND)
+  assert.equal(parseAlarmDays('once'), ALARM_ONCE)
+  assert.equal(parseAlarmDays('mon,wed,fri'), (1 << 1) | (1 << 3) | (1 << 5))
+  assert.equal(parseAlarmDays('SUN, SAT'), ALARM_WEEKEND)
+  // `null`, e NÃO um "melhor esforço": um `--days mmon` que virasse segunda em
+  // silêncio criaria um alarme que dispara num dia que ninguém pediu.
+  assert.equal(parseAlarmDays('mmon'), null)
+  assert.equal(parseAlarmDays('segunda'), null)
+  assert.equal(parseAlarmDays(''), null)
+})
+
+test('a gramática de --at-time só aceita hora civil válida', () => {
+  assert.equal(parseAlarmTime('08:00'), 8 * 60)
+  assert.equal(parseAlarmTime('8:05'), 8 * 60 + 5)
+  assert.equal(parseAlarmTime('23:59'), 23 * 60 + 59)
+  assert.equal(parseAlarmTime('00:00'), 0)
+  assert.equal(parseAlarmTime('24:00'), null)
+  assert.equal(parseAlarmTime('08:60'), null)
+  assert.equal(parseAlarmTime('0800'), null)
+  assert.equal(parseAlarmTime('oito'), null)
+})
+
+test('a gramática de duração aceita 25m, 90s, 1h30m e número solto', () => {
+  assert.equal(parseDurationSpec('25m'), 25 * MIN)
+  assert.equal(parseDurationSpec('90s'), 90 * SEC)
+  assert.equal(parseDurationSpec('1h30m'), HOUR + 30 * MIN)
+  assert.equal(parseDurationSpec('2h'), 2 * HOUR)
+  assert.equal(parseDurationSpec('25'), 25 * MIN, 'número solto deixou de ser minutos')
+  assert.equal(parseDurationSpec('vinte'), null)
+  assert.equal(parseDurationSpec('0m'), null)
+  assert.equal(parseDurationSpec(''), null)
+  // O teto do módulo continua valendo: 48 h não passa a existir pela porta do CLI.
+  assert.equal(parseDurationSpec('48h'), MAX_DURATION_MS)
+})
+
+test('o alarme é o quinto modo e não mexeu nos outros quatro', () => {
+  assert.deepEqual(CLOCK_MODES, ['clock', 'stopwatch', 'timer', 'pomodoro', 'alarm'])
+  // Trocar de modo não apaga o estado dos outros — a promessa do `setMode`.
+  let c = startTimer(setTimerDuration(setMode(defaultClockConfig(), 'timer'), 10 * MIN), T0)
+  const comAlarme = armAlarm(setMode(c, 'alarm'), T0)
+  assert.equal(comAlarme.timer.state, 'running')
+  assert.equal(comAlarme.alarm.state, 'armed')
+  // E um timer correndo não emite evento enquanto o alarme é o modo ativo.
+  assert.equal(reconcile(comAlarme, T0 + 11 * MIN, { live: true }).event?.kind, 'alarmFired')
+})
+
+
+test('sair do modo alarme DESARMA, para nada disparar retroativamente', () => {
+  // `reconcile` só traz o alarme até o agora quando ele é o modo ATIVO. Um
+  // alarme armado num modo dormente atravessaria o horário sem ninguém
+  // reconciliá-lo, e voltar ao alarme horas depois dispararia a ocorrência
+  // vencida — contra a política de não disparar retroativamente.
+  const armado = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  const noTimer = setMode(armado, 'timer')
+  assert.equal(noTimer.alarm.state, 'idle')
+  assert.equal(noTimer.alarm.armedAt, 0)
+  // De volta ao alarme, nada dispara: ele está desarmado, e rearmar é do usuário.
+  const devolta = setMode(noTimer, 'alarm')
+  assert.equal(devolta.alarm.state, 'idle')
+  assert.equal(reconcile(devolta, T0 + 5 * HOUR, { live: true }).event, null)
+  // Um alarme DESARMADO não sofre nada ao trocar de modo, e o estado dos
+  // outros modos continua intacto — a promessa original do `setMode`.
+  const parado = setMode(alarmAt(10, 0, SEG_A_SEX), 'timer')
+  assert.equal(parado.alarm.minutesOfDay, 10 * 60)
+  assert.equal(parado.alarm.days, SEG_A_SEX)
+})
+
+test('applyClockSettings preserva o checkpoint e só deixa passar configuração', () => {
+  // O caminho do defeito: o diálogo congela o rascunho ao abrir, o alarme
+  // dispara enquanto ele está aberto, e o Salvar devolvia ao disco as âncoras
+  // velhas — fazendo o botão rodar DE NOVO no tique seguinte.
+  const rascunho = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  // A ocorrência de HOJE, que é a que o rascunho congelado ainda espera.
+  const hoje = rascunho.alarm.armedAt
+  const disparado = reconcile(rascunho, hoje + SEC, { live: true }).config
+  assert.equal(disparado.alarm.firedAt, hoje)
+  assert.equal(disparado.alarm.armedAt, new Date(2026, 8, 1, 10, 0, 0, 0).getTime())
+
+  const salvo = applyClockSettings(disparado, rascunho, hoje + 2 * SEC)
+  assert.equal(salvo.alarm.firedAt, hoje, 'ressuscitou uma ocorrência tratada')
+  assert.equal(salvo.alarm.armedAt, disparado.alarm.armedAt, 'voltou a âncora antiga')
+  // O tique seguinte, no MESMO minuto do disparo: nada roda de novo.
+  assert.equal(reconcile(salvo, hoje + 3 * SEC, { live: true }).event, null)
+})
+
+test('applyClockSettings não mexe num timer nem num pomodoro correndo', () => {
+  let vivo = startTimer(setTimerDuration(setMode(defaultClockConfig(), 'timer'), 10 * MIN), T0)
+  const rascunho = { ...vivo }
+  const salvo = applyClockSettings(vivo, rascunho, T0 + MIN)
+  assert.equal(salvo.timer.state, 'running')
+  assert.equal(salvo.timer.deadlineAt, vivo.timer.deadlineAt, 'reancorou um timer correndo')
+
+  let pomo = startPomodoro(setMode(defaultClockConfig(), 'pomodoro'), T0)
+  const salvoP = applyClockSettings(pomo, { ...pomo }, T0 + MIN)
+  assert.equal(salvoP.pomodoro.deadlineAt, pomo.pomodoro.deadlineAt)
+})
+
+test('applyClockSettings aplica a configuração editada, e reancora só o que mudou', () => {
+  const atual = armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)
+  // Rascunho com horário NOVO: reancorar é obrigatório, senão o alarme
+  // continuaria esperando as 10:00 que o usuário acabou de trocar.
+  const editado = setAlarm(atual, 11 * 60, SEG_A_SEX, T0)
+  const salvo = applyClockSettings(atual, editado, T0)
+  assert.equal(salvo.alarm.minutesOfDay, 11 * 60)
+  assert.equal(salvo.alarm.armedAt, new Date(2026, 7, 31, 11, 0, 0, 0).getTime())
+  // Cor e formato passam; a duração do timer também.
+  const comCor = applyClockSettings(atual, { ...atual, hour12: true, color: '#32d74b' }, T0)
+  assert.equal(comCor.hour12, true)
+  assert.equal(comCor.color, '#32d74b')
+  // E um Salvar que não tocou na agenda NÃO move a ocorrência esperada.
+  assert.equal(applyClockSettings(atual, { ...atual }, T0 + MIN).alarm.armedAt, atual.alarm.armedAt)
+})
+
+test('applyClockSettings limpa o aviso de perdido, que é o que a tela promete', () => {
+  const perdido = reconcile(armAlarm(alarmAt(10, 0, SEG_A_SEX), T0), T0 + 3 * HOUR, { live: false })
+  assert.ok(perdido.config.alarm.missedAt > 0)
+  const salvo = applyClockSettings(perdido.config, perdido.config, T0 + 3 * HOUR)
+  assert.equal(salvo.alarm.missedAt, 0)
+})
+
+
+test('clockWillFire separa "é capaz de disparar" de "vai disparar"', () => {
+  // É a distinção que o CABO precisa: `emitsEvents` fala do modo, esta fala do
+  // estado. Um relógio em modo Relógio mostrava o mesmo cabo aceso de um alarme
+  // armado para as 08:00.
+  assert.equal(clockWillFire(defaultClockConfig()), false, 'o modo relógio nunca dispara')
+  assert.equal(clockWillFire(setMode(defaultClockConfig(), 'stopwatch')), false)
+
+  const timer = setTimerDuration(setMode(defaultClockConfig(), 'timer'), 10 * MIN)
+  assert.equal(clockWillFire(timer), false, 'timer parado não vai disparar')
+  const correndo = startTimer(timer, T0)
+  assert.equal(clockWillFire(correndo), true)
+  assert.equal(clockWillFire(pauseTimer(correndo, T0 + MIN)), false, 'timer pausado não dispara')
+  // Terminado também não: o disparo dele já aconteceu.
+  assert.equal(clockWillFire(reconcile(correndo, T0 + 11 * MIN, { live: true }).config), false)
+
+  const pomo = setMode(defaultClockConfig(), 'pomodoro')
+  assert.equal(clockWillFire(pomo), false)
+  assert.equal(clockWillFire(startPomodoro(pomo, T0)), true)
+
+  assert.equal(clockWillFire(alarmAt(10, 0, SEG_A_SEX)), false, 'alarme desarmado não dispara')
+  assert.equal(clockWillFire(armAlarm(alarmAt(10, 0, SEG_A_SEX), T0)), true)
 })
 
 await rm(outdir, { recursive: true, force: true })

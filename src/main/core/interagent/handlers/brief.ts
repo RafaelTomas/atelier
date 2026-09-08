@@ -33,9 +33,16 @@
  */
 import type { CanvasNode, UUID } from '@shared/types'
 import { nodeDisplayName } from '../../models/node-content'
+import type { WorkspaceManager } from '../../state/workspace-manager'
 import { artisanDoctrine } from '../artisan-doctrine'
 import { artisanContextFor } from './artesao'
 import { connectedNodes, requireTerminalId, workspaceForTerminal } from './context'
+import { nodeReference } from './references'
+
+/** Os painéis de leitura global — sem verbo, só referência. */
+const PANEL_KINDS = new Set(['git', 'monitor', 'projects'])
+/** Botão e relógio: têm verbo próprio, mas nunca apareciam no inventário. */
+const GADGET_KINDS = new Set(['button', 'clock'])
 
 const EMPTY = [
   'Atelier canvas brief: nothing wired to this node yet.',
@@ -63,7 +70,7 @@ export function handleBrief(_args: string[], terminalId: UUID | null): string {
   const tid = requireTerminalId(terminalId)
   if (!tid) return EMPTY
 
-  const inventory = renderInventory(connectedNodes(tid))
+  const inventory = renderInventory(connectedNodes(tid), workspaceForTerminal(tid))
   if (!isArtisanCaller(tid)) return [inventory, '', CANVAS_RULE].join('\n')
 
   return [inventory, '', artisanDoctrine(artisanContextFor(tid))].join('\n')
@@ -74,7 +81,7 @@ function isArtisanCaller(tid: UUID): boolean {
   return !!node && node.content.type === 'terminal' && node.content.value.isArtisan
 }
 
-function renderInventory(nodes: CanvasNode[]): string {
+function renderInventory(nodes: CanvasNode[], ws: WorkspaceManager | null): string {
   if (nodes.length === 0) return EMPTY
 
   const lines: string[] = ['Atelier canvas brief — wired to this node:']
@@ -117,10 +124,45 @@ function renderInventory(nodes: CanvasNode[]): string {
     lines.push('  atelier vault list')
   }
 
+  // A tabela leva o CAMINHO do JSON, um por linha, pela mesma razão do editor: é
+  // o ponteiro que destrava as ferramentas do agente. `atelier table` não tem
+  // verbo de leitura, e é este caminho que faz isso ser suficiente.
   const tables = nodes.filter((n) => n.content.type === 'dataTable')
   if (tables.length > 0) {
-    lines.push('', `Tables: ${names(tables)}`)
-    lines.push('  atelier table list')
+    lines.push('', 'Tables:')
+    for (const n of tables) {
+      const ref = ws ? nodeReference(ws, n) : null
+      lines.push(`  ${nodeDisplayName(n.content)}  ${ref ?? '(no file yet)'}`)
+    }
+    lines.push('  atelier table list    (read the rows from that JSON yourself)')
+  }
+
+  // ─── Os que entregam a REFERÊNCIA ──────────────────────────────────────────
+  //
+  // Árvore, imagem, tabela, painel, botão, relógio e título: sete tipos que não
+  // apareciam neste brief nem no `atelier list`. Um agente que só leu o brief
+  // não sabia que havia um repositório, uma pasta ou um botão cabeado nele.
+  //
+  // A forma respeita o TETO deste arquivo (ver o cabeçalho): grupo vazio não
+  // aparece, e cada nó é UMA linha com o ponteiro — nada de bloco por tipo com
+  // linha de verbo, que é o que faria sete grupos novos dobrarem a resposta.
+  const referenced: [string, CanvasNode[]][] = [
+    ['Trees', nodes.filter((n) => n.content.type === 'fileTree')],
+    ['Images', nodes.filter((n) => n.content.type === 'image')],
+    ['Panels', nodes.filter((n) => n.content.type === 'widget' && PANEL_KINDS.has(n.content.value.kind))],
+    ['Buttons & clocks', nodes.filter((n) => n.content.type === 'widget' && GADGET_KINDS.has(n.content.value.kind))],
+    ['Text', nodes.filter((n) => n.content.type === 'text')]
+  ]
+  for (const [label, group] of referenced) {
+    if (group.length === 0) continue
+    lines.push('', `${label}:`)
+    for (const n of group) {
+      const ref = ws ? nodeReference(ws, n) : null
+      lines.push(`  ${nodeDisplayName(n.content)}  ${ref ?? ''}`.trimEnd())
+    }
+  }
+  if (referenced.some(([, g]) => g.length > 0)) {
+    lines.push('  These give you a pointer, not their content — read the target with your own tools.')
   }
 
   const boards = nodes.filter((n) => n.content.type === 'widget' && n.content.value.kind === 'todo')

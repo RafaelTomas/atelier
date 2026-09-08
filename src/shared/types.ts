@@ -655,9 +655,48 @@ export interface ButtonConfig {
   /** Terminal onde a ação roda. null = cria um novo. */
   target: UUID | null
   confirm: boolean
+  /**
+   * Pode ser disparado SEM um humano presente — hoje, por um relógio cabeado.
+   *
+   * Existe porque `confirm` respondia a duas perguntas com um booleano só:
+   * "pergunte antes quando eu CLICAR" e "nunca rode sozinho". Um
+   * `npm run pack:linux` quer a primeira e não tem opinião sobre a segunda, e
+   * sem este campo o usuário tinha de abrir mão da proteção do clique para
+   * conseguir o agendamento — a proteção que ele ligou de propósito.
+   *
+   * Só tem efeito com `confirm: true`: sem confirmação o botão já podia ser
+   * disparado por um relógio desde o primeiro plano, e nada muda para ele.
+   *
+   * O nome fala da PRESENÇA de um humano, e não de relógios. Um `allowClock`
+   * viraria um nome que mente no dia em que houver um segundo disparador.
+   */
+  unattended: boolean
   /** Proposto por um agente e ainda não aceito — inerte até o usuário aceitar. */
   pending: boolean
   proposedBy: string | null
+}
+
+/** Por que um relógio não pode disparar um botão. Ver `clockFireBlock`. */
+export type ClockFireBlock = 'pending' | 'confirm'
+
+/**
+ * Um relógio pode disparar este botão? `null` = pode.
+ *
+ * **Autoridade única da regra.** Ela estava escrita quatro vezes — o
+ * `WorkspaceManager` recusando o cabo, o `canLink` não desenhando o fantasma, o
+ * diálogo do relógio filtrando a lista e o `runButton` recusando o disparo —, e
+ * quatro cópias que só coincidem por disciplina são como uma delas passa a
+ * oferecer o que outra nega. Foi o que quase aconteceu: o `<select>` do relógio
+ * chegou a listar um botão que o main ia recusar.
+ *
+ * A ordem importa. `pending` vence `confirm` porque a mensagem que o usuário lê
+ * tem de ser a do aceite que falta — dizer "pede confirmação" para um botão que
+ * ainda não foi aceito manda arrumar a coisa errada.
+ */
+export function clockFireBlock(config: ButtonConfig): ClockFireBlock | null {
+  if (config.pending) return 'pending'
+  if (config.confirm && !config.unattended) return 'confirm'
+  return null
 }
 
 export const DEFAULT_BUTTON_COLOR = '#34C759'
@@ -692,6 +731,10 @@ export function readButtonConfig(view: Record<string, string>): ButtonConfig {
     cwd: view.cwd ?? '',
     target: view.target ? (view.target as UUID) : null,
     confirm: view.confirm === '1',
+    // A comparação estrita é o que faz um campo de PERMISSÃO falhar para o lado
+    // fechado: `'sim'`, `'true'`, `'0'` ou um número viram `false`, nunca uma
+    // autorização que ninguém deu.
+    unattended: view.unattended === '1',
     pending: view.pending === '1',
     proposedBy: view.proposedBy || null
   }
@@ -719,6 +762,7 @@ export function writeButtonConfig(config: ButtonConfig): Record<string, string> 
   if (config.cwd) view.cwd = config.cwd
   if (config.target) view.target = config.target
   if (config.confirm) view.confirm = '1'
+  if (config.unattended) view.unattended = '1'
   if (config.pending) view.pending = '1'
   if (config.proposedBy) view.proposedBy = config.proposedBy
   return view
@@ -868,7 +912,21 @@ export type NodeContent =
 
 export type NodeContentType = NodeContent['type']
 
-/** Só estes tipos aceitam conexão (espelha NodeContent.isConnectable). */
+/**
+ * Só estes tipos aceitam conexão (espelha NodeContent.isConnectable).
+ *
+ * Hoje é TODO nó com cara própria, e isso é a regra, não uma coincidência: um
+ * nó que não aceita cabo não aparece em `atelier list` nem no brief, logo não
+ * existe para o agente. Ficam fora apenas `shape`, `stroke` e `freehand`, que
+ * existem só no codec para um arquivo do app nativo Swift atravessar este
+ * binário intacto — nada neste porte os cria, e o desenho de verdade mora em
+ * `drawings`, que não é nó.
+ *
+ * `widget` entrou pelo quadro de TODO: para o agente escrever num quadro, o
+ * quadro precisa aceitar cabo. Vale para TODO widget — o de git, o de monitor e
+ * o de projetos junto —, e é por isso que a recusa acontece por `kind` no
+ * momento de aceitar a ligação (ver connectionKindForTypes abaixo), e não aqui.
+ */
 export const CONNECTABLE_TYPES: NodeContentType[] = [
   'terminal',
   'stickyNote',
@@ -876,11 +934,15 @@ export const CONNECTABLE_TYPES: NodeContentType[] = [
   'dataTable',
   'image',
   'secretVault',
-  // `widget` entrou pelo quadro de TODO: para o agente escrever num quadro, o
-  // quadro precisa aceitar cabo. Vale para TODO widget — o de git e o de
-  // projetos junto —, e é por isso que a recusa acontece por `kind` no momento
-  // de aceitar a ligação (ver connectionKindForTypes abaixo), e não aqui.
-  'widget'
+  'widget',
+  'fileTree',
+  'text',
+  // Faltava, embora `connectionKindForTypes` já casasse terminal↔codeEditor
+  // desde que o editor existe. A ausência não impedia o cabo — quem decide é
+  // aquela função —, mas fazia o editor contar como "tipo que nunca cabeia" nos
+  // dois usos desta lista em handlers/node.ts, e um deles imprimia o nome do
+  // arquivo aberto num editor que o usuário não cabeou a quem perguntou.
+  'codeEditor'
 ]
 
 export function isConnectable(content: NodeContent): boolean {
@@ -1204,6 +1266,20 @@ export function connectionKindForTypes(
   // `schemaVersion` não sobe. Um `kind: 'board'` próprio custaria uma migração
   // inteira para ganhar uma cor de cabo diferente.
   if (pair.has('terminal') && pair.has('widget')) return 'data'
+  // Árvore de arquivos e título ligados a um agente: MESMO cabo `data`, pela
+  // razão escrita acima para o editor e o quadro.
+  //
+  // Os dois eram a exceção declarada ("takes no cable, that is deliberate"), e
+  // a declaração estava errada nos dois casos. A árvore tem a coisa mais útil
+  // que um nó pode dar a um agente — um caminho absoluto que ele pode ler com
+  // as ferramentas dele — e não tinha como entregá-lo: sem cabo, ela não
+  // aparece em `atelier list` nem no brief. O título tem o texto que o usuário
+  // escreveu, que é contexto como o de uma nota curta.
+  //
+  // A regra que substitui a exceção: TODO nó aceita cabo, e o que ele entrega é
+  // a REFERÊNCIA (caminho, repositório, volume) — o conteúdo o agente lê
+  // sozinho. Ver docs/2026-09-08-PLANO-todo-no-cabeado-e-com-referencia.md.
+  if (pair.has('terminal') && (pair.has('fileTree') || pair.has('text'))) return 'data'
   // Um kind só para terminal↔cofre e portal↔cofre — e, mais tarde,
   // dataTable↔cofre. Em disco os campos são neutros (`nodeIdA`/`nodeIdB`),
   // como no crossFloor, justamente para o par novo não pedir lista nova.

@@ -30,6 +30,7 @@ import type { CanvasNode, Connection, UUID } from '@shared/types'
 import type { ClockConfig } from '@shared/clock'
 import { SEGMENT_ATTR, segmentMarkup } from '../nodes/seven-segment'
 import {
+  alarmSummary,
   clockProgress,
   formatClockTime,
   formatDuration,
@@ -384,6 +385,17 @@ export function readoutFor(
       return {
         readout: formatDuration(pomodoroRemainingMs(config, now)),
         detail: `${fase} · ${ciclos}`
+      }
+    }
+    case 'alarm': {
+      // O mostrador é a HORA, como no modo relógio: é a metáfora do
+      // despertador, e o número grande que interessa a quem olha de longe
+      // continua sendo "que horas são", não "quanto falta para amanhã".
+      const a = config.alarm
+      const agenda = a.state === 'armed' ? alarmSummary(config) : 'desarmado'
+      return {
+        readout: formatClockTime(now, config.hour12),
+        detail: a.missedAt > 0 ? `${agenda} · perdido` : agenda
       }
     }
     default:

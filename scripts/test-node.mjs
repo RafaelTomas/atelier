@@ -191,7 +191,23 @@ await test('widget todo e widget button caem nos verbos próprios deles', async 
 await test('kind desconhecido lista os que existem, em vez de criar um vazio', async () => {
   const out = await cli('node', 'create', 'widget', 'kanbanzinho')
   assert.match(out, /^error:/)
-  assert.match(out, /projects, git, monitor, clock/)
+  // Os três PAINÉIS, e só eles: quadro, botão e relógio saíram desta lista
+  // quando cada um ganhou verbo próprio (KIND_OWNED_ELSEWHERE em handlers/node).
+  assert.match(out, /projects, git, monitor/)
+})
+
+await test('kind com verbo próprio aponta o verbo, em vez de criar por aqui', async () => {
+  // Duas gramáticas para o mesmo nó envelheceriam separadas, e no caso do
+  // relógio a segunda porta pularia a autorização do alarme (nasce desarmado).
+  for (const [kind, verbo] of [
+    ['clock', /atelier clock create/],
+    ['button', /atelier button propose/],
+    ['todo', /atelier todo create/]
+  ]) {
+    const out = await cli('node', 'create', 'widget', kind)
+    assert.match(out, /created by its own verb/, `'${kind}' não apontou o verbo`)
+    assert.match(out, verbo)
+  }
 })
 
 await test('tipo desconhecido recusa com o usage', async () => {
@@ -202,16 +218,15 @@ await test('tipo desconhecido recusa com o usage', async () => {
 
 // ─── text: nasce sem cabo, e a resposta diz isso ─────────────────────────────
 
-await test('create text nasce sem cabo, e a resposta avisa que `list` não o mostra', async () => {
+await test('create text nasce CABEADO — todo nó cabeia', async () => {
   const out = await cli('node', 'create', 'text', 'Sprint 42 · nomes do DW')
   assert.match(out, /Created text/)
-  assert.match(out, /takes no cable/)
-  assert.match(out, /atelier list/)
+  assert.match(out, /connected to this terminal/)
 
   const texto = nodesOfType('text')
   assert.equal(texto.length, 1)
   assert.equal(texto[0].content.value.text, 'Sprint 42 · nomes do DW')
-  assert.equal(ws.connectedNodeIds(tid).includes(texto[0].id), false, 'cabeou um tipo sem cabo')
+  assert.ok(ws.connectedNodeIds(tid).includes(texto[0].id), 'o título nasceu sem cabo')
 })
 
 await test('dois nós seguidos não nascem empilhados', async () => {
@@ -307,8 +322,12 @@ await test('painel singleton pedido duas vezes devolve o existente, não um segu
 })
 
 await test('dois relógios são dois timers — clock NÃO é singleton', async () => {
-  await cli('node', 'create', 'widget', 'clock')
-  await cli('node', 'create', 'widget', 'clock')
+  // O caso valia por `node create widget clock`, caminho que deixou de existir
+  // quando o relógio ganhou verbo próprio. A afirmação continua valendo e é o
+  // que importa: dois relógios são dois cronômetros, ao contrário dos painéis,
+  // que leem estado global e por isso são singleton.
+  await cli('clock', 'create', 'Primeiro', '--timer', '25m')
+  await cli('clock', 'create', 'Segundo', '--timer', '5m')
   assert.equal(nodesOfType('widget').filter((n) => n.content.value.kind === 'clock').length, 2)
 })
 

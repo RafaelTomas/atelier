@@ -63,6 +63,8 @@
     "test:undo": "node scripts/test-undo-delete.mjs",
     "test:artesao": "node scripts/test-artesao.mjs",
     "test:brief": "node scripts/test-brief.mjs",
+    "test:list": "node scripts/test-list.mjs",
+    "test:portal-url": "node scripts/test-portal-url.mjs",
     "test:waiting": "node scripts/test-waiting.mjs",
     "test:eval-harness": "node scripts/test-eval-harness.mjs",
     "test:css-order": "node scripts/test-css-order.mjs",

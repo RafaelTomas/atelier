@@ -32,6 +32,7 @@ import type {
   FontFamily,
   FontWeight
 } from '@shared/types'
+import { clockModeLabel, readClockConfig } from '@shared/clock'
 import {
   asRecord,
   bool,
@@ -644,6 +645,13 @@ export function widgetTitle(kind: string, view: Record<string, string> = {}): st
       // O título do QUADRO, quando o nó já sabe qual é: dois quadros no canvas
       // chamados "Tarefas" não se distinguem no cabeçalho nem no `atelier list`.
       return view.title || 'Tarefas'
+    case 'clock':
+      // O CLI endereça o relógio pelo rótulo que o Artesão deu na criação
+      // (`view.name`, gravado por `atelier clock create ["Label"]`) — dois
+      // relógios no canvas são uso legítimo e precisam de nomes distintos para
+      // `atelier clock set`/`remove` os acharem. Sem rótulo, cai no nome do
+      // MODO ativo, o mesmo que o cabeçalho do nó mostra.
+      return view.name || clockModeLabel(readClockConfig(view).mode)
     default:
       return kind
   }

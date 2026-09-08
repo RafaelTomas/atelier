@@ -48,8 +48,12 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: var(--s-1);
+  /* Moldura enxuta de propósito: o conteúdo deste nó é o VISOR, e cada pixel de
+     bisel em volta é área que ele perde. Num aparelho de verdade a borda existe
+     porque o plástico precisa segurar o vidro — aqui ela só precisa insinuar
+     isso, e 2px bastam. */
+  gap: 1px;
+  padding: 2px;
   border: 1px solid var(--clock-bezel-edge);
   border-radius: 10px;
   /* O bisel: claro em cima, escuro embaixo — a luz do ambiente vem de cima, e é
@@ -87,7 +91,15 @@
 .clock-toolbar {
   flex: 0 0 auto;
   display: flex;
-  gap: var(--s-1);
+  /* A rede de segurança contra a sobreposição: os dois grupos têm largura
+     própria e, num nó apertado, o de controles passava POR CIMA do de modos —
+     visível como "IniciarFaseZerar" escrito sobre os ícones. Os rótulos dos
+     controles colapsam antes (ver `.clock-btn-label`), então a quebra quase
+     nunca acontece; quando acontecer, ela custa uma linha em vez de mentir
+     sobre onde é cada botão. */
+  flex-wrap: wrap;
+  row-gap: 1px;
+  column-gap: var(--s-1);
   align-items: center;
   justify-content: space-between;
   padding: 0 2px;
@@ -101,11 +113,15 @@
 
 /* O ícone diz QUAL modo é; a cor diz qual está ativo. O ativo acende no mesmo
    vermelho do visor: num aparelho, o que está ligado é o que brilha. */
+/* O padding horizontal é 1px, e não 2px, desde que o alarme virou o quinto
+   modo: cinco ícones e um botão de ação disputam 140px na largura mínima do nó,
+   e 1px de cada lado devolve 10px sem que nenhum ícone encoste no vizinho.
+   Subir `clockMinWidth` era a alternativa, e ela quebraria canvases salvos. */
 .clock-mode {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2px;
+  padding: 2px 1px;
   border: 0;
   border-radius: var(--r-sm);
   background: none;
@@ -126,6 +142,9 @@
 /* Também fantasmas. O primário se distingue pela COR, não por um preenchimento:
    um botão sólido sobre a moldura seria um terceiro plano na frente do visor. */
 .clock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   min-width: 0;
   padding: 1px 4px;
   border: 0;
@@ -141,6 +160,12 @@
 .clock-btn.is-primary { color: var(--clock-led); }
 .clock-btn:disabled { opacity: .4; cursor: default; }
 .clock-btn:disabled:hover { color: #7b7f88; }
+
+.clock-btn-glyph { flex: 0 0 auto; display: block; }
+/* O rótulo é o que sai quando o nó aperta — o ícone e o `title` continuam
+   dizendo o que o botão faz. Num nó grande o texto fica, porque uma palavra é
+   mais legível que um glifo para quem nunca viu este painel. */
+.clock-btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 .clock-finished {
   align-self: center;
@@ -165,8 +190,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: var(--s-1) var(--s-2);
+  gap: 1px;
+  padding: 1px 4px;
   border-radius: 6px;
   background: var(--clock-face);
   box-shadow: inset 0 1px 4px rgb(0 0 0 / 65%);
@@ -182,9 +207,28 @@
   min-height: 0;
   /* Escala com o NÓ, não com a fonte da interface: `cqi`/`cqb` são o tamanho do
      próprio widget, então os dígitos enchem o visor em qualquer medida que o
-     usuário desenhe — e o `min()` impede que um nó largo e baixo estoure a
-     altura. */
-  height: min(52cqb, 34px);
+     usuário desenhe.
+
+     Três limites, e cada um responde a uma pergunta diferente:
+
+       55cqb — a ALTURA do nó. Um nó largo e baixo não pode ter dígitos mais
+               altos que o visor, e a sobra cobre a barra de ferramentas —
+               inclusive quando ela quebra em duas linhas.
+       largura — derivada da GEOMETRIA do mostrador, não estimada. O pior caso
+               é `HH:MM:SS`: seis dígitos de 24 unidades e dois dois-pontos de
+               8, sobre uma altura de 44 — razão 160/44 ≈ 3,64 para 1 (o
+               `MM:SS,cc` do cronômetro soma o mesmo). Como no SVG é a ALTURA
+               que manda e a largura sai da proporção, o teto é
+               `(largura útil) / 3,64`; os 32px descontados são os paddings do
+               nó (2+2) e do visor (4+4), os sete gaps de 2px entre os glifos e
+               uma folga para o arredondamento. Um coeficiente redondo tipo `26cqi` parece mais
+               limpo e estoura a largura num nó de 220px.
+       96px  — o TETO absoluto que o pedido pede. Sem ele um nó desenhado com
+               meia tela viraria painel de aeroporto; com ele, crescer além de
+               um ponto só acrescenta moldura em volta de um mostrador que já
+               está grande. O valor anterior era 34px, e era ELE que fazia um
+               nó grande mostrar dígitos de nó pequeno. */
+  height: min(55cqb, calc((100cqi - 32px) / 3.64), 96px);
 }
 
 /* Cada dígito é um SVG de sete polígonos. A altura manda: a largura sai da
@@ -226,7 +270,11 @@
   background: transparent;
   color: var(--clock-led);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: min(52cqb, 30px);
+  /* Acompanha o mostrador, com a conta da FONTE em vez da do SVG: oito
+     caracteres monoespaçados avançam ~0,6em cada, então o teto pela largura é
+     `útil / 4,8`. Sem acompanhar, o número mudava de tamanho ao dar duplo
+     clique — o que lê como defeito, não como edição. */
+  font-size: min(49cqb, calc((100cqi - 32px) / 4.8), 84px);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -245,7 +293,10 @@
   max-width: 100%;
   overflow: hidden;
   color: color-mix(in srgb, var(--clock-led) 45%, #6a6d74);
-  font-size: var(--fs-2xs);
+  /* Cresce um pouco com o nó, e para cedo: é serigrafia de painel, e uma
+     serigrafia que acompanhasse o mostrador passaria a disputar com ele. O
+     piso é o tamanho que ela sempre teve no nó apertado. */
+  font-size: max(var(--fs-2xs), min(4cqi, 15px));
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -254,12 +305,20 @@
 
 /* ─── Nó apertado ───────────────────────────────────────────────────────────
    O piso é 140×100, e nele tudo que não é o visor precisa encolher ou sair. */
+/* O rótulo dos controles sai bem antes do piso do nó: em 230px os cinco ícones
+   de modo mais `Iniciar`/`Fase`/`Zerar` em texto já não cabem lado a lado, e
+   era daí que vinha a sobreposição. */
+@container (max-width: 230px) {
+  .clock-btn-label { display: none; }
+  .clock-btn { padding: 1px 3px; }
+}
+
 @container (max-width: 170px) {
-  .clock-widget { padding: 3px; border-radius: 8px; }
-  .clock-toolbar { gap: 2px; padding: 0; }
-  .clock-mode { padding: 1px; }
+  .clock-widget { padding: 2px; border-radius: 8px; }
+  .clock-toolbar { column-gap: 2px; padding: 0; }
+  .clock-mode { padding: 1px 0; }
   .clock-btn { padding: 1px 2px; }
-  .clock-display { padding: 2px 4px; }
+  .clock-display { padding: 0 2px; }
 }
 
 @container (max-height: 118px) {

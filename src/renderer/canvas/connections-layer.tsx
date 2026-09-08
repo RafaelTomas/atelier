@@ -7,6 +7,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CanvasNode, Connection, Point, UUID } from '@shared/types'
+import { clockWillFire, readClockConfig } from '@shared/clock'
 import { IconScissors } from '../icons'
 import { store, useStore } from '../state/store'
 import { RopeSimulation, ropePath } from './rope'
@@ -27,7 +28,25 @@ function ropeTitle(conn: Connection, nodes: CanvasNode[]): string | null {
   const button = nodes.find((n) => n.id === conn.nodeIdB)
   const label =
     button?.content.type === 'widget' ? button.content.value.view.label || 'o botão' : 'o botão'
-  return `ao terminar → ${label}`
+  // O estado entra no texto, e não só na cor: a cor diz que algo mudou, o texto
+  // diz O QUE, e para quem não distingue os dois âmbares é a única leitura.
+  return clockArmed(conn, nodes)
+    ? `ao terminar → ${label}`
+    : `${label} — parado, nada vai disparar`
+}
+
+/**
+ * O relógio deste cabo tem um disparo a caminho?
+ *
+ * O relógio é sempre o lado A, canônico desde o `WorkspaceManager`, então é uma
+ * busca só. `false` para qualquer cabo que não seja de relógio — quem chama já
+ * filtrou, e responder `false` é mais seguro que assumir.
+ */
+function clockArmed(conn: Connection, nodes: CanvasNode[]): boolean {
+  if (conn.kind !== 'clockAction') return false
+  const clock = nodes.find((n) => n.id === conn.nodeIdA)
+  if (clock?.content.type !== 'widget' || clock.content.value.kind !== 'clock') return false
+  return clockWillFire(readClockConfig(clock.content.value.view))
 }
 
 const STATUS_CLASS: Record<string, string> = {
@@ -273,6 +292,11 @@ export function ConnectionsLayer({
         ))}
         {visible.map((conn) => {
           const status = STATUS_CLASS[conn.status] ?? STATUS_CLASS.idle
+          // Lido no RENDER, e não escrito no DOM pelo caminho imperativo: armar
+          // um relógio é gesto semântico, passa pela store e já re-renderiza
+          // esta camada. O tique de segundo do coordenador NÃO passa pela
+          // store, então isto não custa um render por segundo.
+          const armed = clockArmed(conn, nodes)
           return (
             <g key={conn.id}>
               {layers.map((layer, i) => (
@@ -296,7 +320,7 @@ export function ConnectionsLayer({
                     if (list.some((path) => path)) pathsRef.current.set(conn.id, list)
                     else pathsRef.current.delete(conn.id)
                   }}
-                  className={`rope rope-shape-${ropeStyle}${layer.name ? ` rope-layer-${layer.name}` : ''} rope-${status} rope-kind-${conn.kind}`}
+                  className={`rope rope-shape-${ropeStyle}${layer.name ? ` rope-layer-${layer.name}` : ''} rope-${status} rope-kind-${conn.kind}${armed ? ' rope-armed' : ''}`}
                   fill="none"
                 />
               ))}

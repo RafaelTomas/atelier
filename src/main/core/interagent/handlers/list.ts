@@ -15,6 +15,7 @@ import { briefFilePath, terminals } from '../../terminal/terminal-manager'
 import { readBoard } from '../../todo/todo-store'
 import { artisanBanner } from '../artisan-doctrine'
 import { connectedNodes, requireTerminalId, workspaceForTerminal } from './context'
+import { nodeReference } from './references'
 
 /**
  * O cabeçalho do Artesão, quando o chamador é um.
@@ -62,6 +63,7 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
 
   const header = [...artisanHeader(tid), ...briefHint(tid)]
 
+  const ws = workspaceForTerminal(tid)
   const nodes = connectedNodes(tid)
   if (nodes.length === 0) {
     // O cabeçalho vale MAIS aqui, não menos: um Artesão sem ninguém cabeado é
@@ -122,14 +124,22 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
     }
   }
 
+  // Tabelas: as contagens E O CAMINHO DO JSON com as linhas. O caminho é a
+  // entrega — o agente lê as linhas com as ferramentas dele, que é por isso que
+  // `atelier table` não tem verbo de leitura. Sem ele, o agente sabia que
+  // existiam 412 linhas e não tinha como chegar em nenhuma.
   const tables = nodes.filter((n) => n.content.type === 'dataTable')
   if (tables.length > 0) {
     lines.push('', 'Connected tables:')
     for (const node of tables) {
       const t = node.content.type === 'dataTable' ? node.content.value : null
       const dims = t ? `${t.rowCount} rows × ${t.columnCount} cols` : ''
-      lines.push(`  ${nodeDisplayName(node.content)}  ${dims}${t?.truncated ? ' (truncated)' : ''}`)
+      const file = ws ? nodeReference(ws, node) : null
+      lines.push(
+        `  ${nodeDisplayName(node.content)}  ${dims}${t?.truncated ? ' (truncated)' : ''}${file ? `  ${file}` : ''}`
+      )
     }
+    lines.push('  Read the rows from that JSON with your own tools.')
   }
 
   // Quadros de TODO. O que sai aqui é a CONTAGEM POR COLUNA, e não os cartões:
@@ -185,6 +195,81 @@ export async function handleList(_args: string[], terminalId: UUID | null): Prom
       lines.push(`  ${nodeDisplayName(node.content)}  ${count} key${count === 1 ? '' : 's'}${state}`)
     }
     lines.push("  Use 'atelier vault list' for the key names.")
+  }
+
+  // ─── Os que só entregam a REFERÊNCIA ────────────────────────────────────────
+  //
+  // Quatro tipos entram aqui, e os quatro eram INVISÍVEIS neste inventário até
+  // agora: árvore, imagem, painel e título. A forma é a do editor — nome mais o
+  // ponteiro absoluto —, porque é o ponteiro que destrava as ferramentas do
+  // agente. Ver handlers/references.ts para a regra.
+
+  const trees = nodes.filter((n) => n.content.type === 'fileTree')
+  if (trees.length > 0) {
+    lines.push('', 'Connected file trees:')
+    for (const node of trees) {
+      const root = ws ? nodeReference(ws, node) : null
+      lines.push(`  ${nodeDisplayName(node.content)}  ${root ?? '(no folder set)'}`)
+    }
+    lines.push('  Browse and search that folder with your own tools.')
+  }
+
+  const images = nodes.filter((n) => n.content.type === 'image')
+  if (images.length > 0) {
+    lines.push('', 'Connected images:')
+    for (const node of images) {
+      const c = node.content.type === 'image' ? node.content.value : null
+      const dims = c && c.naturalWidth > 0 ? `  ${c.naturalWidth}×${c.naturalHeight}` : ''
+      const file = ws ? nodeReference(ws, node) : null
+      lines.push(`  ${nodeDisplayName(node.content)}${dims}  ${file ?? '(no file yet)'}`)
+    }
+    lines.push('  Open the file to look at it.')
+  }
+
+  // Painéis: UMA linha cada, e nenhum verbo. O agente roda `git`, `df` e `top`
+  // no shell dele muito melhor do que qualquer verbo que caberia aqui — o que
+  // ele não tinha era em QUE repositório e em QUE volume o usuário está olhando.
+  const panels = nodes.filter(
+    (n) =>
+      n.content.type === 'widget' &&
+      (n.content.value.kind === 'git' ||
+        n.content.value.kind === 'monitor' ||
+        n.content.value.kind === 'projects')
+  )
+  if (panels.length > 0) {
+    lines.push('', 'Connected panels:')
+    for (const node of panels) {
+      lines.push(`  ${nodeDisplayName(node.content)}  ${(ws && nodeReference(ws, node)) ?? ''}`)
+    }
+    lines.push('  These are for the eye — act on them with your own shell.')
+  }
+
+  // Botões e relógios: uma linha cada, e nenhum deles aparecia aqui. O escopo é
+  // o CABO, ao contrário de `atelier button list` e `atelier clock list`, que
+  // varrem o canvas — este inventário responde "com o que estou cabeado", e
+  // essa pergunta tem uma resposta só.
+  const gadgets = nodes.filter(
+    (n) =>
+      n.content.type === 'widget' &&
+      (n.content.value.kind === 'button' || n.content.value.kind === 'clock')
+  )
+  if (gadgets.length > 0) {
+    lines.push('', 'Connected buttons and clocks:')
+    for (const node of gadgets) {
+      lines.push(`  ${nodeDisplayName(node.content)}  ${(ws && nodeReference(ws, node)) ?? ''}`)
+    }
+    lines.push("  Configure them with 'atelier button …' and 'atelier clock …'.")
+  }
+
+  const texts = nodes.filter((n) => n.content.type === 'text')
+  if (texts.length > 0) {
+    lines.push('', 'Connected text:')
+    for (const node of texts) {
+      const full = node.content.type === 'text' ? node.content.value.text.trim() : ''
+      // O texto INTEIRO, não o `nodeDisplayName`, que corta em 24 caracteres: um
+      // título de canvas é curto por natureza e é todo ele o contexto.
+      lines.push(`  "${full.replace(/\s+/g, ' ')}"  (${node.id.slice(0, 8)})`)
+    }
   }
 
   return lines.join('\n')

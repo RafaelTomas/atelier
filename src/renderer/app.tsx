@@ -258,9 +258,11 @@ export function App(): JSX.Element {
       {clockDialog && (
         <ClockDialog
           key={clockDialog.nodeId}
+          nodeId={clockDialog.nodeId}
           initial={store.clockConfig(clockDialog.nodeId)}
+          initialTarget={store.clockTarget(clockDialog.nodeId)}
           onCancel={() => store.closeClockDialog()}
-          onSubmit={(config) => void store.saveClock(clockDialog.nodeId, config)}
+          onSubmit={(config, target) => void store.saveClock(clockDialog.nodeId, config, target)}
         />
       )}
 

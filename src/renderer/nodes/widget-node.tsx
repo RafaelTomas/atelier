@@ -154,9 +154,15 @@ export function widgetLabel(content: WidgetContent, projectName?: string): strin
   // distinguem no cabeçalho nem no `atelier list`, e é por esse nome que o
   // agente os endereça.
   if (content.kind === 'todo') return content.view.title || 'Tarefas'
-  // O título do relógio é o rótulo do MODO ativo (Relógio, Cronômetro, Timer,
-  // Pomodoro) — é por ele que o cabeçalho e o `atelier list` o endereçam.
-  if (content.kind === 'clock') return clockModeLabel(readClockConfig(content.view).mode)
+  // O relógio mostra o rótulo que recebeu na criação (`atelier clock create
+  // "Deploy diário"`) e, sem rótulo, o nome do MODO ativo. A ordem tem de ser a
+  // MESMA do `widgetTitle` do main (models/node-content.ts): é por este nome
+  // que o CLI acha o nó, e um cabeçalho que dissesse "Alarme" enquanto o
+  // `atelier clock set "Deploy diário"` responde por outro nome deixaria o
+  // usuário sem saber qual dos dois é o certo.
+  if (content.kind === 'clock') {
+    return content.view.name || clockModeLabel(readClockConfig(content.view).mode)
+  }
   const base = LABELS[content.kind] ?? content.kind
   return content.projectId && projectName ? `${base} · ${projectName}` : base
 }

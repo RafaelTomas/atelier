@@ -66,9 +66,11 @@ export function dialToZoom(dial: number): number {
 /**
  * O zoom na grade de 5 pontos percentuais, preso na faixa permitida.
  *
- * Uma grade só, para os dois gestos: o que o dial mostra e o que a roda produz
- * têm de ser os mesmos valores, senão 100% pelo dial e 100% pela roda seriam
- * dois números diferentes com o mesmo rótulo.
+ * Uma grade só para os gestos com DEGRAU: o que o dial mostra e o que a batida
+ * de roda produz têm de ser os mesmos valores, senão 100% pelo dial e 100% pela
+ * roda seriam dois números diferentes com o mesmo rótulo. A pinça do trackpad
+ * fica de fora — ela é contínua por natureza, e prendê-la à grade é o que a
+ * fazia pular de 5 em 5.
  */
 export function snapZoom(zoom: number): number {
   const emGrade = Math.round(zoom / ZOOM_GRID) * ZOOM_GRID
@@ -88,6 +90,21 @@ const WHEEL_MAX_PIXELS = 140
 const WHEEL_IDLE_MS = 400
 /** `deltaMode: 1` conta LINHAS; esta é a altura suposta de cada uma. */
 const WHEEL_LINE_HEIGHT = 16
+/**
+ * Abaixo desta magnitude o evento não veio de uma roda, e sim de um trackpad.
+ *
+ * Uma batida de roda chega inteira — 100px no Chromium, nunca uma fração e
+ * nunca um punhado de pixels. A pinça do trackpad é o oposto: dezenas de
+ * eventos finos por segundo, muitos deles fracionários.
+ */
+const TRACKPAD_MAX_PIXELS = 40
+/**
+ * Pixels de trackpad que DOBRAM o zoom (ou o cortam pela metade).
+ *
+ * A pinça é contínua e multiplicativa, como o dial: cada pixel de dedo muda o
+ * zoom na mesma proporção, então a pinça responde igual em 30% e em 200%.
+ */
+const TRACKPAD_PIXELS_PER_DOUBLING = 180
 /**
  * Margem de ENTRADA: um nó começa a renderizar quando chega a esta distância da
  * viewport.
@@ -156,6 +173,8 @@ class Viewport {
   /** Pixels de roda ainda não convertidos em degrau — ver zoomByWheel. */
   private wheelPixels = 0
   private wheelAt = 0
+  /** O gesto em curso é uma pinça de trackpad? Ver zoomByWheel. */
+  private wheelPinch = false
 
   panBy(dxScreen: number, dyScreen: number): void {
     this.origin = { x: this.origin.x - dxScreen / this.zoom, y: this.origin.y - dyScreen / this.zoom }
@@ -184,8 +203,8 @@ class Viewport {
   }
 
   /**
-   * Zoom da roda com ⌘/Ctrl, ancorado no cursor: uma batida, um degrau de 5
-   * pontos — a MESMA grade do dial.
+   * Zoom da roda com ⌘/Ctrl, ancorado no cursor — e são DOIS regimes, porque
+   * são dois gestos diferentes.
    *
    * O `deltaY` cru não serve de fator: depende do dispositivo E do
    * `deltaMode`. Uma batida de roda no Chromium chega como 100px, e a
@@ -193,14 +212,16 @@ class Viewport {
    * uma batida tirava 63% do zoom. Já um trackpad manda dezenas de eventos
    * pequenos por segundo, onde o mesmo cálculo mal saía do lugar.
    *
-   * Por isso o delta vira PIXELS e os pixels viram degraus, com o resto
-   * guardado: no mouse cada batida fecha um degrau exato; no trackpad, vários
-   * eventos pequenos se somam até fechar um. Sem esse acúmulo, o trackpad
-   * ficaria mudo — cada evento sozinho não move o suficiente para trocar de
-   * degrau, e o arredondamento devolveria sempre o mesmo valor.
-   *
-   * O resíduo é descartado depois de uma pausa: sobra de um gesto encerrado
+   * Na RODA o delta vira pixels e os pixels viram degraus de 5 pontos, com o
+   * resto guardado: cada batida fecha um degrau exato, na mesma grade do dial.
+   * O resíduo é descartado depois de uma pausa — sobra de um gesto encerrado
    * não pode empurrar o próximo.
+   *
+   * Na PINÇA não há grade nenhuma, e essa é a correção. Somar os eventos
+   * finos do trackpad até fechar um degrau fazia o zoom andar de 5 em 5:
+   * dedos que se movem continuamente e uma imagem que trava e pula, que é o
+   * que se vê como travamento. Aqui cada evento vira fator na hora, e o zoom
+   * acompanha o dedo quadro a quadro.
    */
   zoomByWheel(screenPoint: Point, deltaY: number, deltaMode: number): void {
     const pixels =
@@ -211,15 +232,45 @@ class Viewport {
           : deltaY
 
     const agora = performance.now()
-    if (agora - this.wheelAt > WHEEL_IDLE_MS) this.wheelPixels = 0
+    if (agora - this.wheelAt > WHEEL_IDLE_MS) {
+      this.wheelPixels = 0
+      this.wheelPinch = false
+    }
     this.wheelAt = agora
-    this.wheelPixels += Math.max(-WHEEL_MAX_PIXELS, Math.min(WHEEL_MAX_PIXELS, pixels))
+    if (pixels === 0) return
+
+    // Um único evento fino denuncia o trackpad, e a marca vale até o gesto
+    // acabar: no meio de uma pinça rápida chegam deltas grandes, e sem essa
+    // memória o mesmo gesto trocaria de regime na metade do caminho.
+    if (deltaMode === 0 && (!Number.isInteger(pixels) || Math.abs(pixels) < TRACKPAD_MAX_PIXELS)) {
+      this.wheelPinch = true
+    }
 
     // Para baixo o delta é positivo e o zoom diminui — daí o sinal invertido.
+    const limitado = Math.max(-WHEEL_MAX_PIXELS, Math.min(WHEEL_MAX_PIXELS, pixels))
+    if (this.wheelPinch) {
+      this.zoomAt(screenPoint, Math.pow(2, -limitado / TRACKPAD_PIXELS_PER_DOUBLING))
+      return
+    }
+
+    this.wheelPixels += limitado
     const degraus = Math.trunc(-this.wheelPixels / WHEEL_PIXELS_PER_STEP)
     if (degraus === 0) return
     this.wheelPixels += degraus * WHEEL_PIXELS_PER_STEP
+    this.zoomByGrid(screenPoint, degraus)
+  }
 
+  /**
+   * Um ou mais degraus de 5 pontos na grade do dial, ancorados num ponto.
+   *
+   * Existe separado de `zoomByWheel` para quem já sabe que quer um DEGRAU e não
+   * tem delta nenhum para oferecer — o gesto de dentro de um Portal chega assim,
+   * só com a direção. Antes ele fabricava 100 pixels de roda falsos para cair
+   * aqui, e passou a ser arriscado: uma pinça no canvas deixa o gesto marcado
+   * como trackpad por uma fração de segundo, e o degrau do Portal entraria no
+   * regime contínuo com um delta que não veio de dedo nenhum.
+   */
+  zoomByGrid(screenPoint: Point, degraus: number): void {
     const alvo = snapZoom(this.zoom + degraus * ZOOM_GRID)
     if (alvo === this.zoom) return
     this.zoomAt(screenPoint, alvo / this.zoom)

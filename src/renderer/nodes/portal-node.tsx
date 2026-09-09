@@ -25,9 +25,6 @@ import { store } from '../state/store'
 
 const FREEZE_ZOOM = 0.1
 
-/** Uma batida de roda no Chromium — o que fecha um degrau de zoom. */
-const WHEEL_STEP_PIXELS = 100
-
 /**
  * `allowpopups` PRECISA chegar ao DOM como string.
  *
@@ -122,9 +119,10 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
    * é o main, pelo `zoom-changed` do webContents (core/portal/portal-zoom.ts), e
    * o que chega aqui é só a direção.
    *
-   * O degrau vai como PIXELS DE RODA para reaproveitar `zoomByWheel`: assim o
-   * gesto dentro do portal cai na mesma grade de 5 pontos do resto do canvas,
-   * em vez de ter uma escada própria.
+   * Vira um DEGRAU da grade, e não pixels de roda fabricados: `zoom-changed`
+   * não traz magnitude nenhuma, só a direção, então não há delta para inventar.
+   * O gesto cai na mesma grade de 5 pontos do resto do canvas, em vez de ter uma
+   * escada própria.
    */
   useEffect(() => {
     return window.atelier.portal.onZoomGesture(({ nodeId, direction }) => {
@@ -140,7 +138,7 @@ export function PortalNode({ node, content, workspaceId }: Props): JSX.Element {
         x: r.left + r.width / 2 - h.left,
         y: r.top + r.height / 2 - h.top
       }
-      viewport.zoomByWheel(anchor, direction === 'in' ? -WHEEL_STEP_PIXELS : WHEEL_STEP_PIXELS, 0)
+      viewport.zoomByGrid(anchor, direction === 'in' ? 1 : -1)
     })
   }, [node.id])
 

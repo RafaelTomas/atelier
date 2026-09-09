@@ -1,0 +1,26 @@
+---
+/**
+ * Tecla estilizada, para atalhos de teclado no meio do texto.
+ * Uso: <Atalho>⌘</Atalho><Atalho>0</Atalho>
+ */
+---
+
+<kbd class="atelier-atalho"><slot /></kbd>
+
+<style>
+  .atelier-atalho {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.6em;
+    padding: 2px 7px;
+    font-family: var(--mono);
+    font-size: 0.85em;
+    line-height: 1.5;
+    color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: var(--r-sm);
+  }
+</style>

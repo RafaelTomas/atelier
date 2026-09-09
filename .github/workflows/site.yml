@@ -1,0 +1,60 @@
+name: Site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+  workflow_dispatch:
+  # Disparado pelo job `release` de release.yml quando uma tag publica: a página
+  # de download resolve os assets em tempo de build, então toda release nova
+  # exige rebuild do site — ver docs/2026-09-09-PLANO-site-de-docs.md §6.
+  repository_dispatch:
+    types: [release-published]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Só um deploy de Pages por vez; o próximo espera o atual terminar em vez de cancelá-lo,
+# porque um deploy interrompido no meio pode deixar o Pages servindo um estado incompleto
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          # site/ é um workspace isolado do Electron da raiz (que tem node-pty,
+          # módulo nativo): o cache e o `npm ci` abaixo só olham para o lockfile daqui
+          cache-dependency-path: site/package-lock.json
+
+      - name: Instalar dependências do site
+        working-directory: site
+        run: npm ci
+
+      - name: Build do site
+        working-directory: site
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

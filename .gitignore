@@ -4,6 +4,6 @@ dist/
 .vite/
 *.tsbuildinfo
 .DS_Store
-docs/
+/docs/
 .docker-home/
 .claude/

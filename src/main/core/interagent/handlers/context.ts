@@ -48,3 +48,31 @@ export function findConnectedNode(
 export function requireTerminalId(terminalId: UUID | null): UUID | null {
   return terminalId && terminalId.length > 0 ? terminalId : null
 }
+
+/**
+ * Quem um comando de LAYOUT pode endereçar por nome: o próprio terminal, o que
+ * está cabeado nele, e qualquer nó pelo prefixo do id.
+ *
+ * Mais largo que `findConnectedNode` de propósito — posicionar contra um
+ * vizinho não é ler o conteúdo dele. O nó de texto e o botão pendente só saem
+ * pelo id, e é por isso que o fallback varre o canvas inteiro: o nome deles ou
+ * é truncado ou não existe.
+ *
+ * Vivia em handlers/node.ts, e saiu de lá quando `--under` levou a mesma
+ * resolução para todo verbo que cria nó.
+ */
+export function resolveLayoutTarget(
+  ws: NonNullable<ReturnType<typeof workspaceForTerminal>>,
+  caller: CanvasNode,
+  tid: UUID,
+  name: string
+): CanvasNode | null {
+  const needle = name.toLowerCase().trim()
+  const reachable = [caller, ...connectedNodes(tid)]
+
+  const exact = reachable.find((n) => nodeDisplayName(n.content).toLowerCase() === needle)
+  if (exact) return exact
+  const partial = reachable.find((n) => nodeDisplayName(n.content).toLowerCase().includes(needle))
+  if (partial) return partial
+  return ws.nodes.find((n) => n.id.toLowerCase().startsWith(needle.slice(0, 8))) ?? null
+}

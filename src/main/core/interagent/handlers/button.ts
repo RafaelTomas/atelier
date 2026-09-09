@@ -32,8 +32,9 @@ import { resolvePresetModel } from './recruit'
 import { Constants } from '../../constants'
 import { makeWidgetContent, nodeDisplayName } from '../../models/node-content'
 import { makeCanvasNode } from '../../models/workspace'
+import { resolveFrame, takePlacementFlags } from '../../spawn-spot'
 import { notifyRenderer } from '../../../ipc/notify'
-import { requireTerminalId, workspaceForTerminal } from './context'
+import { requireTerminalId, workspaceForTerminal, resolveLayoutTarget } from './context'
 
 const USAGE = 'error: usage: atelier button <propose|edit|list|remove> …'
 
@@ -114,7 +115,8 @@ function findTerminal(tid: UUID, name: string): CanvasNode | null {
 }
 
 function proposeButton(argv: string[], tid: UUID): string {
-  const { rest, flags } = takeFlags(argv)
+  const { rest: semPos, placement } = takePlacementFlags(argv)
+  const { rest, flags } = takeFlags(semPos)
   const label = rest[2]
   if (!label) return PROPOSE_USAGE
 
@@ -194,13 +196,16 @@ function proposeButton(argv: string[], tid: UUID): string {
     proposedBy: nodeDisplayName(caller.content)
   }
 
+  const size = { width: Constants.buttonDefaultWidth, height: Constants.buttonDefaultHeight }
+  const lugar = resolveFrame(ws, caller, size, placement, {
+    find: (nome) => resolveLayoutTarget(ws, caller, tid, nome),
+    displayName: (n) => nodeDisplayName(n.content),
+    floor: [Constants.buttonMinWidth, Constants.buttonMinHeight]
+  })
+  if ('error' in lugar) return lugar.error
+
   const node = makeCanvasNode(
-    {
-      x: caller.frame.x + caller.frame.width + 60,
-      y: caller.frame.y,
-      width: Constants.buttonDefaultWidth,
-      height: Constants.buttonDefaultHeight
-    },
+    lugar.frame,
     { type: 'widget', value: makeWidgetContent('button', null, writeButtonConfig(config)) }
   )
 

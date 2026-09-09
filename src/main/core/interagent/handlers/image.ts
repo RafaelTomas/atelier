@@ -15,10 +15,11 @@ import type { UUID } from '@shared/types'
 import { isSupportedImageName, mimeForImageName, pngDimensions } from '@shared/image'
 import { Constants } from '../../constants'
 import { makeCanvasNode } from '../../models/workspace'
-import { makeImageContent } from '../../models/node-content'
+import { resolveFrame, takePlacementFlags } from '../../spawn-spot'
+import { makeImageContent, nodeDisplayName } from '../../models/node-content'
 import { persistence } from '../../persistence/persistence-manager'
 import { notifyRenderer } from '../../../ipc/notify'
-import { connectedNodes, requireTerminalId, workspaceForTerminal } from './context'
+import { connectedNodes, requireTerminalId, workspaceForTerminal, resolveLayoutTarget } from './context'
 
 const USAGE = 'error: usage: atelier image <create|list> …'
 
@@ -47,11 +48,12 @@ function takeFlags(args: string[]): { rest: string[]; alt: string | null } {
 }
 
 async function createImage(argv: string[], tid: UUID): Promise<string> {
-  const { rest, alt } = takeFlags(argv)
+  const { rest: semPos, placement } = takePlacementFlags(argv)
+  const { rest, alt } = takeFlags(semPos)
   const title = rest[2]
   const path = rest[3]
   if (!title || !path) {
-    return 'error: usage: atelier image create "Title" <path> [--alt "description"]'
+    return 'error: usage: atelier image create "Title" <path> [--alt "description"] [--at x,y]'
   }
   if (!isAbsolute(path)) {
     return 'error: use an absolute path to the image file'
@@ -90,10 +92,14 @@ async function createImage(argv: string[], tid: UUID): Promise<string> {
   const width = Constants.imageDefaultWidth
   const height = Math.round(width * aspect) + 24
 
-  const node = makeCanvasNode(
-    { x: caller.frame.x + caller.frame.width + 60, y: caller.frame.y, width, height },
-    { type: 'image', value: content }
-  )
+  const lugar = resolveFrame(ws, caller, { width, height }, placement, {
+    find: (nome) => resolveLayoutTarget(ws, caller, tid, nome),
+    displayName: (n) => nodeDisplayName(n.content),
+    floor: [Constants.imageMinWidth, Constants.imageMinHeight]
+  })
+  if ('error' in lugar) return lugar.error
+
+  const node = makeCanvasNode(lugar.frame, { type: 'image', value: content })
 
   ws.addNode(node)
   ws.addConnection(tid, node.id)

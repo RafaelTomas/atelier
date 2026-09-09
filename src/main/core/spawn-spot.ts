@@ -18,6 +18,7 @@
  * correto e inútil para quem está olhando.
  */
 import type { CanvasNode, Rect } from '@shared/types'
+import { dockedFrame, type DockSide } from '@shared/dock'
 import type { WorkspaceManager } from './state/workspace-manager'
 
 /** Folga entre o pai e o filho. */
@@ -127,4 +128,151 @@ export function nodeAt(ws: WorkspaceManager, at: Point, size: Size): CanvasNode 
       collides([n.frame], at, size)
     ) ?? null
   )
+}
+
+/**
+ * `--at x,y` para QUALQUER verbo que cria nó.
+ *
+ * Vivia dentro de handlers/node.ts, onde `node create` era o único caminho que
+ * aceitava posição. O resto dos verbos — nota, tabela, imagem, quadro, cofre,
+ * portal, editor, botão, recruit — nascia sempre ao lado do chamador, e um
+ * agente montando um canvas tinha que criar e depois mover, um por um. Pior:
+ * quatro deles (tabela, imagem, quadro, botão) calculavam o ponto na mão, como
+ * `caller.x + width + 60`, sem passar por `firstFreeSpot` — então dois nós
+ * seguidos nasciam NO MESMO lugar, um invisível debaixo do outro. Este módulo
+ * é o único lugar onde essa decisão mora agora.
+ */
+export type AtFlag = Point | 'invalid' | null
+
+/** `--under`, `--above`, `--left-of`, `--right-of` — o nome do vizinho e o lado. */
+export interface DockFlag {
+  side: DockSide
+  name: string
+}
+
+export interface Placement {
+  at: AtFlag
+  dock: DockFlag | null
+}
+
+const DOCK_FLAGS: Record<string, DockSide> = {
+  '--under': 'bottom',
+  '--above': 'top',
+  '--left-of': 'left',
+  '--right-of': 'right'
+}
+
+/**
+ * Tira `--at x,y` e os quatro de encaixe dos argumentos, devolvendo o resto
+ * intacto — os handlers continuam lendo os posicionais como sempre.
+ */
+export function takePlacementFlags(args: string[]): { rest: string[]; placement: Placement } {
+  const rest: string[] = []
+  let at: AtFlag = null
+  let dock: DockFlag | null = null
+  for (let i = 0; i < args.length; i++) {
+    const side = DOCK_FLAGS[args[i]]
+    if (args[i] === '--at') {
+      const raw = args[++i] ?? ''
+      const parts = raw.split(',').map((p) => Number(p.trim()))
+      at = parts.length === 2 && parts.every(Number.isFinite) ? { x: parts[0], y: parts[1] } : 'invalid'
+    } else if (side) {
+      dock = { side, name: args[++i] ?? '' }
+    } else rest.push(args[i])
+  }
+  return { rest, placement: { at, dock } }
+}
+
+/** Compatibilidade: quem só quer o `--at`. */
+export function takeAtFlag(args: string[]): { rest: string[]; at: AtFlag } {
+  const { rest, placement } = takePlacementFlags(args)
+  return { rest, at: placement.at }
+}
+
+export interface PlacementContext {
+  /** Resolve o vizinho pelo nome, com a mesma busca do resto do handler. */
+  find: (name: string) => CanvasNode | null
+  displayName: (node: CanvasNode) => string
+  /** Piso do TIPO do nó que está nascendo — ver core/node-sizes. */
+  floor?: [number, number]
+}
+
+/**
+ * O retângulo onde o nó novo vai nascer, ou a recusa a imprimir.
+ *
+ * Três caminhos, e a ordem é a da intenção mais explícita para a mais frouxa:
+ *
+ *   `--under "Nó"`  encaixa no vizinho: mesma LARGURA dele, a folga do arrasto,
+ *                   alinhado pela borda esquerda. É o gesto do canvas escrito
+ *                   como comando — e é o que faz a nota explicativa de um nó
+ *                   nascer com a cara de legenda dele, em vez de um retângulo
+ *                   de 260 solto embaixo de um terminal de 560.
+ *   `--at x,y`      cai exatamente ali, e RECUSA se estiver ocupado.
+ *   nada            primeiro vão livre ao lado de quem chamou.
+ *
+ * As duas recusas dizem QUEM está no caminho: "ocupado" sem nome obriga o
+ * agente a adivinhar, e adivinhar no canvas do usuário é como se empilha.
+ */
+export function resolveFrame(
+  ws: WorkspaceManager,
+  origin: CanvasNode,
+  size: Size,
+  placement: Placement,
+  ctx: PlacementContext
+): { frame: Rect } | { error: string } {
+  const { at, dock } = placement
+
+  if (at && dock) {
+    return { error: 'error: --at and --under/--above/--left-of/--right-of are two ways to say where. Pick one.' }
+  }
+
+  if (dock) {
+    if (!dock.name) return { error: 'error: --under takes the name of the node to dock against.' }
+    const alvo = ctx.find(dock.name)
+    if (!alvo) {
+      return {
+        error: `error: '${dock.name}' not found. Name reaches what is cabled to you; anything else needs the 8-char id.`
+      }
+    }
+    const frame = dockedFrame({ x: 0, y: 0, ...size }, alvo.frame, dock.side, ctx.floor ?? [0, 0])
+    const ocupado = nodeAt(ws, frame, frame)
+    if (ocupado && ocupado.id !== alvo.id) return { error: ocupadoMsg(ocupado, frame, ctx.displayName) }
+    return { frame }
+  }
+
+  if (at === 'invalid') {
+    return { error: 'error: --at takes two numbers, as in `--at 12400,8900`.' }
+  }
+  if (at) {
+    const ocupado = nodeAt(ws, at, size)
+    if (ocupado) return { error: ocupadoMsg(ocupado, { ...at, ...size }, ctx.displayName) }
+    return { frame: { ...at, ...size } }
+  }
+  return { frame: { ...freeSpotRightOf(ws, origin, size), ...size } }
+}
+
+function ocupadoMsg(
+  ocupado: CanvasNode,
+  pedido: Rect,
+  displayName: (node: CanvasNode) => string
+): string {
+  return [
+    `error: (${Math.round(pedido.x)},${Math.round(pedido.y)}) is taken by '${displayName(ocupado)}'`,
+    `(${ocupado.content.type}, ${ocupado.id.slice(0, 8)}) at`,
+    `(${ocupado.frame.x},${ocupado.frame.y}) ${ocupado.frame.width}×${ocupado.frame.height}.`,
+    'Run `atelier node map` for what is where, or drop the placement flag to let',
+    'the canvas find a free spot next to this terminal.'
+  ].join(' ')
+}
+
+/** Compatibilidade com quem ainda só posiciona por `--at`. */
+export function resolveSpot(
+  ws: WorkspaceManager,
+  origin: CanvasNode,
+  size: Size,
+  at: AtFlag,
+  displayName: (node: CanvasNode) => string
+): { spot: Point } | { error: string } {
+  const r = resolveFrame(ws, origin, size, { at, dock: null }, { find: () => null, displayName })
+  return 'error' in r ? r : { spot: { x: r.frame.x, y: r.frame.y } }
 }

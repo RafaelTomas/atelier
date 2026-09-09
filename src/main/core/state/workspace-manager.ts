@@ -17,6 +17,7 @@ import type {
 import { clockFireBlock, connectionKindForTypes, readButtonConfig } from '@shared/types'
 import type { RemovedNodeSnapshot } from '@shared/node-undo'
 import { restoreRemoval } from '@shared/node-undo'
+import { groupAt } from '@shared/group-geometry'
 import { nowISO } from '../coding'
 import { Constants } from '../constants'
 import { makeConnection, makeNodeGroup } from '../models/workspace'
@@ -101,10 +102,28 @@ export class WorkspaceManager {
     return this.payload.nodes.find((n) => n.id === id)
   }
 
+  /**
+   * Entra no canvas — e na moldura em que caiu, se caiu dentro de uma.
+   *
+   * A adoção pela geometria só existia no ARRASTO (`node move` e o gesto do
+   * usuário): um nó que entrava no retângulo virava membro. Enquanto os verbos
+   * do CLI não sabiam posicionar, isso bastava — nó novo nascia sempre ao lado
+   * de quem pediu, nunca dentro de moldura nenhuma. Com `--at` em todo verbo
+   * que cria nó, criar direto DENTRO da moldura virou o caminho normal: um
+   * agente monta a família dele na moldura que recebeu, e os nós ficavam
+   * geometricamente dentro e logicamente fora — a moldura mostrava menos
+   * membros do que se via nela, e o `node group` do fim tinha que repetir a
+   * lista inteira à mão.
+   *
+   * A regra é a mesma do arrasto, e é de propósito: quem decide é o retângulo,
+   * não o verbo. Ver `groupAt` em shared/group-geometry.
+   */
   addNode(node: CanvasNode): void {
     const maxZ = this.payload.nodes.reduce((m, n) => Math.max(m, n.zIndex), 0)
     node.zIndex = maxZ + 1
     this.payload.nodes.push(node)
+    const moldura = groupAt(this.payload.groups, node.frame)
+    if (moldura) this.setNodeGroup(node.id, moldura.id)
     this.markDirty()
   }
 

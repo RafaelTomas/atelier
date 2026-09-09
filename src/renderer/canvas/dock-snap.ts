@@ -19,6 +19,12 @@
  * test-dock-snap.mjs` verificar os empates e os pisos sem um mouse.
  */
 import type { Rect, UUID } from '@shared/types'
+import { DOCK_GAP, dockedFrame, type DockSide } from '@shared/dock'
+
+// Reexportados: `canvas-view` e o teste importam daqui desde antes de a
+// geometria mudar de casa, e o caminho do arrasto continua sendo este arquivo.
+export { DOCK_GAP, dockedFrame }
+export type { DockSide }
 
 /**
  * Raio da zona de atração, em pixels de TELA.
@@ -32,15 +38,6 @@ import type { Rect, UUID } from '@shared/types'
  */
 export const SNAP_RANGE = 44
 
-/**
- * Respiro entre os dois encaixados, em pontos de canvas.
- *
- * Colado de verdade (0) faz as duas bordas virarem uma linha grossa só, e o par
- * lê como um nó rachado no meio. Começou em 12 e subiu para 28 no uso: 12 era o
- * bastante para separar as bordas, mas não para os dois pararem de disputar a
- * mesma faixa de pixels — o par ficava apertado em vez de arrumado.
- */
-export const DOCK_GAP = 28
 
 /**
  * Quanto os dois precisam se cruzar no eixo PERPENDICULAR para o encaixe valer,
@@ -76,7 +73,6 @@ const MAX_COVERAGE = 0.8
  */
 const HYSTERESIS = 0.75
 
-export type DockSide = 'left' | 'right' | 'top' | 'bottom'
 
 /** Um vizinho parado. `z` é o `zIndex` do nó: entre dois empilhados, encaixa-se
  * no de CIMA, que é o que o usuário está vendo. */
@@ -204,23 +200,6 @@ export function dockSnapFor(
   }
 
   return best.snap
-}
-
-/** O frame final: iguala o eixo do encaixe, preserva o outro, cola no lado. */
-function dockedFrame(source: Rect, target: Rect, side: DockSide, floor: [number, number]): Rect {
-  if (side === 'left' || side === 'right') {
-    // O piso do TIPO vence o tamanho do vizinho: um terminal não encolhe até a
-    // altura de um botão só porque encostou nele. O fantasma mostra o tamanho
-    // REAL que o nó vai ter, inclusive quando o piso segura.
-    const height = Math.max(target.height, floor[1])
-    const width = Math.max(source.width, floor[0])
-    const x = side === 'right' ? target.x + target.width + DOCK_GAP : target.x - width - DOCK_GAP
-    return { x, y: target.y, width, height }
-  }
-  const width = Math.max(target.width, floor[0])
-  const height = Math.max(source.height, floor[1])
-  const y = side === 'bottom' ? target.y + target.height + DOCK_GAP : target.y - height - DOCK_GAP
-  return { x: target.x, y, width, height }
 }
 
 /**

@@ -31,8 +31,9 @@ import type {
 import { PLAN_STEP_STATUSES } from '@shared/types'
 import { originSummary, planSnapshot, stepStatus } from '@shared/task-status'
 import { Constants } from '../../constants'
-import { makeWidgetContent } from '../../models/node-content'
+import { makeWidgetContent, nodeDisplayName } from '../../models/node-content'
 import { makeCanvasNode } from '../../models/workspace'
+import { resolveFrame, takePlacementFlags } from '../../spawn-spot'
 import { paths } from '../../persistence/paths'
 import { apply, create, read } from '../../todo/todo-store'
 import {
@@ -42,7 +43,7 @@ import {
   read as readPlans
 } from '../../todo/plan-store'
 import { notifyRenderer } from '../../../ipc/notify'
-import { connectedNodes, requireTerminalId, workspaceForTerminal } from './context'
+import { connectedNodes, requireTerminalId, workspaceForTerminal, resolveLayoutTarget } from './context'
 
 const USAGE = 'error: usage: atelier todo <list|add|move|done|show|create|plan|step> …'
 
@@ -570,9 +571,10 @@ function planReport(book: PlanBook, planId: string): string {
  * do `table create` e do `portal open`.
  */
 async function createBoard(argv: string[], tid: UUID): Promise<string> {
-  const { rest } = takeFlags(argv)
+  const { rest: semPos, placement } = takePlacementFlags(argv)
+  const { rest } = takeFlags(semPos)
   const title = rest[2]
-  if (!title) return 'error: usage: atelier todo create "Title" [column…]'
+  if (!title) return 'error: usage: atelier todo create "Title" [column…] [--at x,y]'
 
   const ws = workspaceForTerminal(tid)
   if (!ws) return 'error: no active workspace'
@@ -591,15 +593,15 @@ async function createBoard(argv: string[], tid: UUID): Promise<string> {
   const fileName = `${crypto.randomUUID()}`
   const content = makeWidgetContent('todo', null, { title, file: fileName, mode: 'kanban' })
 
-  const node = makeCanvasNode(
-    {
-      x: caller.frame.x + caller.frame.width + 60,
-      y: caller.frame.y,
-      width: Constants.todoDefaultWidth,
-      height: Constants.todoDefaultHeight
-    },
-    { type: 'widget', value: content }
-  )
+  const size = { width: Constants.todoDefaultWidth, height: Constants.todoDefaultHeight }
+  const lugar = resolveFrame(ws, caller, size, placement, {
+    find: (nome) => resolveLayoutTarget(ws, caller, tid, nome),
+    displayName: (n) => nodeDisplayName(n.content),
+    floor: [Constants.widgetMinWidth, Constants.widgetMinHeight]
+  })
+  if ('error' in lugar) return lugar.error
+
+  const node = makeCanvasNode(lugar.frame, { type: 'widget', value: content })
 
   await create(paths.todoFile(ws.id, fileName), title, columns)
   ws.addNode(node)

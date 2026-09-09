@@ -9,11 +9,11 @@
 import type { CanvasNode, PortalContent, UUID } from '@shared/types'
 import { portalPartition } from '@shared/types'
 import { notifyRenderer } from '../../ipc/notify'
-import { makePortalContent } from '../models/node-content'
+import { makePortalContent, nodeDisplayName } from '../models/node-content'
 import { makeCanvasNode } from '../models/workspace'
 import { appState } from '../state/app-state'
 import type { WorkspaceManager } from '../state/workspace-manager'
-import { freeSpotRightOf } from '../spawn-spot'
+import { resolveSpot, type AtFlag } from '../spawn-spot'
 
 const PORTAL_SIZE = { width: 640, height: 440 }
 
@@ -35,10 +35,21 @@ interface SpawnOptions {
    * ver Decisão B do 2026-08-26-PLANO-portal.md.
    */
   partition?: string
+  /**
+   * `--at x,y` do `atelier portal open`. O popup e o bridge não passam nada e
+   * seguem nascendo ao lado da origem — quem desenha layout é o agente.
+   */
+  at?: AtFlag
 }
 
-/** Devolve o nó criado, ou null se a origem não estiver em workspace nenhum. */
-export function spawnPortal(opts: SpawnOptions): { node: CanvasNode; workspaceId: UUID } | null {
+/**
+ * Devolve o nó criado, `null` se a origem não estiver em workspace nenhum, ou
+ * `{ error }` quando o `--at` pedido está ocupado — a recusa precisa chegar ao
+ * agente com o nome de quem está lá, e não virar um portal em cima de outro nó.
+ */
+export function spawnPortal(
+  opts: SpawnOptions
+): { node: CanvasNode; workspaceId: UUID } | { error: string } | null {
   const ws = workspaceForNode(opts.originId)
   if (!ws) return null
   const origin = ws.node(opts.originId)
@@ -47,8 +58,9 @@ export function spawnPortal(opts: SpawnOptions): { node: CanvasNode; workspaceId
   const content: PortalContent = makePortalContent(opts.name ?? 'Portal', opts.url)
   if (opts.partition) content.storageScope = opts.partition
 
-  const spot = freeSpotRightOf(ws, origin, PORTAL_SIZE)
-  const node = makeCanvasNode({ ...spot, ...PORTAL_SIZE }, { type: 'portal', value: content })
+  const lugar = resolveSpot(ws, origin, PORTAL_SIZE, opts.at ?? null, (n) => nodeDisplayName(n.content))
+  if ('error' in lugar) return { error: lugar.error }
+  const node = makeCanvasNode({ ...lugar.spot, ...PORTAL_SIZE }, { type: 'portal', value: content })
 
   ws.addNode(node)
   // Portal→portal e terminal→portal já são tipos de conexão conhecidos; o cabo

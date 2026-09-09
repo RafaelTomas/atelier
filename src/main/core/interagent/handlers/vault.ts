@@ -30,12 +30,12 @@ import {
   getSecret,
   listKeys
 } from '../../vault/vault-manager'
-import { makeSecretVaultContent } from '../../models/node-content'
+import { makeSecretVaultContent, nodeDisplayName } from '../../models/node-content'
 import { makeCanvasNode } from '../../models/workspace'
-import { defaultSize } from '../../node-sizes'
-import { freeSpotRightOf } from '../../spawn-spot'
+import { defaultSize, minSize } from '../../node-sizes'
+import { resolveFrame, takePlacementFlags } from '../../spawn-spot'
 import { notifyRenderer } from '../../../ipc/notify'
-import { requireTerminalId, workspaceForTerminal } from './context'
+import { requireTerminalId, workspaceForTerminal, resolveLayoutTarget } from './context'
 
 const USAGE =
   'error: usage: atelier vault <list|get|set|env|create> …\n' +
@@ -218,9 +218,10 @@ async function keysOfNamed(tid: UUID, name: string): Promise<string[] | string> 
  * dos outros verbos resolve pelo id quando o nome é ambíguo. O que a resposta
  * faz é AVISAR, para o agente não achar que criou um segundo por engano.
  */
-function createVault(args: string[], tid: UUID): string {
+function createVault(argv: string[], tid: UUID): string {
+  const { rest: args, placement } = takePlacementFlags(argv)
   const name = args.slice(2).join(' ').trim()
-  if (!name) return 'error: usage: atelier vault create "Name"'
+  if (!name) return 'error: usage: atelier vault create "Name" [--at x,y]'
 
   const ws = workspaceForTerminal(tid)
   if (!ws) return 'error: no active workspace'
@@ -229,7 +230,13 @@ function createVault(args: string[], tid: UUID): string {
 
   const content = makeSecretVaultContent(name)
   const size = defaultSize('secretVault')
-  const node = makeCanvasNode({ ...freeSpotRightOf(ws, caller, size), ...size }, {
+  const lugar = resolveFrame(ws, caller, size, placement, {
+    find: (nome) => resolveLayoutTarget(ws, caller, tid, nome),
+    displayName: (n) => nodeDisplayName(n.content),
+    floor: [minSize('secretVault').width, minSize('secretVault').height]
+  })
+  if ('error' in lugar) return lugar.error
+  const node = makeCanvasNode(lugar.frame, {
     type: 'secretVault',
     value: content
   })

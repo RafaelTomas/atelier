@@ -20,7 +20,7 @@ import type { CanvasNode, Rect, UUID } from '@shared/types'
 import { boundsForNodes, groupAt } from '@shared/group-geometry'
 import { canvasShot } from '../../canvas-shot'
 import { isConnectable } from '@shared/types'
-import { defaultSize } from '../../node-sizes'
+import { defaultSize, minSize } from '../../node-sizes'
 import {
   makeFileTreeContent,
   makeTextContent,
@@ -30,19 +30,20 @@ import {
 import { makeCanvasNode } from '../../models/workspace'
 import { allowedRoots } from '../../projects/allowed-roots'
 import { resolveAllowedPath } from '../../projects/fs-access'
-import { freeSpotRightOf, nodeAt } from '../../spawn-spot'
+import { resolveFrame, takePlacementFlags, type Placement } from '../../spawn-spot'
 import { notifyRenderer } from '../../../ipc/notify'
-import { connectedNodes, requireTerminalId, workspaceForTerminal } from './context'
+import { connectedNodes, resolveLayoutTarget, requireTerminalId, workspaceForTerminal } from './context'
 
 const USAGE = [
   'error: usage:',
   '  atelier node map',
   '  atelier node move "Node" x,y',
   '  atelier node shot [destination.png]',
-  '  atelier node create text "content" [--at x,y]',
+  '  atelier node create text "content" [--color "#E6E6E6"] [--at x,y]',
   '  atelier node create fileTree <absolute path> [--name "Label"] [--at x,y]',
   '  atelier node create widget <projects|git|monitor> [--at x,y]',
-  '  atelier node group "Title" "Node" ["Node"…] [--color "#0A84FF"]'
+  '  atelier node group "Title" "Node" ["Node"…] [--color "#0A84FF"]',
+  '  atelier node ungroup "Title"          empty, or holding only your own nodes'
 ].join('\n')
 
 /**
@@ -103,6 +104,8 @@ export async function handleNode(args: string[], terminalId: UUID | null): Promi
       return moveNode(args, tid)
     case 'group':
       return createGroup(args, tid)
+    case 'ungroup':
+      return removeEmptyGroup(args, tid)
     default:
       return USAGE
   }
@@ -112,36 +115,38 @@ interface Flags {
   rest: string[]
   name: string | null
   color: string | null
-  /** `--at x,y`. `invalid` distingue "não passou" de "passou torto". */
-  at: { x: number; y: number } | 'invalid' | null
+  placement: Placement
 }
 
-/** `--name`, `--color` e `--at`, tirados dos argumentos posicionais. */
-function takeFlags(args: string[]): Flags {
-  const rest: string[] = []
-  let name: string | null = null
-  let color: string | null = null
-  let at: Flags['at'] = null
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--name') name = args[++i] ?? ''
-    else if (args[i] === '--color') color = args[++i] ?? ''
-    else if (args[i] === '--at') at = parsePoint(args[++i] ?? '')
-    else rest.push(args[i])
-  }
-  return { rest, name, color, at }
-}
-
+/**
+ * `--name` e `--color` daqui; a POSIÇÃO (`--at` e os quatro de encaixe) sai no
+ * parser compartilhado, para `node create` e o resto dos verbos lerem as mesmas
+ * flags com a mesma gramática.
+ */
 function parsePoint(raw: string): { x: number; y: number } | 'invalid' {
   const parts = raw.split(',').map((p) => Number(p.trim()))
   if (parts.length !== 2 || !parts.every(Number.isFinite)) return 'invalid'
   return { x: parts[0], y: parts[1] }
 }
 
+function takeFlags(args: string[]): Flags {
+  const { rest: semPos, placement } = takePlacementFlags(args)
+  const rest: string[] = []
+  let name: string | null = null
+  let color: string | null = null
+  for (let i = 0; i < semPos.length; i++) {
+    if (semPos[i] === '--name') name = semPos[++i] ?? ''
+    else if (semPos[i] === '--color') color = semPos[++i] ?? ''
+    else rest.push(semPos[i])
+  }
+  return { rest, name, color, placement }
+}
+
+
 async function createNode(argv: string[], tid: UUID): Promise<string> {
-  const { rest, name, at } = takeFlags(argv)
+  const { rest, name, color, placement } = takeFlags(argv)
   const type = rest[2]
   if (!type) return USAGE
-  if (at === 'invalid') return 'error: --at takes two numbers, as in `--at 12400,8900`.'
 
   const owner = OWNED_ELSEWHERE[type]
   if (owner) {
@@ -154,19 +159,31 @@ async function createNode(argv: string[], tid: UUID): Promise<string> {
   if (!caller) return 'error: calling terminal is not on this canvas'
 
   switch (type) {
-    case 'text':
-      return spawn(ws, caller, tid, 'text', makeTextNode(rest[3] ?? ''), {}, at)
+    case 'text': {
+      if (color && !/^#[0-9a-fA-F]{6}$/.test(color)) {
+        return 'error: --color takes a six-digit hex, as in `--color "#E6E6E6"`.'
+      }
+      return spawn(ws, caller, tid, 'text', makeTextNode(rest[3] ?? '', color), {}, placement)
+    }
     case 'fileTree':
-      return createFileTree(ws, caller, tid, rest[3], name, at)
+      return createFileTree(ws, caller, tid, rest[3], name, placement)
     case 'widget':
-      return createWidget(ws, caller, tid, rest[3], at)
+      return createWidget(ws, caller, tid, rest[3], placement)
     default:
       return `error: unknown node type '${type}'.\n${USAGE}`
   }
 }
 
-function makeTextNode(text: string): CanvasNode['content'] {
-  return { type: 'text', value: makeTextContent(text) }
+/**
+ * O padrão de `makeTextContent` é `#1a1a1a`, quase preto: num canvas em tema
+ * escuro o rótulo nasce INVISÍVEL, e o agente não tem como perceber — ele não
+ * vê o canvas. Por isso `--color` existe aqui e não no resto: os outros nós têm
+ * chrome próprio que acompanha o tema, o texto é só texto. O valor segue sendo
+ * um hex de seis dígitos, que é o que o decoder do app Swift lê sem caso novo.
+ */
+function makeTextNode(text: string, color: string | null): CanvasNode['content'] {
+  const value = makeTextContent(text)
+  return { type: 'text', value: color ? { ...value, color } : value }
 }
 
 async function createFileTree(
@@ -175,7 +192,7 @@ async function createFileTree(
   tid: UUID,
   raw: string | undefined,
   name: string | null,
-  at: { x: number; y: number } | null
+  placement: Placement
 ): Promise<string> {
   if (!raw) return 'error: usage: atelier node create fileTree <absolute path> [--name "Label"]'
 
@@ -219,7 +236,7 @@ async function createFileTree(
     'fileTree',
     { type: 'fileTree', value: makeFileTreeContent(label, allowed.path) },
     {},
-    at
+    placement
   )
 }
 
@@ -228,7 +245,7 @@ function createWidget(
   caller: CanvasNode,
   tid: UUID,
   kind: string | undefined,
-  at: { x: number; y: number } | null
+  placement: Placement
 ): string {
   if (!kind) {
     return `error: usage: atelier node create widget <${PANEL_KINDS.join('|')}>`
@@ -263,7 +280,7 @@ function createWidget(
     'widget',
     { type: 'widget', value: makeWidgetContent(kind) },
     { kind },
-    at
+    placement
   )
 }
 
@@ -283,31 +300,16 @@ function spawn(
   sizeKind: Parameters<typeof defaultSize>[0],
   content: CanvasNode['content'],
   sizeOpts: Record<string, unknown> = {},
-  at: { x: number; y: number } | null = null
+  placement: Placement = { at: null, dock: null }
 ): string {
   const size = defaultSize(sizeKind, sizeOpts)
-
-  // `--at` coloca exatamente onde foi pedido, e RECUSA se estiver ocupado, em
-  // vez de desviar em silêncio. As duas metades importam: sem a primeira, um
-  // agente não consegue montar um layout desenhado (a faixa central da demo é
-  // um); sem a segunda, `--at` seria a porta que devolve o empilhamento que o
-  // resto deste caminho existe para impedir. Quem quer o desvio automático
-  // simplesmente não passa a flag.
-  if (at) {
-    const ocupado = nodeAt(ws, at, size)
-    if (ocupado) {
-      return [
-        `error: (${at.x},${at.y}) is taken by '${nodeDisplayName(ocupado.content)}'`,
-        `(${ocupado.content.type}, ${ocupado.id.slice(0, 8)}) at`,
-        `(${ocupado.frame.x},${ocupado.frame.y}) ${ocupado.frame.width}×${ocupado.frame.height}.`,
-        'Run `atelier node map` for what is where, or drop --at to let the',
-        'canvas find a free spot next to this terminal.'
-      ].join(' ')
-    }
-  }
-
-  const spot = at ?? freeSpotRightOf(ws, caller, size)
-  const node = makeCanvasNode({ ...spot, ...size }, content)
+  const lugar = resolveFrame(ws, caller, size, placement, {
+    find: (nome) => resolveLayoutTarget(ws, caller, tid, nome),
+    displayName: (n) => nodeDisplayName(n.content),
+    floor: [minSize(sizeKind, sizeOpts).width, minSize(sizeKind, sizeOpts).height]
+  })
+  if ('error' in lugar) return lugar.error
+  const node = makeCanvasNode(lugar.frame, content)
 
   ws.addNode(node)
   const cabled = isConnectable(content) ? ws.addConnection(tid, node.id) !== null : false
@@ -328,6 +330,65 @@ function spawn(
  * usuário agrupa uma seleção. Uma moldura sem membros não teria retângulo a
  * calcular, então a lista vazia é recusa, não um grupo vazio.
  */
+/**
+ * Apagar a MOLDURA VAZIA, e só ela.
+ *
+ * Reorganizar um canvas tira os nós de dentro do retângulo, e uma moldura sem
+ * membros continua desenhada com "0 nós" no cabeçalho. Era entulho que nenhum
+ * verbo alcançava: `group` só cria, e um frame vazio não tem membro por onde
+ * ser arrastado — o canvas de demonstração acumulou quatro deles em uma tarde.
+ *
+ * O corte em "vazia" é a mesma linha de `todo delete` e `vault delete`, que não
+ * existem: quem cria é o agente, quem destrói o trabalho é o usuário. Uma
+ * moldura vazia não é trabalho de ninguém — é rastro do próprio agente, e
+ * limpar o próprio rastro não precisa da mão do usuário. Uma com membros, sim:
+ * ali a recusa nomeia quantos são e manda desagrupar no app.
+ */
+function removeEmptyGroup(argv: string[], tid: UUID): string {
+  const title = argv.slice(2).join(' ').trim()
+  if (!title) return 'error: usage: atelier node ungroup "Title"'
+
+  const ws = workspaceForTerminal(tid)
+  if (!ws) return 'error: no active workspace'
+
+  const alvos = ws.groups.filter((g) => g.title === title)
+  if (alvos.length === 0) {
+    const nomes = ws.groups.map((g) => `'${g.title}'`).join(', ') || '(none)'
+    return `error: no frame titled '${title}'. On this canvas: ${nomes}.`
+  }
+  if (alvos.length > 1) {
+    return `error: ${alvos.length} frames are titled '${title}'. Rename one in the app first.`
+  }
+
+  // Vazia é entulho; cheia é trabalho — de quem? A primeira versão parava em
+  // "tem membros, recusa", e recusou o caso que o próprio uso produziu: um
+  // agente que agrupou cedo demais, viu que faltava um nó e quis refazer a
+  // moldura que tinha criado meio minuto antes. Trabalho dele, não do usuário.
+  //
+  // O teste de dono é o mesmo do `dismiss`: só desfaz quem é SEU. Um membro que
+  // não está cabeado neste terminal basta para a moldura deixar de ser sua — e
+  // aí a recusa nomeia esse membro, que é a informação que falta para entender
+  // por que o comando não passou.
+  const alvo = alvos[0]
+  const membros = ws.nodes.filter((n) => alvo.nodeIds.includes(n.id))
+  const meus = new Set(ws.connectedNodeIds(tid))
+  const alheio = membros.find((n) => n.id !== tid && !meus.has(n.id))
+  if (alheio) {
+    return [
+      `error: '${title}' holds '${nodeDisplayName(alheio.content)}'`,
+      `(${alheio.content.type}, ${alheio.id.slice(0, 8)}), which is not cabled to you —`,
+      `so the frame is someone else's work, not yours to undo. It has`,
+      `${membros.length} member(s); the user ungroups it in the app.`
+    ].join(' ')
+  }
+
+  ws.removeGroup(alvo.id)
+  notifyRenderer('workspace:changed', { workspaceId: ws.id })
+  return membros.length === 0
+    ? `Removed the empty frame '${title}'.`
+    : `Removed the frame '${title}'; its ${membros.length} member(s) stayed on the canvas.`
+}
+
 function createGroup(argv: string[], tid: UUID): string {
   const { rest, color } = takeFlags(argv)
   const title = rest[2]
@@ -385,9 +446,9 @@ function createGroup(argv: string[], tid: UUID): string {
  *     membros fora da moldura e a vista mentiria sobre quem é do time.
  */
 function moveNode(argv: string[], tid: UUID): string {
-  const { rest, at } = takeFlags(argv)
+  const { rest, placement } = takeFlags(argv)
   const alvo = rest[2]
-  const destino = at ?? (rest[3] !== undefined ? parsePoint(rest[3]) : null)
+  const destino = placement.at ?? (rest[3] !== undefined ? parsePoint(rest[3]) : null)
   if (!alvo || destino === null) {
     return 'error: usage: atelier node move "Node" x,y'
   }
@@ -606,33 +667,4 @@ function overlappingPairs(nodes: CanvasNode[]): [CanvasNode, CanvasNode][] {
     }
   }
   return pares
-}
-
-/**
- * Quem um comando de LAYOUT (`group`, `move`) pode endereçar por nome.
- *
- * O alcance é o de sempre: o que está cabeado a quem chama, mais o próprio
- * chamador. Havia uma abertura para os tipos que nunca aceitavam cabo (`text`,
- * `fileTree`), sem a qual um agente não conseguiria emoldurar o título que
- * acabara de escrever — agora os dois cabeiam, `node create` os cabeia na
- * criação, e a abertura virou só um vazamento de nome (ver mapCanvas).
- *
- * Por ID (8 caracteres) qualquer nó responde — é o id que o `node map` e o
- * `node create` imprimem. Layout é geometria: não lê o conteúdo de ninguém, e
- * o usuário vê acontecer na tela.
- */
-function resolveLayoutTarget(
-  ws: NonNullable<ReturnType<typeof workspaceForTerminal>>,
-  caller: CanvasNode,
-  tid: UUID,
-  name: string
-): CanvasNode | null {
-  const needle = name.toLowerCase().trim()
-  const reachable = [caller, ...connectedNodes(tid)]
-
-  const exact = reachable.find((n) => nodeDisplayName(n.content).toLowerCase() === needle)
-  if (exact) return exact
-  const partial = reachable.find((n) => nodeDisplayName(n.content).toLowerCase().includes(needle))
-  if (partial) return partial
-  return ws.nodes.find((n) => n.id.toLowerCase().startsWith(needle.slice(0, 8))) ?? null
 }

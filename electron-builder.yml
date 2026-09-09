@@ -34,15 +34,19 @@ mac:
 win:
   icon: build/icon.png
   target:
+    # + zip portátil, sem instalador, para quem não quer/pode instalar
     - nsis
+    - zip
   # Sem certificado OV/EV o SmartScreen bloqueia até ganhar reputação
   signAndEditExecutable: true
 
 linux:
   icon: build/icon.png
   target:
+    # + zip, alternativa sem AppImage/deb (ex.: distros que não suportam nenhum dos dois)
     - AppImage
     - deb
+    - zip
   category: Development
 
 nsis:

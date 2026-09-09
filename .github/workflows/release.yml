@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Módulo nativo (node-pty) precisa de um runner por sistema: não dá cross-compile,
+    # a mesma matriz do ci.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Não se publica release que não passa no smoke
+      - name: Smoke do núcleo (IPC, persistência, protocolo do CLI)
+        run: npm run test:smoke
+
+      - name: Build
+        run: npx electron-vite build
+
+      - name: Empacotar (macOS)
+        if: matrix.os == 'macos-14'
+        run: npx electron-builder --mac --publish never
+
+      - name: Empacotar (Windows)
+        if: matrix.os == 'windows-latest'
+        run: npx electron-builder --win --publish never
+
+      - name: Empacotar (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: npx electron-builder --linux --publish never
+
+      - name: Enviar artefatos
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          # Só os instaláveis: o diretório *-unpacked é enorme e não serve pra distribuição
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.deb
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    # workflow_dispatch existe para testar o empacotamento sob demanda (job `build`),
+    # mas sem tag não há versão pra publicar: action-gh-release exigiria um tag_name
+    # explícito e a Release sairia com nome errado. Então só publica em push de tag.
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Baixar todos os artefatos
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Gerar checksums.txt
+        working-directory: artifacts
+        run: sha256sum * > checksums.txt
+
+      - name: Criar GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # notas geradas a partir dos commits desde a última tag — sem changelog manual
+          generate_release_notes: true
+          files: artifacts/*
+
+      - name: Avisar o site para rebuildar
+        # A página de download resolve os assets em tempo de build (fetch na API do
+        # GitHub durante `astro build`), então o site precisa ser reconstruído a
+        # cada release nova — ver docs/2026-09-09-PLANO-site-de-docs.md §6.
+        # GITHUB_TOKEN não tem permissão para disparar repository_dispatch: precisa
+        # de um PAT com escopo `repo`, guardado no secret DISPATCH_TOKEN. Sem esse
+        # secret este step falha, mas a Release já foi criada com sucesso acima —
+        # `continue-on-error` evita que essa falha pinte o job inteiro de vermelho;
+        # o único efeito de faltar o secret é o site não rebuildar sozinho (dá pra
+        # disparar `site.yml` manualmente via workflow_dispatch nesse meio-tempo).
+        continue-on-error: true
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.DISPATCH_TOKEN }}
+          event-type: release-published

@@ -1,0 +1,43 @@
+---
+title: O cabo é a permissão
+description: O que cada tipo de nó entrega a um agente ligado a ele por cabo — e por que a referência, não o conteúdo, é a regra geral.
+sidebar:
+  order: 3
+---
+
+Você ligou um terminal a uma árvore de arquivos. O que exatamente o agente passa a enxergar — o conteúdo de todos os arquivos, ou só o caminho da pasta?
+
+A segunda opção. E entender essa distinção é o que separa usar o Atelier por instinto de usá-lo sabendo exatamente o alcance de cada agente.
+
+## A regra geral: referência, não conteúdo
+
+Todo nó com cara própria aceita cabo de um terminal, e o que ele entrega a quem está ligado é a **referência** — o caminho da raiz de uma árvore, o arquivo de uma imagem, o repositório observado por um painel de git, o volume que um monitor está olhando. O **conteúdo** o próprio agente lê com as ferramentas que já tem: `ls`, `grep`, `cat`, o `Read` e o `Edit` de um Claude Code.
+
+Isso não é limitação, é design. Um agente com acesso a um caminho de arquivos já sabe ler arquivos melhor do que qualquer verbo que o Atelier poderia inventar para isso. Reimplementar `grep` dentro do CLI `atelier` seria pior do que deixar o agente usar o que ele já sabe usar.
+
+A exceção existe onde o conteúdo **não está em disco** para o agente alcançar sozinho — o buffer não salvo de um editor, a tela de outro agente — ou onde o nó **é** o conteúdo inteiro, como uma nota ou um quadro de tarefas. Nesses casos, sim, o cabo entrega o texto de verdade.
+
+## Panorama por tipo de nó
+
+| Nó | O que o cabo entrega |
+|---|---|
+| Terminal | Estado do outro agente (`working`/`waiting`/`idle`/`exited`), o que ele está pedindo quando para, e a tela dele sob pedido |
+| Nota | O markdown inteiro do arquivo — leitura **e** escrita |
+| Portal | Texto e HTML da página, screenshot, e o mapa de elementos clicáveis — o cabo mais largo de todos |
+| Editor de código | Caminho do arquivo, se há alteração não salva, e o texto do buffer — inclusive a seleção viva do usuário |
+| Tabela de dados | Só metadados: título, contagem de linhas e colunas. As linhas em si nunca voltam ao agente |
+| Imagem | Só metadados: título, dimensões. Os pixels não voltam |
+| Cofre de segredos | Nomes das chaves sempre; o valor de uma chave só sob pedido explícito, com aviso |
+| Árvore de arquivos | O caminho absoluto da raiz — o agente varre e lê com as próprias ferramentas |
+| Quadro de tarefas | Leitura e escrita dos cartões, com escopo nos quadros que estão de fato ligados a ele |
+| Painel de Git | O repositório que está sendo observado no momento |
+| Painel de Monitor | O volume observado |
+| Texto | O texto do próprio rótulo |
+
+Tabela e imagem seguem o mesmo raciocínio de mão única: o Atelier nunca toca no banco de dados nem gera a figura — o agente roda a query ou produz o gráfico com as ferramentas dele, e só o **resultado** é publicado como nó. Ler os dados brutos de volta pelo cabo destruiria a garantia de que quem manda na query é o agente, não o Atelier.
+
+## Por que isso é legível de longe
+
+Olhando o canvas, o alcance de um agente nunca está escondido em uma configuração — está desenhado. Um terminal sem cabo nenhum para uma nota simplesmente não sabe que ela existe, mesmo que esteja visível do lado dele na tela. Adicionar ou remover um cabo é sempre a única forma de mudar o que um agente enxerga.
+
+A página seguinte cobre o CLI `atelier` — a ferramenta que transforma esses cabos em comandos que um agente pode de fato rodar.

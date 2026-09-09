@@ -1,0 +1,553 @@
+---
+import Marketing from '../layouts/Marketing.astro';
+
+const REPO = 'br3nds0n/atelier';
+const RELEASES_LATEST_URL = `https://github.com/${REPO}/releases/latest`;
+
+interface Asset {
+  name: string;
+  size: number;
+  browser_download_url: string;
+}
+
+interface ReleaseData {
+  version: string;
+  htmlUrl: string;
+  assets: Asset[];
+  checksums: Record<string, string>;
+}
+
+// Resolução em tempo de build: o HTML sai com versão, links e tamanhos já
+// embutidos — zero JS no caminho principal, zero dependência da API no
+// runtime. Se o fetch falhar (repo privado, sem release publicada, API fora,
+// build sem rede), a página cai para um estado degradado em vez de quebrar.
+let release: ReleaseData | null = null;
+
+try {
+  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'atelier-site-build',
+    },
+  });
+
+  if (res.ok) {
+    const data = await res.json();
+    const assets: Asset[] = (data.assets ?? []).map((a: { name: string; size: number; browser_download_url: string }) => ({
+      name: a.name,
+      size: a.size,
+      browser_download_url: a.browser_download_url,
+    }));
+
+    // O release.yml gera um checksums.txt (saída de `sha256sum *`) e publica
+    // junto dos binários. Usamos os hashes de lá — nunca inventamos um.
+    const checksums: Record<string, string> = {};
+    const checksumsAsset = assets.find((a) => a.name === 'checksums.txt');
+    if (checksumsAsset) {
+      try {
+        const txt = await fetch(checksumsAsset.browser_download_url).then((r) => r.text());
+        for (const line of txt.split('\n')) {
+          const match = line.trim().match(/^([a-f0-9]{64})\s+\*?(.+)$/i);
+          if (match) checksums[match[2]] = match[1];
+        }
+      } catch {
+        // segue sem hashes
+      }
+    }
+
+    release = {
+      version: data.tag_name ?? data.name ?? '',
+      htmlUrl: data.html_url ?? RELEASES_LATEST_URL,
+      assets,
+      checksums,
+    };
+  }
+} catch {
+  release = null;
+}
+
+function formatSize(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function findAsset(assets: Asset[], test: (nameLower: string) => boolean): Asset | undefined {
+  return assets.find((a) => test(a.name.toLowerCase()));
+}
+
+interface SecondaryLink {
+  label: string;
+  asset: Asset;
+}
+
+interface Platform {
+  primary?: Asset;
+  secondaries: SecondaryLink[];
+  hash?: string;
+}
+
+function buildPlatform(
+  assets: Asset[],
+  checksums: Record<string, string>,
+  primaryTest: (n: string) => boolean,
+  secondaryTests: { label: string; test: (n: string) => boolean }[],
+): Platform {
+  const primary = findAsset(assets, primaryTest);
+  const secondaries = secondaryTests
+    .map(({ label, test }) => {
+      const asset = findAsset(assets, test);
+      return asset ? { label, asset } : null;
+    })
+    .filter((s): s is SecondaryLink => s !== null);
+  return { primary, secondaries, hash: primary ? checksums[primary.name] : undefined };
+}
+
+const mac: Platform | null = release
+  ? buildPlatform(
+      release.assets,
+      release.checksums,
+      (n) => n.endsWith('.dmg'),
+      [{ label: '.zip', test: (n) => n.endsWith('.zip') && n.includes('mac') }],
+    )
+  : null;
+
+const win: Platform | null = release
+  ? buildPlatform(
+      release.assets,
+      release.checksums,
+      (n) => n.endsWith('.exe'),
+      [{ label: '.zip', test: (n) => n.endsWith('.zip') && n.includes('win') }],
+    )
+  : null;
+
+const linux: Platform | null = release
+  ? buildPlatform(
+      release.assets,
+      release.checksums,
+      (n) => n.endsWith('.appimage'),
+      [
+        { label: '.deb', test: (n) => n.endsWith('.deb') },
+        { label: '.zip', test: (n) => n.endsWith('.zip') && n.includes('linux') },
+      ],
+    )
+  : null;
+
+const releaseNotesUrl = release?.htmlUrl ?? RELEASES_LATEST_URL;
+const installGuideUrl = `${import.meta.env.BASE_URL}/docs/primeiros-passos/instalacao`.replace(/\/{2,}/g, '/');
+---
+
+<Marketing title="Download — Atelier" description="Baixe o Atelier para macOS, Windows ou Linux.">
+  <div class="dl-hero">
+    <div class="wrap">
+      <p class="kicker">Download</p>
+      <h1>Instale o Atelier.</h1>
+      {release ? (
+        <p class="lede">Versão <code>{release.version}</code> — macOS, Windows e Linux, sempre os três disponíveis.</p>
+      ) : (
+        <p class="lede lede-warn">Ainda não há uma release publicada em <a href={RELEASES_LATEST_URL}>{RELEASES_LATEST_URL}</a>. Assim que o pipeline de release publicar a primeira tag, esta página passa a listar os instaladores automaticamente.</p>
+      )}
+    </div>
+  </div>
+
+  <section class="wrap">
+    <div class="dl-grid">
+      <!-- ============ macOS ============ -->
+      <div class="dl-card" data-os="mac">
+        <div class="dl-card-head">
+          <span class="dl-os-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M9 21v-4h6v4"></path></svg>
+          </span>
+          <h2>macOS</h2>
+          <span class="dl-detected-badge">Seu sistema</span>
+        </div>
+
+        {mac?.primary ? (
+          <>
+            <a class="btn btn-primary btn-lg dl-primary" href={mac.primary.browser_download_url}>
+              Baixar .dmg <span class="dl-size">{formatSize(mac.primary.size)}</span>
+            </a>
+            {mac.secondaries.length > 0 && (
+              <ul class="dl-secondary">
+                {mac.secondaries.map((s) => (
+                  <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
+                ))}
+              </ul>
+            )}
+            {mac.hash && <p class="dl-hash">SHA-256 <code>{mac.hash}</code></p>}
+          </>
+        ) : (
+          <a class="btn btn-ghost btn-lg dl-primary" href={releaseNotesUrl}>Ver arquivos da release</a>
+        )}
+
+        <div class="dl-warning">
+          <p class="dl-warning-title">O app não é assinado com um Developer ID da Apple.</p>
+          <p>O Gatekeeper vai dizer que o desenvolvedor não pôde ser verificado. Para abrir: <b>botão direito no ícone → Abrir</b> → confirme na caixa de diálogo. Só precisa fazer isso na primeira vez.</p>
+        </div>
+      </div>
+
+      <!-- ============ Windows ============ -->
+      <div class="dl-card" data-os="win">
+        <div class="dl-card-head">
+          <span class="dl-os-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 5.5L10.5 4.5V11.5H3V5.5Z"></path><path d="M11.5 4.4L21 3V11.5H11.5V4.4Z"></path><path d="M3 12.5H10.5V19.6L3 18.5V12.5Z"></path><path d="M11.5 12.5H21V21L11.5 19.6V12.5Z"></path></svg>
+          </span>
+          <h2>Windows</h2>
+          <span class="dl-detected-badge">Seu sistema</span>
+        </div>
+
+        {win?.primary ? (
+          <>
+            <a class="btn btn-primary btn-lg dl-primary" href={win.primary.browser_download_url}>
+              Baixar .exe <span class="dl-size">{formatSize(win.primary.size)}</span>
+            </a>
+            {win.secondaries.length > 0 && (
+              <ul class="dl-secondary">
+                {win.secondaries.map((s) => (
+                  <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
+                ))}
+              </ul>
+            )}
+            {win.hash && <p class="dl-hash">SHA-256 <code>{win.hash}</code></p>}
+          </>
+        ) : (
+          <a class="btn btn-ghost btn-lg dl-primary" href={releaseNotesUrl}>Ver arquivos da release</a>
+        )}
+
+        <div class="dl-warning">
+          <p class="dl-warning-title">O instalador não tem certificado de assinatura (OV/EV).</p>
+          <p>O SmartScreen vai bloquear com "O Windows protegeu o computador". Para continuar: <b>Mais informações → Executar assim mesmo</b>. A reputação do binário só se constrói com o tempo — isso é esperado num app novo, não um sinal de malware.</p>
+        </div>
+      </div>
+
+      <!-- ============ Linux ============ -->
+      <div class="dl-card" data-os="linux">
+        <div class="dl-card-head">
+          <span class="dl-os-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 18l-5-6 5-6M15 6l5 6-5 6"></path></svg>
+          </span>
+          <h2>Linux</h2>
+          <span class="dl-detected-badge">Seu sistema</span>
+        </div>
+
+        {linux?.primary ? (
+          <>
+            <a class="btn btn-primary btn-lg dl-primary" href={linux.primary.browser_download_url}>
+              Baixar .AppImage <span class="dl-size">{formatSize(linux.primary.size)}</span>
+            </a>
+            {linux.secondaries.length > 0 && (
+              <ul class="dl-secondary">
+                {linux.secondaries.map((s) => (
+                  <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
+                ))}
+              </ul>
+            )}
+            {linux.hash && <p class="dl-hash">SHA-256 <code>{linux.hash}</code></p>}
+          </>
+        ) : (
+          <a class="btn btn-ghost btn-lg dl-primary" href={releaseNotesUrl}>Ver arquivos da release</a>
+        )}
+
+        <div class="dl-warning">
+          <p class="dl-warning-title">O AppImage não vem com permissão de execução.</p>
+          <p>Depois de baixar: <b>botão direito → Propriedades → Permissões → Permitir execução</b>, ou <code>chmod +x *.AppImage</code> no terminal. O <code>.deb</code> já resolve isso na instalação.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RODAPÉ DA PÁGINA ============ -->
+  <section class="dl-footer wrap">
+    <div class="dl-footer-grid">
+      <div>
+        <p class="kicker">Requisitos mínimos</p>
+        <ul class="req-list">
+          <li><b>macOS</b> — 12 (Monterey) ou mais recente, Apple Silicon ou Intel.</li>
+          <li><b>Windows</b> — Windows 10 64-bit ou mais recente.</li>
+          <li><b>Linux</b> — distribuição x64 com glibc 2.31+ (Ubuntu 20.04 ou equivalente).</li>
+        </ul>
+      </div>
+      <div>
+        <p class="kicker">Mais</p>
+        <ul class="req-list">
+          <li><a href={releaseNotesUrl}>Notas da versão →</a></li>
+          <li><a href={installGuideUrl}>Guia de instalação →</a></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</Marketing>
+
+<script>
+  // Detecção de SO só para destacar o cartão provável — os três continuam
+  // sempre visíveis e clicáveis. Ninguém é redirecionado nem escondido.
+  const ua = navigator.userAgent;
+  let os: 'mac' | 'win' | 'linux' | null = null;
+  if (/Mac OS X/.test(ua) && !/iPhone|iPad/.test(ua)) os = 'mac';
+  else if (/Windows NT/.test(ua)) os = 'win';
+  else if (/Linux/.test(ua) && !/Android/.test(ua)) os = 'linux';
+
+  if (os) {
+    const card = document.querySelector(`.dl-card[data-os="${os}"]`);
+    card?.classList.add('dl-card-detected');
+  }
+</script>
+
+<style>
+  .dl-hero {
+    position: relative;
+    padding: 72px 0 48px;
+    background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+    background-position: center -1px;
+    -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 96%);
+    mask-image: linear-gradient(to bottom, black 55%, transparent 96%);
+  }
+
+  .kicker {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin: 0 0 14px;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 1.3rem + 2.6vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 0 0 16px;
+    font-weight: 650;
+  }
+
+  .lede {
+    font-size: 16px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    max-width: 60ch;
+    margin: 0;
+  }
+  .lede code {
+    font-family: var(--mono);
+    color: var(--text);
+  }
+  .lede-warn {
+    color: var(--amber);
+  }
+  .lede-warn a {
+    color: var(--amber);
+    text-decoration: underline;
+  }
+
+  section {
+    padding: 0 0 96px;
+  }
+
+  .dl-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+
+  .dl-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 24px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .dl-card-detected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+
+  .dl-card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .dl-os-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--r-md);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    flex: none;
+  }
+
+  .dl-card-head h2 {
+    font-size: 16px;
+    margin: 0;
+    font-weight: 650;
+    flex: 1;
+  }
+
+  .dl-detected-badge {
+    display: none;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--r-pill);
+    padding: 2px 8px;
+  }
+
+  .dl-card-detected .dl-detected-badge {
+    display: inline-block;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: var(--r-md);
+    font-weight: 600;
+    font-size: 13px;
+    padding: 9px 16px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover {
+    background: #1a86ff;
+    color: #fff;
+  }
+  .btn-ghost {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text);
+  }
+  .btn-ghost:hover {
+    border-color: #4a4a54;
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  .btn-lg {
+    padding: 11px 18px;
+    font-size: 13.5px;
+  }
+
+  .dl-primary {
+    width: 100%;
+  }
+
+  .dl-size {
+    font-family: var(--mono);
+    font-size: 11px;
+    opacity: 0.75;
+  }
+
+  .dl-secondary {
+    list-style: none;
+    margin: -6px 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+  }
+  .dl-secondary li a {
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+  .dl-secondary li a:hover {
+    color: var(--text);
+  }
+
+  .dl-hash {
+    margin: -4px 0 0;
+    font-size: 11px;
+    color: var(--text-faint);
+    word-break: break-all;
+  }
+  .dl-hash code {
+    font-family: var(--mono);
+    color: var(--text-dim);
+  }
+
+  .dl-warning {
+    margin-top: 4px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .dl-warning-title {
+    margin: 0 0 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--amber);
+  }
+  .dl-warning p {
+    margin: 0 0 6px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-dim);
+  }
+  .dl-warning p:last-child {
+    margin-bottom: 0;
+  }
+  .dl-warning b {
+    color: var(--text);
+  }
+  .dl-warning code {
+    font-family: var(--mono);
+    color: var(--text);
+    font-size: 11.5px;
+  }
+
+  .dl-footer {
+    border-top: 1px solid var(--border-soft);
+    padding-top: 48px;
+  }
+  .dl-footer-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+  }
+  .req-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .req-list li {
+    font-size: 13.5px;
+    color: var(--text-dim);
+  }
+  .req-list li b {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .req-list a {
+    color: var(--text-dim);
+  }
+  .req-list a:hover {
+    color: var(--text);
+  }
+
+  @media (max-width: 860px) {
+    .dl-grid {
+      grid-template-columns: 1fr;
+    }
+    .dl-footer-grid {
+      grid-template-columns: 1fr;
+      gap: 28px;
+    }
+  }
+</style>

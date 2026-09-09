@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { NodeGroup, UUID } from '@shared/types'
-import { GROUP_TITLE_HEIGHT } from './group-geometry'
+import { GROUP_PADDING, GROUP_TITLE_HEIGHT } from './group-geometry'
 import { CULL_MARGIN, rectsIntersect, viewport } from './viewport'
 
 interface Props {
@@ -76,6 +76,27 @@ export function GroupsLayer({
       // sairia por cima com o primeiro pan, e o grupo viraria um retângulo sem
       // nome — que é o oposto do que uma moldura com título serve para fazer.
       const bandHeight = GROUP_TITLE_HEIGHT / viewport.zoom
+
+      /**
+       * O quanto a faixa passa do espaço que a moldura reserva acima do
+       * primeiro nó — `GROUP_TITLE_HEIGHT + GROUP_PADDING` em unidades de
+       * canvas, por `boundsForNodes`.
+       *
+       * A faixa tem altura constante em pixels de TELA, então em unidades de
+       * canvas ela cresce quando o zoom cai: 32/zoom. O espaço reservado é
+       * fixo, 80. As duas contas se cruzam em 40% — abaixo disso a faixa
+       * passava a cobrir a primeira fileira de nós, e num canvas de
+       * apresentação visto a 20% ela comia 80 unidades de cada moldura.
+       *
+       * A saída é subir, não invadir: o excedente sai para FORA da moldura,
+       * sobre o canvas vazio acima dela, que é onde um rótulo de mapa vive
+       * quando não cabe dentro da sua área. O piso do clamp deixa de ser 0 e
+       * passa a ser `-overflow`, e com isso a transição para a faixa presa
+       * continua contínua: conforme o topo da moldura sobe até a borda da
+       * view, a faixa desliza de `-overflow` até 0 e só então gruda.
+       */
+      const overflow = Math.max(0, bandHeight - (GROUP_TITLE_HEIGHT + GROUP_PADDING))
+
       for (const g of groups) {
         if (!next.has(g.id)) continue
         const band = layer.querySelector<HTMLElement>(
@@ -83,8 +104,8 @@ export function GroupsLayer({
         )
         if (!band) continue
         const limit = Math.max(0, g.frame.height - bandHeight)
-        const offset = Math.min(limit, Math.max(0, viewport.origin.y - g.frame.y))
-        band.style.transform = offset > 0 ? `translateY(${offset}px)` : ''
+        const offset = Math.min(limit, Math.max(-overflow, viewport.origin.y - g.frame.y))
+        band.style.transform = offset !== 0 ? `translateY(${offset}px)` : ''
       }
     })
   }, [groups])

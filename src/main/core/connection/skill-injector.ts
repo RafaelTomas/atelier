@@ -132,7 +132,7 @@ of your own work, see \`references/recruit.md\`.
 ## Notes
 
 \`\`\`
-atelier note create ["content"] [--name "Requisito"]
+atelier note create ["content"] [--name "Requisito"] [--at x,y | --under "Node"]
 atelier note read "Note Name" [offset] [limit]
 atelier note write "Note Name" "content"
 atelier note edit "Note Name" "old text" "new text"
@@ -195,8 +195,8 @@ export const REFERENCES: Record<string, string> = {
 ## Recruit another agent
 
 \`\`\`
-atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd /path] [--role "Role"] [--account "Account"] [--model opus|sonnet|haiku|luna|terra|sol|model-id]
-atelier recruit "Name" --command "claude --resume <session-id>" [--cwd /path]
+atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell] [--cwd /path] [--role "Role"] [--account "Account"] [--model opus|sonnet|haiku|luna|terra|sol|model-id] [--at x,y]
+atelier recruit "Name" --command "claude --resume <session-id>" [--cwd /path] [--at x,y]
 \`\`\`
 
 Creates a terminal node already cabled to you, so you can hand work to it with
@@ -298,7 +298,7 @@ permission you can also drive them: click, type, press keys, scroll.
 
 \`\`\`
 atelier portal list
-atelier portal open <url> [name] [--session "Portal" | --shared]
+atelier portal open <url> [name] [--session "Portal" | --shared] [--at x,y]
 atelier portal go "Portal" <url>
 atelier portal read "Portal" [offset] [limit]
 atelier portal html "Portal" [selector]
@@ -383,7 +383,7 @@ has changes that were never saved.
 
 \`\`\`
 atelier editor list
-atelier editor open <absolute path>
+atelier editor open <absolute path> [--at x,y]
 atelier editor read "File" [offset] [limit] [--selection]
 atelier editor close "File"
 \`\`\`
@@ -420,7 +420,7 @@ atelier vault list
 atelier vault get "Vault" <key>
 atelier vault set "Vault" <KEY> <value>
 atelier vault env ["Vault"]
-atelier vault create "Name"
+atelier vault create "Name" [--at x,y]
 eval "$(atelier vault env --export)"
 \`\`\`
 
@@ -465,7 +465,7 @@ Run the query yourself with whatever tool fits (\`psql\`, \`sqlite3\`, \`mysql\`
 touches the database — this is a snapshot.
 
 \`\`\`
-atelier table create "Title" <data> [--query "SELECT …"] [--format auto|json|csv|tsv] [--dialect postgres|sqlite|mysql]
+atelier table create "Title" <data> [--query "SELECT …"] [--format auto|json|csv|tsv] [--dialect postgres|sqlite|mysql] [--at x,y]
 atelier table append "Title" <data> [--format …]
 atelier table list
 \`\`\`
@@ -504,7 +504,7 @@ generated, a screenshot, a diagram. Pass the PATH to an image file (absolute);
 PNG, JPEG, GIF, WebP, AVIF, SVG and BMP are accepted, up to 25 MB.
 
 \`\`\`
-atelier image create "Title" /abs/path/to/image.png [--alt "description"]
+atelier image create "Title" /abs/path/to/image.png [--alt "description"] [--at x,y]
 atelier image list
 \`\`\`
 `,
@@ -515,7 +515,7 @@ command in a terminal, a prompt to an agent already running, a URL in a portal,
 or a NEW agent it opens and stays cabled to.
 
 \`\`\`
-atelier button propose "Label" --command "npm run dev" [--icon play] [--color "#34C759"] [--cwd <path>] [--target "Terminal"] [--confirm [--unattended]]
+atelier button propose "Label" --command "npm run dev" [--icon play] [--color "#34C759"] [--cwd <path>] [--target "Terminal"] [--confirm [--unattended]] [--at x,y]
 atelier button propose "Label" --prompt "review the diff" --target "Claude"
 atelier button propose "Label" --url http://localhost:5173
 atelier button propose "Label" --agent "Name" [--preset claude] [--model sonnet] [--cwd <path>] [--role "Role"] [--account "Account"] [--prompt "first thing to say"] [--artisan] [--no-reuse]
@@ -634,7 +634,7 @@ atelier todo add "Board" "title" [--status todo] [--assign "Name"] [--notes "…
 atelier todo move "Board" <id|"title prefix"> <status>
 atelier todo done "Board" <id|"title prefix">
 atelier todo show "Board" <id|"title prefix">
-atelier todo create "Title" [column…]
+atelier todo create "Title" [column…] [--at x,y]
 atelier todo plan "Board" <id|"title prefix"> [--title "…"] [--objective "…"] [--step "…"]…
 atelier todo step "Board" <id|"title prefix"> <step number> <pending|in_progress|done|blocked|skipped>
 \`\`\`
@@ -695,11 +695,12 @@ verb, plus the group frame — and for SEEING the canvas before you add to it.
 
 \`\`\`
 atelier node map
-atelier node create text "content" [--at x,y]
+atelier node create text "content" [--color "#E6E6E6"] [--at x,y | --under "Node"]
 atelier node create fileTree <absolute path> [--name "Label"] [--at x,y]
 atelier node create widget <projects|git|monitor> [--at x,y]
 atelier node move "Node" x,y
 atelier node group "Title" "Node" ["Node"…] [--color "#0A84FF"]
+atelier node ungroup "Title"
 atelier node shot [/absolute/destination.png]
 \`\`\`
 
@@ -718,6 +719,28 @@ Without \`--at\`, a new node lands in the first free spot beside this terminal
 — never on top of another node. With \`--at\`, it lands exactly there, and the
 command REFUSES if that rectangle is taken, naming what is in the way. Use
 \`--at\` when the user described a layout; drop it otherwise.
+
+**\`--at\` is not exclusive to this verb.** Every verb that creates a node takes
+it, with the same refusal: \`recruit\`, \`note create\`, \`table create\`,
+\`image create\`, \`todo create\`, \`vault create\`, \`portal open\`,
+\`editor open\`, \`button propose\`, \`clock create\`. So a canvas the user
+drew is ONE command per node — never create-then-move, which doubles the
+commands and leaves a pile on the screen between the two.
+
+**Or say it relative to a neighbour, and skip the arithmetic.** The same verbs
+take \`--under "Node"\`, \`--above\`, \`--left-of\` and \`--right-of\`. The new
+node docks against that one exactly as a drag would: **\`--under\` and
+\`--above\` give it the neighbour's WIDTH** and keep its own height;
+\`--left-of\` and \`--right-of\` give it the neighbour's HEIGHT and keep its
+width. The gap is the one the canvas uses (28), and the type's minimum wins
+over the neighbour's size — a terminal does not shrink to a button.
+
+That is what a caption is: \`note create "…" --name "No: portal" --under "App"\`
+makes a note as wide as the portal, sitting right below it, aligned by the left
+edge. A 260-wide default note under a 640-wide portal is what looked wrong.
+
+\`--at\` and the dock flags are two ways to say the same thing, so passing both
+is refused. Both refuse an occupied rectangle, naming who is there.
 
 \`node move\` fixes what is already there, and refuses an occupied destination
 for the same reason. A node that leaves a group's rectangle leaves the group,
@@ -757,7 +780,13 @@ selection.
 
 **Build in the order the user reads.** Create the nodes first, then the frame
 around them — a group fits itself to the members it is given and does not grow
-when you add a node later.
+when you add a node later. So group ONCE, over the final layout: reorganizing
+afterwards moves members out of the rectangle, and the frame stays behind with
+"0 nodes" in its header.
+
+\`node ungroup\` clears exactly that debris, and only that: a frame with no
+members left. One that still has members is someone's work — the refusal says
+how many are inside, and the user ungroups it in the app.
 `
 }
 

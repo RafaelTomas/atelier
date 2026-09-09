@@ -18,6 +18,7 @@
 import type { UUID } from '@shared/types'
 import { portalPartition } from '@shared/types'
 import { maskSecrets } from '@shared/vault'
+import { takeAtFlag } from '../../spawn-spot'
 import { normalizeURL } from '@shared/portal-url'
 import { notifyRenderer } from '../../../ipc/notify'
 import { nodeDisplayName } from '../../models/node-content'
@@ -211,9 +212,10 @@ function takeFlags(args: string[]): { rest: string[]; flags: Map<string, string>
 }
 
 function openPortal(argv: string[], tid: UUID): string {
-  const { rest: args, flags } = takeFlags(argv)
+  const { rest: semAt, at } = takeAtFlag(argv)
+  const { rest: args, flags } = takeFlags(semAt)
   if (args.length < 3) {
-    return 'error: usage: atelier portal open <url> [name] [--session "Portal" | --shared]'
+    return 'error: usage: atelier portal open <url> [name] [--session "Portal" | --shared] [--at x,y]'
   }
   // A mesma normalização da barra de endereço: `localhost:5173` é o que o
   // agente vai digitar, e tem que funcionar.
@@ -221,8 +223,9 @@ function openPortal(argv: string[], tid: UUID): string {
   if (!url) return 'error: empty url'
 
   const session = sessionFor(tid, url, flags)
-  const spawned = spawnPortal({ originId: tid, url, name: args[3], partition: session.partition })
+  const spawned = spawnPortal({ originId: tid, url, name: args[3], partition: session.partition, at })
   if (!spawned) return 'error: calling terminal is not on this canvas'
+  if ('error' in spawned) return spawned.error
 
   const name = args[3] ?? 'Portal'
   return `Opened portal '${name}' at ${url}, connected to this terminal (session: ${session.note}).`

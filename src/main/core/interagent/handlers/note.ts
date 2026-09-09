@@ -4,10 +4,10 @@ import { Constants } from '../../constants'
 import { makeStickyNoteContent, nodeDisplayName } from '../../models/node-content'
 import { makeCanvasNode } from '../../models/workspace'
 import { persistence } from '../../persistence/persistence-manager'
-import { freeSpotRightOf } from '../../spawn-spot'
+import { resolveFrame, takePlacementFlags } from '../../spawn-spot'
 import { takenNoteFiles } from '../../state/note-files'
 import { notifyRenderer } from '../../../ipc/notify'
-import { findConnectedNode, requireTerminalId, workspaceForTerminal } from './context'
+import { findConnectedNode, requireTerminalId, resolveLayoutTarget, workspaceForTerminal } from './context'
 
 export async function handleNote(args: string[], terminalId: UUID | null): Promise<string> {
   const tid = requireTerminalId(terminalId)
@@ -24,7 +24,7 @@ export async function handleNote(args: string[], terminalId: UUID | null): Promi
     case 'create':
       return createNote(args, tid)
     default:
-      return 'error: usage: atelier note <read|write|edit|create> …'
+      return 'error: usage: atelier note <read|write|edit|create> …\n  atelier note create ["content"] [--name "Name"] [--at x,y | --under "Node"]'
   }
 }
 
@@ -111,18 +111,23 @@ async function createNote(args: string[], tid: UUID): Promise<string> {
   const caller = ws.node(tid)
   if (!caller) return 'error: calling terminal is not on this canvas'
 
-  const { rest, name: wanted } = takeNoteFlags(args)
+  const { rest: semPos, placement } = takePlacementFlags(args)
+  const { rest, name: wanted } = takeNoteFlags(semPos)
   const content = makeStickyNoteContent(wanted || 'Note', await takenNoteFiles(ws))
   const name = content.fileName?.replace(/\.md$/, '') ?? 'Note'
-  // `freeSpotRightOf`, e não `caller.x + width + 60` cru: a conta crua ignora
-  // quem já está naquele ponto, e a nota nascia debaixo do nó anterior — foi o
-  // que aconteceu ao montar a faixa central da demo, com a nota em cima do
-  // botão. O editor, o portal e o `recruit` já passavam por aqui.
+  // `resolveSpot`, e não `caller.x + width + 60` cru: a conta crua ignora quem
+  // já está naquele ponto, e a nota nascia debaixo do nó anterior — foi o que
+  // aconteceu ao montar a faixa central da demo, com a nota em cima do botão.
+  // `--at` entrou depois, pelo mesmo motivo que no resto: uma nota explicativa
+  // por nó são dezesseis notas, e criar-e-mover dobra os comandos.
   const size = { width: Constants.noteDefaultWidth, height: Constants.noteDefaultHeight }
-  const node = makeCanvasNode(
-    { ...freeSpotRightOf(ws, caller, size), ...size },
-    { type: 'stickyNote', value: content }
-  )
+  const lugar = resolveFrame(ws, caller, size, placement, {
+    find: (nome) => resolveLayoutTarget(ws, caller, tid, nome),
+    displayName: (n) => nodeDisplayName(n.content),
+    floor: [Constants.noteMinWidth, Constants.noteMinHeight]
+  })
+  if ('error' in lugar) return lugar.error
+  const node = makeCanvasNode(lugar.frame, { type: 'stickyNote', value: content })
 
   ws.addNode(node)
   ws.addConnection(tid, node.id)

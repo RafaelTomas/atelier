@@ -17,18 +17,18 @@ import type { UUID } from '@shared/types'
 import { QUICK_STARTS, presetById } from '@shared/terminal-presets'
 import { claudeAccounts } from '../../claude/accounts'
 import { Constants } from '../../constants'
-import { makeTerminalContent } from '../../models/node-content'
+import { makeTerminalContent, nodeDisplayName } from '../../models/node-content'
 import { makeCanvasNode } from '../../models/workspace'
-import { freeSpotRightOf } from '../../spawn-spot'
+import { resolveFrame, takePlacementFlags } from '../../spawn-spot'
 import { roles } from '../../state/role-store'
 import { notifyRenderer } from '../../../ipc/notify'
-import { requireTerminalId, workspaceForTerminal } from './context'
+import { requireTerminalId, workspaceForTerminal, resolveLayoutTarget } from './context'
 
 /** Mesmo tamanho do terminal criado pelo diálogo (defaultSize em bridge.ts). */
 const TERMINAL_SIZE = { width: 560, height: 360 }
 
 const USAGE =
-  'error: usage: atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell | --command "cmd"] [--cwd /path] [--role "Role"] [--account "Account"] [--model opus|sonnet|haiku|luna|terra|sol|model-id]'
+  'error: usage: atelier recruit "Name" [--preset claude|codex|antigravity|opencode|shell | --command "cmd"] [--cwd /path] [--role "Role"] [--account "Account"] [--model opus|sonnet|haiku|luna|terra|sol|model-id] [--at x,y]'
 
 /**
  * O modelo vai CONCATENADO num comando que é escrito no PTY do recrutado, então
@@ -104,7 +104,8 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
   const tid = requireTerminalId(terminalId)
   if (!tid) return 'error: missing terminal ID'
 
-  const { rest: args, flags } = takeFlags(argv)
+  const { rest: semPos, placement } = takePlacementFlags(argv)
+  const { rest: args, flags } = takeFlags(semPos)
   if (args.length < 2) return USAGE
 
   const ws = workspaceForTerminal(tid)
@@ -227,8 +228,17 @@ export async function handleRecruit(argv: string[], terminalId: UUID | null): Pr
     recruitedBy: tid
   })
 
-  const spot = freeSpotRightOf(ws, caller, TERMINAL_SIZE)
-  const node = makeCanvasNode({ ...spot, ...TERMINAL_SIZE }, { type: 'terminal', value: content })
+  // `--at` aqui é o que permite montar um canvas de apresentação numa passada:
+  // sem ele o recruta nasce ao lado de quem recrutou e alguém tem que mover
+  // depois — e um Artesão que recruta quatro agentes de uma vez recebe quatro
+  // terminais empilhados na sua própria coluna, longe da moldura de cada um.
+  const lugar = resolveFrame(ws, caller, TERMINAL_SIZE, placement, {
+    find: (nome) => resolveLayoutTarget(ws, caller, tid, nome),
+    displayName: (n) => nodeDisplayName(n.content),
+    floor: [Constants.terminalMinWidth, Constants.terminalMinHeight]
+  })
+  if ('error' in lugar) return lugar.error
+  const node = makeCanvasNode(lugar.frame, { type: 'terminal', value: content })
 
   ws.addNode(node)
   ws.addConnection(tid, node.id)

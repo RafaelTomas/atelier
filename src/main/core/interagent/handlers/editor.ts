@@ -19,9 +19,9 @@ import { makeCanvasNode } from '../../models/workspace'
 import { allowedRoots } from '../../projects/allowed-roots'
 import { readTextFile } from '../../projects/file-ops'
 import { resolveAllowedPath } from '../../projects/fs-access'
-import { freeSpotRightOf } from '../../spawn-spot'
+import { resolveFrame, takePlacementFlags } from '../../spawn-spot'
 import { notifyRenderer } from '../../../ipc/notify'
-import { connectedNodes, findConnectedNode, requireTerminalId, workspaceForTerminal } from './context'
+import { connectedNodes, findConnectedNode, requireTerminalId, workspaceForTerminal, resolveLayoutTarget } from './context'
 
 /** Mesmo tamanho do editor aberto pelo canvas (store.openFileInWorkspace). */
 const EDITOR_SIZE = { width: 620, height: 440 }
@@ -91,9 +91,10 @@ function listEditors(tid: UUID): string {
  * `openFileInWorkspace` no renderer, e quebrá-la aqui deixaria dois editores
  * gravando um sobre o outro.
  */
-async function openEditor(args: string[], tid: UUID): Promise<string> {
+async function openEditor(argv: string[], tid: UUID): Promise<string> {
+  const { rest: args, placement } = takePlacementFlags(argv)
   const raw = args[2]
-  if (!raw) return 'error: usage: atelier editor open <absolute path>'
+  if (!raw) return 'error: usage: atelier editor open <absolute path> [--at x,y]'
 
   const ws = workspaceForTerminal(tid)
   if (!ws) return 'error: no active workspace'
@@ -127,9 +128,14 @@ async function openEditor(args: string[], tid: UUID): Promise<string> {
     return `'${nodeDisplayName(existing.content)}' is already open at ${allowed.path} (${how}).`
   }
 
-  const spot = freeSpotRightOf(ws, caller, EDITOR_SIZE)
+  const lugar = resolveFrame(ws, caller, EDITOR_SIZE, placement, {
+    find: (nome) => resolveLayoutTarget(ws, caller, tid, nome),
+    displayName: (n) => nodeDisplayName(n.content),
+    floor: [240, 160]
+  })
+  if ('error' in lugar) return lugar.error
   const node = makeCanvasNode(
-    { ...spot, ...EDITOR_SIZE },
+    lugar.frame,
     { type: 'codeEditor', value: makeCodeEditorContent(allowed.path) }
   )
   ws.addNode(node)

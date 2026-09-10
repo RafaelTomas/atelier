@@ -158,15 +158,6 @@ section {
   background: var(--amber);
 }
 
-.badge {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 4px 8px;
-}
-
 /* ---------- blocos de código ---------- */
 
 .code-window {

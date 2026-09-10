@@ -1,0 +1,17 @@
+---
+// Cópia do `Sidebar.astro` do Starlight, trocando apenas o sublist padrão
+// pelo `DocsSidebarSublist`, que intercala o "Nesta página" na árvore.
+import SidebarPersister from '@astrojs/starlight/components/SidebarPersister.astro';
+import MobileMenuFooter from 'virtual:starlight/components/MobileMenuFooter';
+import DocsSidebarSublist from './DocsSidebarSublist.astro';
+
+const { sidebar } = Astro.locals.starlightRoute;
+---
+
+<SidebarPersister>
+  <DocsSidebarSublist sublist={sidebar} />
+</SidebarPersister>
+
+<div class="md:sl-hidden">
+  <MobileMenuFooter />
+</div>

@@ -8,7 +8,7 @@ interface Props {
 }
 
 const {
-  title = 'Atelier — Seu ateliê de agentes de IA',
+  title = 'Atelier: seu ateliê de agentes de IA',
   description = 'Um canvas infinito onde Claude, Codex e qualquer CLI de agente trabalham lado a lado.',
 } = Astro.props;
 
@@ -23,6 +23,18 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    {/* is:inline + primeira coisa no <head>: precisa rodar antes do primeiro
+        paint, senão a página pisca no tema errado por um frame. */}
+    <script is:inline>
+      (function () {
+        try {
+          var stored = localStorage.getItem('atelier-theme');
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored);
+          }
+        } catch (e) {}
+      })();
+    </script>
     <!-- O Starlight injeta o favicon nas páginas da doc; estas aqui são páginas
          Astro puras e ficavam sem nenhum. O `.ico` é o fallback de quem não lê
          SVG, e vem depois: o navegador fica com a última declaração que entende. -->

@@ -5,15 +5,29 @@ sidebar:
   order: 1
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 Ao criar um terminal, o diálogo **Novo Terminal** abre com uma aba **Início Rápido** de cinco opções. Qual delas escolher?
 
 ## Os cinco presets
 
-- **Claude Code** — o comando `claude`. Aceita seleção de modelo (`opus`, `sonnet` ou `haiku`) direto no diálogo, e é o único preset com suporte a retomada de sessão: ao reabrir o terminal, dá para escolher continuar uma conversa anterior do Claude em vez de começar do zero.
-- **Codex** — o comando `codex`. Também aceita seleção de modelo, com os aliases próprios do Codex (`luna`, `terra`, `sol`).
-- **Antigravity** — o comando do agente Antigravity, pronto para uso.
-- **OpenCode** — o comando `opencode`.
-- **Shell** — um shell comum, sem agente nenhum. Ideal para rodar comandos, ver logs ou navegar o sistema de arquivos ao lado dos agentes.
+<Tabs syncKey="preset">
+<TabItem label="Claude Code">
+O comando `claude`. Aceita seleção de modelo (`opus`, `sonnet` ou `haiku`) direto no diálogo, e é o único preset com suporte a retomada de sessão: ao reabrir o terminal, dá para escolher continuar uma conversa anterior do Claude em vez de começar do zero.
+</TabItem>
+<TabItem label="Codex">
+O comando `codex`. Também aceita seleção de modelo, com os aliases próprios do Codex (`luna`, `terra`, `sol`).
+</TabItem>
+<TabItem label="Antigravity">
+O comando do agente Antigravity, pronto para uso.
+</TabItem>
+<TabItem label="OpenCode">
+O comando `opencode`.
+</TabItem>
+<TabItem label="Shell">
+Um shell comum, sem agente nenhum. Ideal para rodar comandos, ver logs ou navegar o sistema de arquivos ao lado dos agentes.
+</TabItem>
+</Tabs>
 
 Cada preset já vem com ícone e cor próprios, e você pode trocar os dois na aba **Aparência** do mesmo diálogo — a escolha do preset não prende a aparência do nó.
 

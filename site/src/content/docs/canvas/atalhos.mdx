@@ -5,6 +5,8 @@ sidebar:
   order: 5
 ---
 
+import Atalho from '@components/Atalho.astro';
+
 Referência rápida de todo atalho de teclado do canvas.
 
 ## Navegação
@@ -12,19 +14,19 @@ Referência rápida de todo atalho de teclado do canvas.
 | Atalho | Ação |
 |---|---|
 | Scroll | Pan |
-| `espaço` + arrastar | Pan com a mão |
-| `⌘`/`Ctrl` + scroll | Zoom |
-| `⌘0` | Voltar a 100% de zoom |
+| <Atalho>espaço</Atalho> + arrastar | Pan com a mão |
+| <Atalho>⌘</Atalho>/<Atalho>Ctrl</Atalho> + scroll | Zoom |
+| <Atalho>⌘0</Atalho> | Voltar a 100% de zoom |
 
 ## Seleção e edição
 
 | Atalho | Ação |
 |---|---|
 | Clique | Selecionar um nó |
-| `Shift` + clique | Adicionar à seleção |
+| <Atalho>Shift</Atalho> + clique | Adicionar à seleção |
 | Arrastar no vazio | Seleção em área (marquee) |
-| `Delete` | Apagar a seleção |
-| `⌘/Ctrl` + `Z` | Desfazer |
+| <Atalho>Delete</Atalho> | Apagar a seleção |
+| <Atalho>⌘/Ctrl</Atalho> + <Atalho>Z</Atalho> | Desfazer |
 
 O histórico de desfazer é único — apagar entra nele como qualquer outra ação. `Backspace` deliberadamente **não** apaga a seleção, para evitar exclusão acidental ao digitar.
 
@@ -32,19 +34,19 @@ O histórico de desfazer é único — apagar entra nele como qualquer outra aç
 
 | Atalho | Ferramenta |
 |---|---|
-| `P` | Caneta |
-| `M` | Marca-texto |
-| `E` | Borracha |
-| `V` ou `Esc` | Voltar à ferramenta de seleção |
+| <Atalho>P</Atalho> | Caneta |
+| <Atalho>M</Atalho> | Marca-texto |
+| <Atalho>E</Atalho> | Borracha |
+| <Atalho>V</Atalho> ou <Atalho>Esc</Atalho> | Voltar à ferramenta de seleção |
 
 ## Criação de nós
 
 | Atalho | Ação |
 |---|---|
-| `Esc` | Cancelar o modo "desenhe a área" antes de soltar |
+| <Atalho>Esc</Atalho> | Cancelar o modo "desenhe a área" antes de soltar |
 
 ## Dentro de nós específicos
 
 | Atalho | Onde | Ação |
 |---|---|---|
-| `⌘/Ctrl` + `S` | Editor de código | Salvar o arquivo |
+| <Atalho>⌘/Ctrl</Atalho> + <Atalho>S</Atalho> | Editor de código | Salvar o arquivo |

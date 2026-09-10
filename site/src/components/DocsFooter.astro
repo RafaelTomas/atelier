@@ -11,7 +11,6 @@ import Pagination from 'virtual:starlight/components/Pagination';
 import BrandMark from './BrandMark.astro';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-const badges = ['macOS', 'Windows', 'Linux', 'Electron', 'TypeScript', 'React'];
 ---
 
 <footer class="sl-flex">
@@ -31,10 +30,6 @@ const badges = ['macOS', 'Windows', 'Linux', 'Electron', 'TypeScript', 'React'];
         <b>Atelier</b>
         <span>Seu ateliê de agentes de IA.</span>
       </div>
-    </div>
-
-    <div class="site-footer-badges">
-      {badges.map((badge) => <span class="badge">{badge}</span>)}
     </div>
 
     <div class="site-footer-links">
@@ -91,20 +86,6 @@ const badges = ['macOS', 'Windows', 'Linux', 'Electron', 'TypeScript', 'React'];
     color: var(--text-faint);
   }
 
-  .site-footer-badges {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .badge {
-    font-family: var(--mono);
-    font-size: 10.5px;
-    color: var(--text-dim);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    padding: 4px 8px;
-  }
-
   .site-footer-links {
     display: flex;
     gap: 20px;
@@ -118,10 +99,4 @@ const badges = ['macOS', 'Windows', 'Linux', 'Electron', 'TypeScript', 'React'];
     color: var(--text);
   }
 
-  /* Em tela estreita os selos são ruído: a marca e os links bastam. */
-  @media (max-width: 50rem) {
-    .site-footer-badges {
-      display: none;
-    }
-  }
 </style>

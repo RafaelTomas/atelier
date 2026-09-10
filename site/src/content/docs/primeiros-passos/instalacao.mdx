@@ -5,6 +5,8 @@ sidebar:
   order: 2
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 O Atelier ainda não tem instalador pronto para baixar — hoje você roda o projeto a partir do código-fonte. É rápido: dois comandos e uma espera do `npm install`. Quando sair a primeira versão publicada, ela vai estar em [/download](../../../download/).
 
 ## Requisitos
@@ -33,13 +35,27 @@ O `npm install` compila o `node-pty` — a dependência nativa que dá vida aos 
 
 Se quiser gerar um pacote instalável para a sua própria máquina:
 
+<Tabs syncKey="so">
+<TabItem label="macOS">
 ```bash
 npm run pack:mac      # .dmg + .zip
-npm run pack:win      # instalador NSIS
-npm run pack:linux    # AppImage + .deb
 ```
 
-Sem certificado de assinatura, o macOS pede um clique em botão direito → **Abrir** na primeira execução, e o SmartScreen do Windows avisa até o binário ganhar reputação. Isso é esperado — não é sinal de que algo deu errado no empacotamento.
+Sem certificado de assinatura, o macOS pede um clique em botão direito → **Abrir** na primeira execução. Isso é esperado — não é sinal de que algo deu errado no empacotamento.
+</TabItem>
+<TabItem label="Windows">
+```bash
+npm run pack:win      # instalador NSIS
+```
+
+Sem certificado de assinatura, o SmartScreen do Windows avisa até o binário ganhar reputação. Isso é esperado — não é sinal de que algo deu errado no empacotamento.
+</TabItem>
+<TabItem label="Linux">
+```bash
+npm run pack:linux    # AppImage + .deb
+```
+</TabItem>
+</Tabs>
 
 ## Problemas conhecidos de dependência nativa
 

@@ -1,0 +1,148 @@
+---
+/**
+ * Variante de Terminal.astro que "digita" o próprio conteúdo ao entrar na tela.
+ *
+ * Por que um componente separado em vez de uma prop em Terminal.astro: os usos
+ * existentes de Terminal são blocos de referência para copiar comando — a
+ * animação atrapalharia ali (o leitor quer o texto pronto, não uma encenação).
+ * TerminalAnimado é só para as 1-2 páginas onde o efeito ajuda a pedagogia
+ * (a landing da doc, o tutorial do primeiro canvas).
+ *
+ * O texto final já está no DOM desde o primeiro paint (dentro de <template>) —
+ * a animação só manipula o que é MOSTRADO, nunca o que existe. Isso preserva
+ * cópia de texto, leitor de tela e `prefers-reduced-motion` (ver script).
+ */
+interface Props {
+  title?: string;
+}
+const { title = 'Terminal' } = Astro.props;
+---
+
+<div class="atelier-terminal atelier-terminal-animado not-content">
+  <div class="atelier-terminal-head">
+    <span class="dot" style="background:#e74c3c"></span>
+    <span class="dot" style="background:#d99a2b"></span>
+    <span class="dot" style="background:#2ecc71"></span>
+    <span class="title">{title}</span>
+  </div>
+  <div class="atelier-terminal-body">
+    <template data-terminal-source><slot /></template>
+    <div data-terminal-output aria-hidden="true"></div>
+    <noscript>
+      <slot />
+    </noscript>
+  </div>
+</div>
+
+<style>
+  .atelier-terminal {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    margin: 1.5rem 0;
+  }
+
+  .atelier-terminal-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-soft);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .atelier-terminal-head .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+  }
+
+  .atelier-terminal-head .title {
+    margin-left: 4px;
+  }
+
+  .atelier-terminal-body {
+    padding: 12px 14px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.8;
+    color: #dcdce2;
+    background: #101014;
+  }
+
+  .atelier-terminal-body :global(.prompt) {
+    color: var(--green);
+  }
+  .atelier-terminal-body :global(.dim) {
+    color: var(--text-faint);
+  }
+
+  /* Enquanto o JS não rodou (ou não roda, ex: crawler), o <template> não
+     renderiza nada e o <noscript> cobre o caso sem JS — evita corpo vazio. */
+  [data-terminal-output] {
+    white-space: pre-wrap;
+  }
+  .atelier-terminal-animado .atelier-terminal-body:has([data-terminal-output]:empty) noscript {
+    display: none;
+  }
+</style>
+
+<script>
+  const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const CHARS_PER_TICK = 2;
+  const TICK_MS = 18;
+
+  function typeInto(container: HTMLElement, source: HTMLTemplateElement) {
+    const full = source.content.cloneNode(true) as DocumentFragment;
+    const fullText = full.textContent ?? '';
+
+    if (REDUCED_MOTION) {
+      container.replaceChildren(full);
+      return;
+    }
+
+    // Digita sobre texto puro (sem preservar spans .prompt/.dim durante a
+    // animação — cor chega só no frame final) para não ter que recalcular
+    // fronteiras de elemento a cada tick. É o final que importa ficar certo.
+    let shown = 0;
+    const timer = setInterval(() => {
+      shown += CHARS_PER_TICK;
+      if (shown >= fullText.length) {
+        clearInterval(timer);
+        container.replaceChildren(source.content.cloneNode(true));
+        return;
+      }
+      container.textContent = fullText.slice(0, shown);
+    }, TICK_MS);
+  }
+
+  const cards = document.querySelectorAll<HTMLElement>('.atelier-terminal-animado');
+
+  if (cards.length === 0) {
+    // nada a fazer
+  } else if (!('IntersectionObserver' in window)) {
+    cards.forEach((card) => {
+      const source = card.querySelector<HTMLTemplateElement>('[data-terminal-source]');
+      const output = card.querySelector<HTMLElement>('[data-terminal-output]');
+      if (source && output) typeInto(output, source);
+    });
+  } else {
+    const observer = new IntersectionObserver(
+      (entries, obs) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const card = entry.target as HTMLElement;
+          const source = card.querySelector<HTMLTemplateElement>('[data-terminal-source]');
+          const output = card.querySelector<HTMLElement>('[data-terminal-output]');
+          if (source && output) typeInto(output, source);
+          obs.unobserve(card);
+        }
+      },
+      { threshold: 0.4 }
+    );
+    cards.forEach((card) => observer.observe(card));
+  }
+</script>

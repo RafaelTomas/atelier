@@ -1,18 +1,61 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="100 100 824 824" fill="none">
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  GERADO por scripts/make-icon.cjs a partir de build/icon.svg — não edite.
+
+  É o mesmo desenho com o viewBox recortado no tile: a margem de 100px da
+  grade do macOS deixaria o favicon menor que os vizinhos na aba.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="824" height="824" viewBox="100 100 824 824" fill="none">
   <defs>
-    <linearGradient id="a" x1="24" y1="100" x2="100" y2="20" gradientUnits="userSpaceOnUse">
+    <!--
+      userSpaceOnUse mede no espaço do <g>, ou seja na grade de 120 — as
+      coordenadas abaixo são as do desenho, não as do tile.
+    -->
+    <linearGradient id="g" x1="24" y1="100" x2="100" y2="20" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#2E7BF6"/>
       <stop offset="1" stop-color="#3BD44A"/>
     </linearGradient>
+
+    <radialGradient id="tileGlow" cx="0.28" cy="0.12" r="1.05">
+      <stop offset="0" stop-color="#1E2A3A"/>
+      <stop offset="1" stop-color="#0A0C10"/>
+    </radialGradient>
+
+    <filter id="soft" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+
+    <!-- O glow é generoso: sem clip ele escapa do tile e vira halo solto -->
+    <clipPath id="tileClip">
+      <rect x="100" y="100" width="824" height="824" rx="184"/>
+    </clipPath>
   </defs>
-  <rect x="100" y="100" width="824" height="824" rx="184" fill="#0e0f12"/>
-  <rect x="101.5" y="101.5" width="821" height="821" rx="182.5" fill="none" stroke="#2A3341" stroke-width="3"/>
-  <g transform="translate(236 216) scale(4.9)" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <g stroke="url(#a)" stroke-width="11">
+
+  <!-- Tile: grade do macOS (824 de lado, raio 22,37%) -->
+  <rect x="100" y="100" width="824" height="824" rx="184" fill="url(#tileGlow)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="182.5" fill="none"
+        stroke="#2A3341" stroke-width="3"/>
+
+  <!--
+    Arte na grade original de 120. O translate centra a bbox real do desenho
+    (centro em 60,61 daquela grade, contando meio-traço) no meio do tile — sem
+    isso o "A" desce, porque o path não é simétrico na própria caixa. A escala
+    deixa o desenho em ~74% do tile: o glow precisa de ar em volta, senão
+    encosta na borda arredondada e o "A" parece grande demais no Dock.
+  -->
+  <g clip-path="url(#tileClip)">
+  <g transform="translate(36.86 28.94) scale(7.919)" fill="none"
+     stroke-linecap="round" stroke-linejoin="round">
+    <g opacity="0.55" filter="url(#soft)" stroke="url(#g)" stroke-width="11">
+      <path d="M28 94 L60 28 L92 94"/>
+      <path d="M42 68 L78 68"/>
+    </g>
+    <g stroke="url(#g)" stroke-width="11">
       <path d="M28 94 L60 28 L92 94"/>
       <path d="M42 68 L78 68"/>
     </g>
     <circle cx="28" cy="94" r="5.5" fill="#2E7BF6"/>
     <circle cx="92" cy="94" r="5.5" fill="#3BD44A"/>
+  </g>
   </g>
 </svg>

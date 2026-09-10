@@ -20,9 +20,40 @@ const { join, resolve } = require('node:path')
 const ROOT = resolve(__dirname, '..')
 const SVG = join(ROOT, 'build', 'icon.svg')
 const PNG = join(ROOT, 'build', 'icon.png')
+const FAVICON = join(ROOT, 'site', 'public', 'favicon.svg')
 const SIZE = 1024
 
+/**
+ * O favicon do site é o MESMO desenho, sem a margem do macOS.
+ *
+ * A grade de 824 dentro de 1024 existe porque o Dock espera essa folga. Numa
+ * aba de navegador ela vira ~10% de vazio em cada lado, e o ícone aparece
+ * visivelmente menor que os vizinhos. Recortar o `viewBox` no tile resolve sem
+ * tocar em uma linha do desenho.
+ *
+ * Sai daqui, e não de uma cópia feita à mão, porque duas cópias do mesmo SVG
+ * divergem no primeiro ajuste que alguém fizer só numa delas. Roda na fase 1:
+ * é transformação de texto, não precisa do Chromium.
+ */
+function writeSiteFavicon() {
+  const svg = readFileSync(SVG, 'utf8')
+  const original = 'width="1024" height="1024" viewBox="0 0 1024 1024"'
+  if (!svg.includes(original)) {
+    throw new Error(`o <svg> de build/icon.svg mudou de forma: esperava ${original}`)
+  }
+  const cropped = svg.replace(original, 'width="824" height="824" viewBox="100 100 824 824"')
+
+  // O cabeçalho do original diz "editou aqui? rode npm run icon", e nesta cópia
+  // isso seria mentira: editar o arquivo gerado não muda nada, e o próximo
+  // `npm run icon` apagaria a edição sem avisar.
+  const aviso = `<!--\n  GERADO por scripts/make-icon.cjs a partir de build/icon.svg — não edite.\n\n  É o mesmo desenho com o viewBox recortado no tile: a margem de 100px da\n  grade do macOS deixaria o favicon menor que os vizinhos na aba.\n-->`
+  writeFileSync(FAVICON, cropped.replace(/<!--[\s\S]*?-->/, aviso))
+  console.log('favicon do site:', FAVICON)
+}
+
 if (!process.versions.electron) {
+  writeSiteFavicon()
+
   // Fase 1: estamos no node comum — reexecuta dentro do Electron.
   const electronPath = require('electron')
   const child = spawn(electronPath, [__filename], {

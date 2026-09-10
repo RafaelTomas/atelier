@@ -29,8 +29,13 @@ stages:
     # Dentro do projeto para o cache do GitLab alcançar: o padrão fica em ~/.cache,
     # que morre com o contêiner, e baixar o Electron inteiro a cada job é minuto
     # de runner jogado fora.
-    ELECTRON_CACHE: .cache/electron
-    ELECTRON_BUILDER_CACHE: .cache/electron-builder
+    #
+    # ABSOLUTO, e não relativo: ao descompactar o fpm, o electron-builder roda o
+    # 7za com o cwd JÁ dentro do diretório de cache e passa o mesmo caminho de
+    # novo. Relativo, isso vira `.cache/.../fpm/.cache/.../fpm/x.7z`, e o job
+    # morre com "No more files" — que não se parece nem um pouco com a causa.
+    ELECTRON_CACHE: $CI_PROJECT_DIR/.cache/electron
+    ELECTRON_BUILDER_CACHE: $CI_PROJECT_DIR/.cache/electron-builder
   cache:
     key:
       files:

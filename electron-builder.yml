@@ -21,11 +21,23 @@ extraResources:
 asarUnpack:
   - '**/node_modules/node-pty/**'
 
+# Só zip, nos três sistemas.
+#
+# Nada de .dmg, .exe, .AppImage ou .deb: sem Developer ID da Apple e sem
+# certificado OV/EV, um instalador só acrescenta um passo que o sistema vai
+# bloquear de qualquer jeito. O zip é o mesmo app, com o mesmo aviso de
+# segurança, e sem a cerimônia — descompacta e roda.
+#
+# O `artifactName` cita o sistema em TODOS eles, e não é cosmético: o padrão do
+# alvo zip é `${name}-${version}.${ext}`, sem o sistema. Os três jobs subiriam
+# `atelier-0.1.0.zip` para a mesma versão do Package Registry e um sobrescreveria
+# o outro — a release sairia com três links para o mesmo binário.
+
 mac:
   icon: build/icon.png
   target:
-    - dmg
     - zip
+  artifactName: ${name}-${version}-mac-${arch}.${ext}
   category: public.app-category.developer-tools
   # Sem Developer ID a distribuição sai ad-hoc, igual ao app nativo hoje
   identity: null
@@ -34,27 +46,17 @@ mac:
 win:
   icon: build/icon.png
   target:
-    # + zip portátil, sem instalador, para quem não quer/pode instalar
-    - nsis
     - zip
-  # Sem certificado OV/EV o SmartScreen bloqueia até ganhar reputação
+  artifactName: ${name}-${version}-win-${arch}.${ext}
+  # Grava ícone e metadados DENTRO do Atelier.exe que vai no zip; exige wine fora
+  # do Windows. Sem certificado OV/EV o SmartScreen bloqueia até ganhar reputação.
   signAndEditExecutable: true
 
 linux:
   icon: build/icon.png
   target:
-    # + zip, alternativa sem AppImage/deb (ex.: distros que não suportam nenhum dos dois)
-    - AppImage
-    - deb
     - zip
+  artifactName: ${name}-${version}-linux-${arch}.${ext}
   category: Development
-
-nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
-  # O padrão é "${productName} Setup ${version}.${ext}", com espaços. O nome vai
-  # para o Package Registry do GitLab, que só aceita [A-Za-z0-9._+-] e responde
-  # 400 "file_name is invalid" — sem dizer qual caractere ofende.
-  artifactName: ${name}-${version}-setup.${ext}
 
 publish: null

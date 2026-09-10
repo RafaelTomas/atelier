@@ -184,13 +184,17 @@ function releaseNotes() {
   // Quais sistemas realmente saíram: o job de macOS só roda se a instância tiver
   // um runner macOS, então a lista é do que foi empacotado, não do que se
   // pretendia empacotar.
+  //
+  // O reconhecimento é pelo NOME, e não pela extensão: desde que a release
+  // passou a publicar só zip, os três terminam igual. Quem põe o sistema no
+  // nome é o `artifactName` de cada alvo em electron-builder.yml.
   const nomes = assets.map((a) => a.name)
   const sistemas = [
-    nomes.some((n) => /\.dmg$/i.test(n)) && 'macOS',
-    nomes.some((n) => /\.exe$/i.test(n)) && 'Windows',
-    nomes.some((n) => /\.(AppImage|deb)$/i.test(n)) && 'Linux'
+    nomes.some((n) => /-mac-/i.test(n)) && 'macOS',
+    nomes.some((n) => /-win-/i.test(n)) && 'Windows',
+    nomes.some((n) => /-linux-/i.test(n)) && 'Linux'
   ].filter(Boolean)
-  const cabecalho = `Instaladores para ${sistemas.join(', ') || 'nenhum sistema'} — \`${tag}\`.`
+  const cabecalho = `Atelier ${tag} para ${sistemas.join(', ') || 'nenhum sistema'} — um zip por sistema, sem instalador.`
 
   try {
     const previous = git(['describe', '--tags', '--abbrev=0', `${tag}^`])

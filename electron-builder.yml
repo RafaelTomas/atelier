@@ -52,5 +52,9 @@ linux:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # O padrão é "${productName} Setup ${version}.${ext}", com espaços. O nome vai
+  # para o Package Registry do GitLab, que só aceita [A-Za-z0-9._+-] e responde
+  # 400 "file_name is invalid" — sem dizer qual caractere ofende.
+  artifactName: ${name}-${version}-setup.${ext}
 
 publish: null

@@ -46,6 +46,12 @@ const PACKAGE = 'atelier'
 // diferencial, que este app não usa.
 const INSTALLERS = /\.(AppImage|deb|zip|dmg|exe)$/i
 
+// O que o Package Registry aceita como nome de arquivo. Um espaço — o padrão do
+// NSIS era "Atelier Setup 0.1.0.exe" — volta como 400 `file_name is invalid`,
+// sem dizer qual arquivo nem qual caractere. A checagem aqui em cima transforma
+// isso numa mensagem que diz o que fazer.
+const NOME_ACEITO = /^[A-Za-z0-9._+-]+$/
+
 const dryRun = process.argv.includes('--dry-run')
 const uploadIndex = process.argv.indexOf('--upload')
 const platform = uploadIndex === -1 ? null : process.argv[uploadIndex + 1]
@@ -79,6 +85,13 @@ const packageBase = `${apiUrl}/projects/${projectId}/packages/generic/${PACKAGE}
  * limite de memória do runner.
  */
 async function upload(name) {
+  if (!NOME_ACEITO.test(name)) {
+    throw new Error(
+      `"${name}" não serve como nome no Package Registry: só [A-Za-z0-9._+-]. ` +
+        'Ajuste o `artifactName` do alvo em electron-builder.yml.'
+    )
+  }
+
   const path = join(DIST, name)
   const { size } = await stat(path)
   const url = `${packageBase}/${encodeURIComponent(name)}`

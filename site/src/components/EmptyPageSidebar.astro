@@ -1,0 +1,8 @@
+---
+// Substitui o PageSidebar padrão do Starlight (TOC na coluna direita +
+// dropdown "Nesta página" no mobile) por nada: o TOC da página atual já
+// entra embutido na árvore esquerda via DocsSidebarSublist. Manter os dois
+// duplicava o mesmo conteúdo — e o texto "Nesta página" vazava mesmo com o
+// `.right-sidebar-container { display: none }` do atelier.css, porque
+// display:none esconde visualmente mas não tira o nó do DOM.
+---

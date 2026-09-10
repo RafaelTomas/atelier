@@ -1,0 +1,25 @@
+---
+// Réplica mínima de `TableOfContentsList.astro` do Starlight: mesma recursão
+// de heading > filhos, mas sem o CSS embutido — o visual vem do
+// `atelier.css`, junto com o resto da árvore da sidebar.
+import type { TocItem } from '../../node_modules/@astrojs/starlight/dist/utils/generateToC.js';
+
+interface Props {
+  toc: TocItem[];
+}
+
+const { toc } = Astro.props;
+---
+
+<ul>
+  {
+    toc.map((heading) => (
+      <li>
+        <a href={'#' + heading.slug}>
+          <span>{heading.text}</span>
+        </a>
+        {heading.children.length > 0 && <Astro.self toc={heading.children} />}
+      </li>
+    ))
+  }
+</ul>

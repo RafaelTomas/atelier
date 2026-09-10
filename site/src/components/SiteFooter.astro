@@ -11,7 +11,6 @@ interface Props {
 
 const { markId = 'footer' } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-const badges = ['macOS', 'Windows', 'Linux', 'Electron', 'TypeScript', 'React'];
 ---
 
 <footer>
@@ -22,10 +21,6 @@ const badges = ['macOS', 'Windows', 'Linux', 'Electron', 'TypeScript', 'React'];
         <b>Atelier</b>
         <span>Seu ateliê de agentes de IA.</span>
       </div>
-    </div>
-
-    <div class="badges">
-      {badges.map((badge) => <span class="badge">{badge}</span>)}
     </div>
 
     <div class="footer-links">
@@ -62,11 +57,6 @@ const badges = ['macOS', 'Windows', 'Linux', 'Electron', 'TypeScript', 'React'];
     display: block;
     font-size: 12px;
     color: var(--text-faint);
-  }
-  .badges {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
   }
   .footer-links {
     display: flex;

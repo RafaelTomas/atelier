@@ -5,6 +5,13 @@ sidebar:
   order: 2
 ---
 
+import No from '@components/No.astro';
+import Terminal from '@components/Terminal.astro';
+
+<No titulo="Nota">
+  Um arquivo .md de verdade no canvas — leitura e escrita nas duas direções.
+</No>
+
 Quando você precisa dar contexto por escrito a um ou mais agentes ao mesmo tempo, a nota é o nó certo.
 
 ## Para que serve
@@ -19,8 +26,15 @@ Botão direito no vazio do canvas cria uma nota rápida — o atalho mais curto 
 
 A nota é o único nó com **escrita livre nas duas direções** — o agente lê e escreve o arquivo inteiro, não só metadados:
 
-- **`atelier note read "Nota" [offset] [limit]`** — o conteúdo da nota, com offset e limite em linhas para ler só um trecho.
-- **`atelier note write "Nota" "conteúdo"`** — substitui o conteúdo inteiro.
-- **`atelier note edit "Nota" "velho" "novo"`** — troca um trecho pontual sem reescrever o arquivo todo.
+<Terminal title="terminal ↔ nota">
+<span class="prompt">$</span> atelier note read "Nota" [offset] [limit]
+<span class="dim"># conteúdo da nota, com offset/limite em linhas</span>
+
+<span class="prompt">$</span> atelier note write "Nota" "conteúdo"
+<span class="dim"># substitui o conteúdo inteiro</span>
+
+<span class="prompt">$</span> atelier note edit "Nota" "velho" "novo"
+<span class="dim"># troca um trecho pontual sem reescrever o arquivo todo</span>
+</Terminal>
 
 Isso torna a nota o lugar natural para uma spec compartilhada entre dois agentes: os dois leem e escrevem o mesmo arquivo, e cada edição de um lado fica visível para o outro.

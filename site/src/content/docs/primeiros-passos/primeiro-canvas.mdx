@@ -5,6 +5,8 @@ sidebar:
   order: 3
 ---
 
+import TerminalAnimado from '@components/TerminalAnimado.astro';
+
 Com o Atelier aberto, este é o caminho mais curto do canvas vazio até dois agentes trabalhando juntos. Leva uns dois minutos.
 
 ## 1. Crie dois terminais
@@ -37,10 +39,10 @@ Leia a nota "Spec" e peça ao Codex para revisar o que você implementou.
 
 O agente vai resolver isso sozinho, rodando:
 
-```bash
-atelier note read "Spec"
-atelier ask "Codex" "revisa o que implementei"
-```
+<TerminalAnimado title="Claude">
+<span class="prompt">$</span> atelier note read "Spec"
+<span class="prompt">$</span> atelier ask "Codex" "revisa o que implementei"
+</TerminalAnimado>
 
 Ele não precisa que você explique o CLI `atelier` — o comando já está no `PATH` dele, e a skill de uso é injetada automaticamente no momento em que o cabo é criado.
 

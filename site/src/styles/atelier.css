@@ -1,11 +1,18 @@
 /*
  * Tema do site — landing, download e documentação.
  *
- * Os tokens de :root são os mesmos da landing (nada de cor nova aqui). O bloco
- * seguinte traduz esses tokens para as variáveis do Starlight, e o resto do
- * arquivo ajusta o tema de docs para ter a mesma cara da landing: barra de
- * 64px com vidro fosco, tipografia apertada, superfícies escuras e o azul
- * usado com parcimônia — só em acento, nunca em bloco.
+ * Os tokens de :root são o tema DARK (o padrão quando não há preferência de
+ * sistema nem escolha manual). O claro entra por dois caminhos que devem ficar
+ * em sincronia:
+ *   1. `prefers-color-scheme: light` quando não há escolha manual salva
+ *      (nenhum `data-theme` no <html>) — modo "sistema".
+ *   2. `[data-theme='light']`, setado pelo toggle (ThemeToggle.astro) via
+ *      localStorage — escolha manual, independe do sistema.
+ * O bloco `[data-theme='dark']` existe para o caso inverso: escolha manual de
+ * dark num sistema com preferência clara. O bloco seguinte traduz os tokens
+ * para as variáveis do Starlight, e o resto do arquivo ajusta o tema de docs
+ * para ter a mesma cara da landing: barra de 64px com vidro fosco, tipografia
+ * apertada e o azul usado com parcimônia — só em acento, nunca em bloco.
  */
 :root {
   --bg: #17171a;
@@ -23,19 +30,94 @@
   --amber: #d99a2b;
   --grad-start: #2E7BF6;
   --grad-end: #3BD44A;
+  --nav-bg-glass: rgb(23 23 26 / 0.82);
+  --accent-low: #0d2a4a;
+  --accent-high: #aad2ff;
   --r-sm: 4px;
   --r-md: 6px;
   --r-lg: 10px;
   --r-xl: 16px;
   --r-pill: 999px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, system-ui, sans-serif;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  color-scheme: dark;
 }
 
-/* ---------- Starlight: dark-only, mapeado para os tokens do Atelier ---------- */
+/* Modo "sistema": só se aplica quando não há escolha manual (:not([data-theme])). */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #ffffff;
+    --surface: #f7f7f8;
+    --surface-2: #eeeeef;
+    --surface-3: #e4e4e7;
+    --border: #d8d8dc;
+    --border-soft: #e8e8ec;
+    --text: #17171a;
+    --text-dim: #55555c;
+    --text-faint: #86868f;
+    --accent: #007aff;
+    --grid: #e4e4e7;
+    --green: #1ea34d;
+    --amber: #a3711f;
+    --grad-start: #2E7BF6;
+    --grad-end: #3BD44A;
+    --nav-bg-glass: rgb(255 255 255 / 0.82);
+    --accent-low: #e3f0ff;
+    --accent-high: #0a58ca;
+    color-scheme: light;
+  }
+}
 
-:root,
+/* Escolha manual clara, via toggle (independe do prefers-color-scheme). */
 :root[data-theme='light'] {
+  --bg: #ffffff;
+  --surface: #f7f7f8;
+  --surface-2: #eeeeef;
+  --surface-3: #e4e4e7;
+  --border: #d8d8dc;
+  --border-soft: #e8e8ec;
+  --text: #17171a;
+  --text-dim: #55555c;
+  --text-faint: #86868f;
+  --accent: #007aff;
+  --grid: #e4e4e7;
+  --green: #1ea34d;
+  --amber: #a3711f;
+  --grad-start: #2E7BF6;
+  --grad-end: #3BD44A;
+  --nav-bg-glass: rgb(255 255 255 / 0.82);
+  --accent-low: #e3f0ff;
+  --accent-high: #0a58ca;
+  color-scheme: light;
+}
+
+/* Escolha manual escura — repete o :root original para o caso de o sistema
+   preferir claro, mas o usuário escolher dark explicitamente. */
+:root[data-theme='dark'] {
+  --bg: #17171a;
+  --surface: #1b1b1f;
+  --surface-2: #232328;
+  --surface-3: #2a2a30;
+  --border: #3a3a42;
+  --border-soft: #2a2a30;
+  --text: #ececf0;
+  --text-dim: #9a9aa4;
+  --text-faint: #6b6b74;
+  --accent: #007aff;
+  --grid: #26262c;
+  --green: #2ecc71;
+  --amber: #d99a2b;
+  --grad-start: #2E7BF6;
+  --grad-end: #3BD44A;
+  --nav-bg-glass: rgb(23 23 26 / 0.82);
+  --accent-low: #0d2a4a;
+  --accent-high: #aad2ff;
+  color-scheme: dark;
+}
+
+/* ---------- Starlight: claro/escuro, mapeado para os tokens do Atelier ---------- */
+
+:root {
   --sl-color-white: var(--text);
   --sl-color-gray-1: #d6d6da;
   --sl-color-gray-2: var(--text-dim);
@@ -46,16 +128,16 @@
   --sl-color-gray-7: var(--surface-3);
   --sl-color-black: var(--bg);
 
-  --sl-color-accent-low: #0d2a4a;
+  --sl-color-accent-low: var(--accent-low);
   --sl-color-accent: var(--accent);
-  --sl-color-accent-high: #aad2ff;
+  --sl-color-accent-high: var(--accent-high);
 
   --sl-color-text: var(--text);
   --sl-color-text-accent: var(--accent);
   --sl-color-text-invert: var(--bg);
 
   --sl-color-bg: var(--bg);
-  --sl-color-bg-nav: rgb(23 23 26 / 0.82);
+  --sl-color-bg-nav: var(--nav-bg-glass);
   --sl-color-bg-sidebar: var(--bg);
   --sl-color-bg-inline-code: var(--surface-2);
   --sl-color-bg-accent: var(--accent);
@@ -86,11 +168,6 @@
   --sl-text-h5: 0.92rem;
 }
 
-/* Site dark-only: mesmo bloco vale se o navegador força prefers-color-scheme */
-:root {
-  color-scheme: dark;
-}
-
 body {
   background: var(--sl-color-bg);
   -webkit-font-smoothing: antialiased;
@@ -101,17 +178,20 @@ body {
 /* Vidro fosco igual ao `.nav` da landing — a cor sai de --sl-color-bg-nav. */
 .header {
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border-soft);
 }
 
-/* Busca no formato da `.eyebrow`: pílula de superfície com borda fina. */
+/* Busca no formato da `.eyebrow`: pílula de superfície com borda fina.
+   Largura própria (não só o mínimo do conteúdo) para não ficar espremida
+   entre a marca e as ações do canto direito. */
 site-search button[data-open-modal] {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   color: var(--text-faint);
   font-size: 13px;
-  height: 34px;
+  height: 38px;
+  width: 220px;
+  padding-inline: 12px;
 }
 site-search button[data-open-modal]:hover {
   border-color: #4a4a54;
@@ -146,28 +226,33 @@ site-search kbd {
 /* ---------- barra lateral ---------- */
 
 .sidebar-pane {
-  border-inline-end: 1px solid var(--border-soft);
+  border-inline-end: none;
 }
 
 /* Rótulo de grupo no formato do `.kicker` da landing, mas apagado: quem
-   precisa saltar é o item atual, não o título da seção. */
+   precisa saltar é o item atual, não o título da seção.
+   Sans de sistema, não mono: mono em caixa alta é a fonte-padrão de
+   qualquer sidebar de dashboard de IA — aqui é só texto de UI. */
 .sidebar-content .top-level > li > details > summary > .group-label > .large,
 .sidebar-content .top-level > li > .group-label > .large,
 .sidebar-content summary .large {
-  font-family: var(--mono);
-  font-size: 10.5px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--text-faint);
 }
 
 .sidebar-content ul.top-level > li + li {
-  margin-top: 1.5rem;
+  margin-top: 0.85rem;
 }
 
-/* Os links: dim por padrão, claros no hover — nada de bloco de cor. */
+/* Os links: dim por padrão, claros no hover — nada de bloco de cor.
+   Fonte de sistema explícita (não a --sans genérica): sem Inter, a
+   tipografia de menu de qualquer dashboard de IA atual. */
 .sidebar-content a {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   font-size: 13.5px;
   line-height: 1.45;
   color: var(--text-dim);
@@ -189,15 +274,45 @@ site-search kbd {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-/* A árvore usa uma guia fina em vez da borda grossa padrão. */
-.sidebar-content ul ul {
-  border-inline-start: 1px solid var(--border-soft);
+/* Sem rótulo "Nesta página" acima (fica só no aria-label, para leitor de
+   tela): a lista de links entra direto, sem details/summary — o TOC da
+   página atual não recolhe. */
+.current-page-toc {
+  margin-block: 0.35rem 0.85rem;
+  margin-inline-start: var(--sl-sidebar-item-padding-inline, 0.5rem);
+  padding-inline-start: var(--sl-sidebar-item-padding-inline, 0.5rem);
+}
+.current-page-toc ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.current-page-toc li > ul {
+  margin-inline-start: 0.75rem;
+}
+.current-page-toc a {
+  display: block;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-faint);
+  text-decoration: none;
+  border-radius: var(--r-sm);
+  padding-block: 0.3em;
+}
+.current-page-toc a:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.current-page-toc a[aria-current='true'] {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* ---------- título e conteúdo ---------- */
 
 .content-panel + .content-panel {
-  border-top: 1px solid var(--border-soft);
+  border-top: none;
 }
 
 .sl-markdown-content {
@@ -339,32 +454,6 @@ site-search kbd {
 
 .sl-markdown-content hr:not(:where(.not-content *)) {
   border-color: var(--border-soft);
-}
-
-/* ---------- sumário da direita ---------- */
-
-.right-sidebar-panel h2 {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-faint);
-}
-.right-sidebar-panel a {
-  font-size: 13px;
-  color: var(--text-dim);
-  text-decoration: none;
-}
-.right-sidebar-panel a:hover {
-  color: var(--text);
-}
-.right-sidebar-panel a[aria-current='true'] {
-  color: var(--accent);
-  font-weight: 600;
-}
-.right-sidebar {
-  border-inline-start: 1px solid var(--border-soft);
 }
 
 /* ---------- paginação ---------- */

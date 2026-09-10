@@ -8,7 +8,7 @@ interface Props {
 }
 
 const {
-  title = 'Atelier — Seu ateliê de agentes de IA',
+  title = 'Atelier: seu ateliê de agentes de IA',
   description = 'Um canvas infinito onde Claude, Codex e qualquer CLI de agente trabalham lado a lado.',
 } = Astro.props;
 ---
@@ -20,6 +20,18 @@ const {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    {/* is:inline + primeira coisa no <head>: precisa rodar antes do primeiro
+        paint, senão a página pisca no tema errado por um frame. */}
+    <script is:inline>
+      (function () {
+        try {
+          var stored = localStorage.getItem('atelier-theme');
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <slot />

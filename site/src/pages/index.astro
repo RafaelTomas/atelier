@@ -16,7 +16,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       <div>
         <span class="eyebrow"><span class="dot"></span>CANVAS MULTI-AGENTE &middot; LOCAL-FIRST &middot; MULTIPLATAFORMA</span>
         <h1>Seu <span class="grad">ateliê</span> de agentes de IA.</h1>
-        <p class="lede">Um canvas infinito onde Claude, Codex e qualquer CLI de agente trabalham lado a lado — e conversam entre si sem você precisar copiar e colar contexto de uma janela pra outra.</p>
+        <p class="lede">Um canvas infinito onde Claude, Codex e qualquer CLI de agente trabalham lado a lado e conversam entre si, sem você precisar copiar e colar contexto de uma janela pra outra.</p>
         <div class="cta-row">
           <a class="btn btn-primary btn-lg" href={`${base}/download`}>Baixar o Atelier</a>
           <a class="btn btn-ghost btn-lg" href="#como-funciona">Como funciona</a>
@@ -58,7 +58,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <div class="wrap proof-inner">
       <div class="proof-item">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M8 2v4M16 2v4M3 10h18"></path></svg>
-        127.0.0.1 — nada sai da máquina
+        127.0.0.1: nada sai da máquina
       </div>
       <div class="proof-item">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M9 21v-4h6v4"></path></svg>
@@ -80,14 +80,14 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <div class="wrap problem-grid">
       <div>
         <p class="kicker">O problema</p>
-        <h2>Três agentes rodando ao mesmo tempo viram três janelas — e você no meio.</h2>
+        <h2>Três agentes rodando ao mesmo tempo viram três janelas, e você no meio.</h2>
         <p class="section-lede">Rodar Claude, Codex e mais um agente hoje significa três terminais separados, e você virando o roteador humano: lê a saída de um, resume, cola no outro, espera, traz de volta. O trabalho de coordenação cresce mais rápido que o trabalho em si.</p>
-        <p class="section-lede">O Atelier tira você desse caminho. Os agentes ficam num canvas espacial, você liga um no outro com um cabo — e eles passam a se falar direto, sem você no meio.</p>
+        <p class="section-lede">O Atelier tira você desse caminho. Os agentes ficam num canvas espacial, você liga um no outro com um cabo, e eles passam a se falar direto, sem você no meio.</p>
       </div>
       <div class="term-block">
         <div><span class="who">Claude</span> $ atelier ask "Codex" "revisa o diff em src/auth"</div>
         <div><span class="who2">Codex</span>&nbsp; $ atelier note read "Spec"</div>
-        <div style="color:#6b6b74;margin-top:10px">&gt; cada nó é um processo de verdade —<br>&nbsp;&nbsp;terminais são PTYs, notas são arquivos<br>&nbsp;&nbsp;.md em disco. nada é simulado.</div>
+        <div style="color:#6b6b74;margin-top:10px">&gt; cada nó é um processo de verdade:<br>&nbsp;&nbsp;terminais são PTYs, notas são arquivos<br>&nbsp;&nbsp;.md em disco. nada é simulado.</div>
       </div>
     </div>
   </section>
@@ -116,9 +116,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       <div>
         <p class="kicker">Como funciona</p>
         <h2>O cabo não é decoração. É a permissão.</h2>
-        <p class="section-lede">Um agente só enxerga e conversa com aquilo em que está ligado — nunca o canvas inteiro. É o que faz o alcance de cada agente ser óbvio de olhar.</p>
+        <p class="section-lede">Um agente só enxerga e conversa com aquilo em que está ligado, nunca o canvas inteiro. É o que faz o alcance de cada agente ser óbvio de olhar.</p>
         <ul class="cable-steps">
-          <li><span class="step-num">1</span><span class="step-text"><b>Ligue.</b><span>Clique no ⇄ no cabeçalho de um nó, depois no destino — o cabo tracejado prende no alvo.</span></span></li>
+          <li><span class="step-num">1</span><span class="step-text"><b>Ligue.</b><span>Clique no ⇄ no cabeçalho de um nó, depois no destino: o cabo tracejado prende no alvo.</span></span></li>
           <li><span class="step-num">2</span><span class="step-text"><b>Peça.</b><span>"Leia a nota Spec e peça ao Codex pra revisar." O agente usa <code style="font-family:var(--mono);color:var(--text)">atelier note read</code> e <code style="font-family:var(--mono);color:var(--text)">atelier ask</code> sozinho.</span></span></li>
           <li><span class="step-num">3</span><span class="step-text"><b>Observe.</b><span>Veja os dois nós trabalharem, cada um na sua tela, sem precisar perguntar nada a ninguém.</span></span></li>
         </ul>
@@ -131,7 +131,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <div class="wrap">
       <p class="kicker" style="text-align:center">Os nós</p>
       <h2 style="text-align:center;max-width:36ch;margin-left:auto;margin-right:auto">Um nó para cada coisa que um agente precisa tocar</h2>
-      <p class="section-lede" style="text-align:center;margin-left:auto;margin-right:auto">Nada é simulado: cada nó é um recurso de verdade — um processo, um arquivo, uma sessão de navegador — que o agente lê pelo CLI <code style="font-family:var(--mono);color:var(--text)">atelier</code>.</p>
+      <p class="section-lede" style="text-align:center;margin-left:auto;margin-right:auto">Nada é simulado: cada nó é um recurso de verdade (um processo, um arquivo, uma sessão de navegador) que o agente lê pelo CLI <code style="font-family:var(--mono);color:var(--text)">atelier</code>.</p>
 
       <div class="feat-grid">
         <div class="feat-card">
@@ -142,32 +142,32 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <div class="feat-card">
           <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 3h9l3 3v15H6z"></path><path d="M15 3v3h3M9 12h6M9 16h6"></path></svg></div>
           <h3>Nota</h3>
-          <p>Um arquivo .md de verdade em disco — editável no canvas, lido pelos agentes pelo CLI.</p>
+          <p>Um arquivo .md de verdade em disco, editável no canvas e lido pelos agentes pelo CLI.</p>
         </div>
         <div class="feat-card">
           <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 9h18"></path><circle cx="6.5" cy="7" r=".6" fill="currentColor" stroke="none"></circle></svg></div>
           <h3>Portal</h3>
-          <p>Navegador embutido com sessão isolada. O agente lê, tira print e — com permissão — clica.</p>
+          <p>Navegador embutido com sessão isolada. O agente lê, tira print e, com permissão, clica.</p>
         </div>
         <div class="feat-card">
           <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 6L2 12l6 6M16 6l6 6-6 6"></path></svg></div>
           <h3>Editor de código</h3>
-          <p>O arquivo e a seleção que você está olhando agora — sem precisar contar nada pro agente.</p>
+          <p>O arquivo e a seleção que você está olhando agora, sem precisar contar nada pro agente.</p>
         </div>
         <div class="feat-card">
           <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="10" width="16" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 018 0v3"></path></svg></div>
           <h3>Cofre</h3>
-          <p>Segredos criptografados em disco. O agente lê o nome da chave — nunca ecoa o valor.</p>
+          <p>Segredos criptografados em disco. O agente lê o nome da chave, nunca ecoa o valor.</p>
         </div>
         <div class="feat-card">
           <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 9h18M9 9v11"></path></svg></div>
           <h3>Tabela</h3>
-          <p>O resultado de uma query SQL, publicado como nó — o Atelier nunca toca no banco.</p>
+          <p>O resultado de uma query SQL, publicado como nó: o Atelier nunca toca no banco.</p>
         </div>
         <div class="feat-card">
           <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="10" r="1.7"></circle><path d="M21 16l-6-5-9 8"></path></svg></div>
           <h3>Imagem</h3>
-          <p>Um gráfico, print ou diagrama — publicado direto no canvas como um nó.</p>
+          <p>Um gráfico, print ou diagrama, publicado direto no canvas como um nó.</p>
         </div>
         <div class="feat-card">
           <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 4a2 2 0 014 0v6l3-1 1 1-1 6-2 2H10l-3-4V9a1.5 1.5 0 013 0"></path></svg></div>
@@ -194,11 +194,11 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <div class="compare">
           <div class="compare-row bad">
             <span class="compare-tag">SUBAGENTE</span>
-            <p>Sem nó — você não vê nada acontecendo. Morre junto com a sessão que o abriu, levando o que descobriu.</p>
+            <p>Sem nó, você não vê nada acontecendo. Morre junto com a sessão que o abriu, levando o que descobriu.</p>
           </div>
           <div class="compare-row good">
             <span class="compare-tag">ARTESÃO</span>
-            <p>Delega abrindo nós de verdade — <code style="font-family:var(--mono)">recruit</code>, <code style="font-family:var(--mono)">ask</code>, <code style="font-family:var(--mono)">dismiss</code>. Visível, interrompível, retomável.</p>
+            <p>Delega abrindo nós de verdade: <code style="font-family:var(--mono)">recruit</code>, <code style="font-family:var(--mono)">ask</code>, <code style="font-family:var(--mono)">dismiss</code>. Visível, interrompível, retomável.</p>
           </div>
         </div>
         <div class="stat-row">
@@ -229,23 +229,23 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       <ul class="rules-list">
         <li>
           <span class="rule-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
-          <span class="rule-text"><p><b>Nunca escreve sob um editor com alterações não salvas.</b> <span>— escrever ali por baixo destruiria trabalho que ninguém revisou.</span></p></span>
+          <span class="rule-text"><p><b>Nunca escreve sob um editor com alterações não salvas:</b> <span>escrever ali por baixo destruiria trabalho que ninguém revisou.</span></p></span>
         </li>
         <li>
           <span class="rule-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
-          <span class="rule-text"><p><b>Nunca reenvia um pedido depois de um timeout.</b> <span>— só verifica o progresso e espera de novo, sem interromper quem ainda trabalha.</span></p></span>
+          <span class="rule-text"><p><b>Nunca reenvia um pedido depois de um timeout:</b> <span>só verifica o progresso e espera de novo, sem interromper quem ainda trabalha.</span></p></span>
         </li>
         <li>
           <span class="rule-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
-          <span class="rule-text"><p><b>Nunca propõe um botão destrutivo.</b> <span>— rm, drop, reset --hard, deploy: um clique não é deliberação suficiente pra algo irreversível.</span></p></span>
+          <span class="rule-text"><p><b>Nunca propõe um botão destrutivo:</b> <span>rm, drop, reset --hard, deploy. Um clique não é deliberação suficiente pra algo irreversível.</span></p></span>
         </li>
         <li>
           <span class="rule-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
-          <span class="rule-text"><p><b>Nunca ecoa um segredo.</b> <span>— nem na tela, nem num arquivo, nem no prompt de outro agente.</span></p></span>
+          <span class="rule-text"><p><b>Nunca ecoa um segredo:</b> <span>nem na tela, nem num arquivo, nem no prompt de outro agente.</span></p></span>
         </li>
         <li>
           <span class="rule-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"></path></svg></span>
-          <span class="rule-text"><p><b>Só encerra o agente que ele mesmo recrutou.</b> <span>— nunca o seu terminal, nunca o de um colega, mesmo cabeado a ele.</span></p></span>
+          <span class="rule-text"><p><b>Só encerra o agente que ele mesmo recrutou:</b> <span>nunca o seu terminal, nunca o de um colega, mesmo cabeado a ele.</span></p></span>
         </li>
       </ul>
     </div>

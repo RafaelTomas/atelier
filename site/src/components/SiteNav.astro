@@ -39,7 +39,18 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       <a href="https://github.com/br3nds0n/atelier">GitHub</a>
     </div>
 
-    <a class="btn btn-primary" href={`${base}/download`}>Baixar</a>
+    <a class="nav-cta" href={`${base}/download`}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M12 3v12m0 0-4.5-4.5M12 15l4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        ></path>
+      </svg>
+      Baixar
+    </a>
   </div>
 </div>
 
@@ -48,7 +59,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     position: sticky;
     top: 0;
     z-index: 20;
-    background: rgb(23 23 26 / 0.82);
+    background: var(--nav-bg-glass);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--border-soft);
   }
@@ -86,6 +97,41 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 
   .nav-links a:hover {
     color: var(--text);
+  }
+
+  /* Igual ao `.docs-cta` do cabeçalho da doc: mesma sombra no tom do accent
+     e o mesmo "afundar" no active, para a marca ter um único botão de
+     download em toda a casca do site. */
+  .nav-cta {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    gap: 7px;
+    border-radius: var(--r-md);
+    font-weight: 600;
+    font-size: 13px;
+    padding: 8px 15px;
+    background: var(--accent);
+    color: #fff;
+    text-decoration: none;
+    white-space: nowrap;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.2), 0 0 0 1px rgb(0 122 255 / 0.25),
+      0 4px 14px rgb(0 122 255 / 0.28);
+    transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .nav-cta svg {
+    flex: none;
+  }
+  .nav-cta:hover {
+    background: #1a86ff;
+    color: #fff;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.2), 0 0 0 1px rgb(0 122 255 / 0.35),
+      0 6px 18px rgb(0 122 255 / 0.4);
+  }
+  .nav-cta:active {
+    background: #0968d6;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.2), 0 0 0 1px rgb(0 122 255 / 0.35);
+    transform: translateY(1px);
   }
 
   /* A barra existe em toda largura: o que encolhe é o conteúdo, não a barra.

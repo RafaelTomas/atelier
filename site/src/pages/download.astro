@@ -119,61 +119,32 @@ function findAsset(assets: Asset[], test: (nameLower: string) => boolean): Asset
   return assets.find((a) => test(a.name.toLowerCase()));
 }
 
-interface SecondaryLink {
-  label: string;
-  asset: Asset;
-}
-
 interface Platform {
-  primary?: Asset;
-  secondaries: SecondaryLink[];
+  zip?: Asset;
   hash?: string;
 }
 
+/**
+ * Um zip por sistema — é o único formato que a release publica.
+ *
+ * O casamento é pelo nome do sistema dentro do arquivo
+ * (`atelier-0.1.0-linux-x64.zip`), e não pela extensão: os três terminam em
+ * `.zip`. Quem garante esse nome é o `artifactName` de cada alvo em
+ * electron-builder.yml.
+ */
 function buildPlatform(
   assets: Asset[],
   checksums: Record<string, string>,
-  primaryTest: (n: string) => boolean,
-  secondaryTests: { label: string; test: (n: string) => boolean }[],
+  os: string,
 ): Platform {
-  const primary = findAsset(assets, primaryTest);
-  const secondaries = secondaryTests
-    .map(({ label, test }) => {
-      const asset = findAsset(assets, test);
-      return asset ? { label, asset } : null;
-    })
-    .filter((s): s is SecondaryLink => s !== null);
-  return { primary, secondaries, hash: primary ? checksums[primary.name] : undefined };
+  const zip = findAsset(assets, (n) => n.endsWith('.zip') && n.includes(os));
+  return { zip, hash: zip ? checksums[zip.name] : undefined };
 }
 
-const mac: Platform | null = release
-  ? buildPlatform(
-      release.assets,
-      release.checksums,
-      (n) => n.endsWith('.dmg'),
-      [{ label: '.zip', test: (n) => n.endsWith('.zip') && n.includes('mac') }],
-    )
-  : null;
-
-const win: Platform | null = release
-  ? buildPlatform(
-      release.assets,
-      release.checksums,
-      (n) => n.endsWith('.exe'),
-      [{ label: '.zip', test: (n) => n.endsWith('.zip') && n.includes('win') }],
-    )
-  : null;
-
+const mac: Platform | null = release ? buildPlatform(release.assets, release.checksums, 'mac') : null;
+const win: Platform | null = release ? buildPlatform(release.assets, release.checksums, 'win') : null;
 const linux: Platform | null = release
-  ? buildPlatform(
-      release.assets,
-      release.checksums,
-      (n) => n.endsWith('.appimage'),
-      [
-        { label: '.deb', test: (n) => n.endsWith('.deb') },
-        { label: '.zip', test: (n) => n.endsWith('.zip') && n.includes('linux') },
-      ],
-    )
+  ? buildPlatform(release.assets, release.checksums, 'linux')
   : null;
 
 const releaseNotesUrl = release?.htmlUrl ?? RELEASES_LATEST_URL;
@@ -192,15 +163,15 @@ const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
 
       {release ? (
         <>
-          <p class="lede">macOS, Windows e Linux, sempre os três na mesma release. Nada de conta, nada de telemetria: o app roda inteiro na sua máquina.</p>
+          <p class="lede">macOS, Windows e Linux, sempre os três na mesma release. Um zip por sistema, sem instalador: descompacte e abra. Nada de conta, nada de telemetria — o app roda inteiro na sua máquina.</p>
           <span class="eyebrow"><span class="dot"></span>VERSÃO {release.version}</span>
         </>
       ) : (
         <>
-          <p class="lede">Os instaladores aparecem aqui automaticamente assim que a primeira release for publicada. Até lá, dois comandos rodam o Atelier a partir do código-fonte.</p>
+          <p class="lede">Os downloads aparecem aqui automaticamente assim que a primeira release for publicada.</p>
           <div class="cta-row">
-            <a class="btn btn-primary btn-lg" href="#codigo-fonte">Rodar do código-fonte</a>
-            <a class="btn btn-ghost btn-lg" href={RELEASES_LATEST_URL}>Acompanhar as releases</a>
+            <a class="btn btn-primary btn-lg" href={RELEASES_LATEST_URL}>Acompanhar as releases</a>
+            <a class="btn btn-ghost btn-lg" href={installGuideUrl}>Guia de instalação</a>
           </div>
         </>
       )}
@@ -221,30 +192,23 @@ const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
             <span class="dl-detected-badge">Seu sistema</span>
           </div>
 
-          {mac?.primary ? (
+          {mac?.zip ? (
             <>
-              <a class="btn btn-primary btn-lg dl-primary" href={mac.primary.url}>
-                Baixar .dmg {mac.primary.size && <span class="dl-size">{formatSize(mac.primary.size)}</span>}
+              <a class="btn btn-primary btn-lg dl-primary" href={mac.zip.url}>
+                Baixar .zip {mac.zip.size && <span class="dl-size">{formatSize(mac.zip.size)}</span>}
               </a>
-              {mac.secondaries.length > 0 && (
-                <ul class="dl-secondary">
-                  {mac.secondaries.map((s) => (
-                    <li><a href={s.asset.url}>{s.label} {s.asset.size && <span class="dl-size">{formatSize(s.asset.size)}</span>}</a></li>
-                  ))}
-                </ul>
-              )}
               {mac.hash && <p class="dl-hash">SHA-256 <code>{mac.hash}</code></p>}
             </>
           ) : (
             <>
-              <span class="dl-soon">Instalador ainda não publicado</span>
-              <a class="btn btn-ghost btn-lg dl-primary" href="#codigo-fonte">Rodar do código-fonte</a>
+              <span class="dl-soon">Ainda não publicado</span>
+              <a class="btn btn-ghost btn-lg dl-primary" href={RELEASES_LATEST_URL}>Ver as releases</a>
             </>
           )}
 
           <div class="dl-warning">
             <p class="dl-warning-title">O app não é assinado com um Developer ID da Apple.</p>
-            <p>No macOS 15 e mais recentes o sistema recusa abrir de primeira. Para liberar: <b>Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim</b>, depois de uma primeira tentativa. Só precisa fazer isso uma vez.</p>
+            <p>O sistema recusa abrir de primeira. O passo a passo para liberar está <a href="#instalar">logo abaixo</a> — só precisa ser feito uma vez.</p>
           </div>
         </div>
 
@@ -258,30 +222,23 @@ const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
             <span class="dl-detected-badge">Seu sistema</span>
           </div>
 
-          {win?.primary ? (
+          {win?.zip ? (
             <>
-              <a class="btn btn-primary btn-lg dl-primary" href={win.primary.url}>
-                Baixar .exe {win.primary.size && <span class="dl-size">{formatSize(win.primary.size)}</span>}
+              <a class="btn btn-primary btn-lg dl-primary" href={win.zip.url}>
+                Baixar .zip {win.zip.size && <span class="dl-size">{formatSize(win.zip.size)}</span>}
               </a>
-              {win.secondaries.length > 0 && (
-                <ul class="dl-secondary">
-                  {win.secondaries.map((s) => (
-                    <li><a href={s.asset.url}>{s.label} {s.asset.size && <span class="dl-size">{formatSize(s.asset.size)}</span>}</a></li>
-                  ))}
-                </ul>
-              )}
               {win.hash && <p class="dl-hash">SHA-256 <code>{win.hash}</code></p>}
             </>
           ) : (
             <>
-              <span class="dl-soon">Instalador ainda não publicado</span>
-              <a class="btn btn-ghost btn-lg dl-primary" href="#codigo-fonte">Rodar do código-fonte</a>
+              <span class="dl-soon">Ainda não publicado</span>
+              <a class="btn btn-ghost btn-lg dl-primary" href={RELEASES_LATEST_URL}>Ver as releases</a>
             </>
           )}
 
           <div class="dl-warning">
-            <p class="dl-warning-title">O instalador não tem certificado de assinatura (OV/EV).</p>
-            <p>O SmartScreen vai bloquear com "O Windows protegeu o computador". Para continuar: <b>Mais informações → Executar assim mesmo</b>. A reputação do binário só se constrói com o tempo, isso é esperado num app novo, não um sinal de malware.</p>
+            <p class="dl-warning-title">O executável não tem certificado de assinatura (OV/EV).</p>
+            <p>O SmartScreen vai bloquear com "O Windows protegeu o computador" — <a href="#instalar">como passar disso</a>. A reputação de um binário só se constrói com o tempo; num app novo isso é esperado, não sinal de malware.</p>
           </div>
         </div>
 
@@ -295,60 +252,96 @@ const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
             <span class="dl-detected-badge">Seu sistema</span>
           </div>
 
-          {linux?.primary ? (
+          {linux?.zip ? (
             <>
-              <a class="btn btn-primary btn-lg dl-primary" href={linux.primary.url}>
-                Baixar .AppImage {linux.primary.size && <span class="dl-size">{formatSize(linux.primary.size)}</span>}
+              <a class="btn btn-primary btn-lg dl-primary" href={linux.zip.url}>
+                Baixar .zip {linux.zip.size && <span class="dl-size">{formatSize(linux.zip.size)}</span>}
               </a>
-              {linux.secondaries.length > 0 && (
-                <ul class="dl-secondary">
-                  {linux.secondaries.map((s) => (
-                    <li><a href={s.asset.url}>{s.label} {s.asset.size && <span class="dl-size">{formatSize(s.asset.size)}</span>}</a></li>
-                  ))}
-                </ul>
-              )}
               {linux.hash && <p class="dl-hash">SHA-256 <code>{linux.hash}</code></p>}
             </>
           ) : (
             <>
-              <span class="dl-soon">Instalador ainda não publicado</span>
-              <a class="btn btn-ghost btn-lg dl-primary" href="#codigo-fonte">Rodar do código-fonte</a>
+              <span class="dl-soon">Ainda não publicado</span>
+              <a class="btn btn-ghost btn-lg dl-primary" href={RELEASES_LATEST_URL}>Ver as releases</a>
             </>
           )}
 
           <div class="dl-warning">
-            <p class="dl-warning-title">O AppImage não vem com permissão de execução.</p>
-            <p>Depois de baixar: <b>botão direito → Propriedades → Permissões → Permitir execução</b>, ou <code>chmod +x *.AppImage</code> no terminal. O <code>.deb</code> já resolve isso na instalação.</p>
+            <p class="dl-warning-title">O zip descompacta na pasta atual, sem criar uma própria.</p>
+            <p>São ~30 arquivos soltos se você extrair no lugar errado. <a href="#instalar">As instruções abaixo</a> usam uma pasta dedicada, e cobrem o erro de sandbox que aparece em algumas distribuições.</p>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ============ CÓDIGO-FONTE ============ -->
-  <section id="codigo-fonte" class="dl-source">
-    <div class="wrap dl-source-grid">
-      <div>
-        <p class="kicker">Código-fonte</p>
-        <h2>{release ? 'Ou rode direto do repositório' : 'Rode direto do repositório'}</h2>
-        <p class="section-lede">Do canvas vazio até dois agentes conversando entre si, em dois comandos. É o mesmo app: o instalador só empacota isto.</p>
-        <ul class="req-list">
-          <li><b>Node 22+</b> — e no macOS, as Command Line Tools.</li>
-          <li><b>npm run dev</b> — isola os dados em <code>~/.atelier-dev</code>; não encosta no seu workspace real.</li>
-          <li><a href={installGuideUrl}>Guia de instalação completo →</a></li>
-        </ul>
-      </div>
-      <div class="code-window">
-        <div class="code-window-head">
-          <span style="background:#e74c3c"></span><span style="background:#d99a2b"></span><span style="background:#2ecc71"></span>
-        </div>
-        <pre><span class="rem"># clone e instale</span>
-git clone https://gitlab.fcxlabs.com/platform/tools/fcx-atelier-ai-agents-orquestrator.git atelier
-cd atelier
-npm install
+  <!-- ============ COMO INSTALAR ============ -->
+  <section id="instalar" class="dl-install">
+    <div class="wrap">
+      <p class="kicker">Como instalar</p>
+      <h2>Do zip até o app aberto, pelo terminal</h2>
+      <p class="section-lede">Não há instalador em nenhum dos três sistemas — o zip já traz o app pronto. As sequências abaixo não baixam nada: elas assumem o zip já na sua pasta de downloads, colocam o app onde aquele sistema espera encontrá-lo, e abrem. O passo do meio, em cada uma, é o que desarma o aviso de segurança que todo binário sem assinatura recebe.</p>
 
-<span class="rem"># rode</span>
-npm run dev</pre>
+      <div class="dl-install-grid">
+        <!-- ============ macOS ============ -->
+        <article class="dl-steps">
+          <h3>macOS</h3>
+          <pre>cd ~/Downloads
+unzip -q atelier-*-mac-*.zip -d /Applications
+
+<span class="rem"># tira a quarentena do download</span>
+xattr -dr com.apple.quarantine /Applications/Atelier.app
+
+open -a Atelier</pre>
+          <p class="dl-steps-note">Sem o <code>xattr</code>, o Gatekeeper recusa abrir — às vezes dizendo que o app "está danificado", o que não é verdade: é a marca de arquivo baixado, não corrupção. Removê-la é o equivalente em terminal ao <b>botão direito → Abrir</b>.</p>
+          <p class="dl-steps-note">Atualizar é repetir os mesmos comandos. Seus dados ficam em <code>~/.atelier</code> e não são tocados.</p>
+        </article>
+
+        <!-- ============ Windows ============ -->
+        <article class="dl-steps">
+          <h3>Windows <span class="dl-shell">PowerShell</span></h3>
+          <pre>cd $env:USERPROFILE\Downloads
+
+<span class="rem"># remove a marca de "baixado da internet"</span>
+Unblock-File .\atelier-*-win-*.zip
+
+Expand-Archive .\atelier-*-win-*.zip `
+  -DestinationPath $env:LOCALAPPDATA\Atelier -Force
+
+& $env:LOCALAPPDATA\Atelier\Atelier.exe</pre>
+          <p class="dl-steps-note">O <code>Unblock-File</code> vai no <b>zip</b>, antes de extrair: feito depois, cada arquivo extraído já herdou o bloqueio e o SmartScreen aparece assim mesmo.</p>
+          <p class="dl-steps-note">Sem instalador não existe atalho. Para criar um no menu Iniciar:</p>
+          <pre>$link = (New-Object -ComObject WScript.Shell).CreateShortcut(
+  "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Atelier.lnk")
+$link.TargetPath = "$env:LOCALAPPDATA\Atelier\Atelier.exe"
+$link.Save()</pre>
+        </article>
+
+        <!-- ============ Linux ============ -->
+        <article class="dl-steps">
+          <h3>Linux</h3>
+          <pre>cd ~/Downloads
+unzip -q atelier-*-linux-x64.zip -d ~/.local/share/atelier
+
+~/.local/share/atelier/atelier</pre>
+          <p class="dl-steps-note">A pasta de destino não é opcional: o zip guarda os arquivos na raiz, então extrair sem <code>-d</code> espalha 17 itens onde você estiver.</p>
+          <p class="dl-steps-note">Para o app aparecer no menu de aplicativos:</p>
+          <pre>mkdir -p ~/.local/share/applications
+cat &gt; ~/.local/share/applications/atelier.desktop &lt;&lt;EOF
+[Desktop Entry]
+Type=Application
+Name=Atelier
+Exec=$HOME/.local/share/atelier/atelier
+Categories=Development;
+EOF</pre>
+          <p class="dl-steps-note">Se aparecer <i>"The SUID sandbox helper binary was found, but is not configured correctly"</i>, sua distribuição não permite namespaces de usuário sem privilégio:</p>
+          <pre>cd ~/.local/share/atelier
+sudo chown root:root chrome-sandbox
+sudo chmod 4755 chrome-sandbox
+
+<span class="rem"># ou, sem sudo:</span>
+./atelier --no-sandbox</pre>
+        </article>
       </div>
     </div>
   </section>
@@ -553,26 +546,114 @@ npm run dev</pre>
     font-size: 11.5px;
   }
 
-  /* ---------- código-fonte ---------- */
+  /* ---------- como instalar ---------- */
 
-  .dl-source {
+  .dl-install {
     background: var(--surface);
     border-top: 1px solid var(--border-soft);
     border-bottom: 1px solid var(--border-soft);
     padding: 72px 0;
   }
-  .dl-source-grid {
+  .dl-install .section-lede {
+    max-width: 68ch;
+  }
+
+  /* As três colunas na mesma linha do cartão de download correspondente acima. */
+  .dl-install-grid {
     display: grid;
-    grid-template-columns: 1fr 1.05fr;
-    gap: 48px;
-    align-items: center;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-top: 32px;
   }
-  .dl-source .req-list {
-    margin-top: 20px;
+
+  .dl-steps h3 {
+    margin: 0 0 14px;
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.005em;
   }
-  .dl-source code {
+
+  /* O contador é desenhado à mão porque o marcador nativo não aceita cor nem
+     fonte próprias, e o número em mono é o que amarra a lista ao resto da
+     página. */
+  .dl-steps ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: passo;
+  }
+  .dl-steps li {
+    counter-increment: passo;
+    position: relative;
+    padding-left: 26px;
+    margin-bottom: 10px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+  .dl-steps li::before {
+    content: counter(passo);
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+  }
+  .dl-steps li b {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .dl-steps-note {
+    margin: 14px 0 8px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-faint);
+  }
+
+  .dl-steps code {
     font-family: var(--mono);
     color: var(--text);
+    font-size: 11.5px;
+  }
+
+  /* `overflow-x` e não quebra de linha: um comando quebrado no meio vira um
+     comando errado quando alguém copia. */
+  /* O `.rem` existe em site.css só sob `.code-window`, e estes <pre> não estão
+     dentro de um. Sem isto o comentário sai com a mesma cor do comando. */
+  .dl-steps pre .rem {
+    color: var(--text-faint);
+  }
+
+  /* Qual shell interpreta o bloco. Só o Windows ganha o rótulo: `cd` e `unzip`
+     são os mesmos em qualquer terminal do macOS e do Linux, mas
+     `Expand-Archive` só existe no PowerShell — colar no cmd.exe não funciona. */
+  .dl-shell {
+    margin-left: 8px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    border-radius: var(--r-pill);
+    padding: 2px 7px;
+    vertical-align: middle;
+  }
+
+  .dl-steps pre {
+    margin: 0 0 4px;
+    padding: 12px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--r-md);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
   }
 
   /* ---------- requisitos e links ---------- */
@@ -599,7 +680,7 @@ npm run dev</pre>
     .dl-grid {
       grid-template-columns: 1fr;
     }
-    .dl-source-grid {
+    .dl-install-grid {
       grid-template-columns: 1fr;
       gap: 28px;
     }

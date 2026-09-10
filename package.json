@@ -2,6 +2,7 @@
   "name": "atelier",
   "version": "0.1.0",
   "description": "Atelier — canvas de orquestração multi-agente para macOS, Windows e Linux",
+  "homepage": "https://gitlab.fcxlabs.com/platform/tools/fcx-atelier-ai-agents-orquestrator",
   "main": "./out/main/index.js",
   "author": {
     "name": "Eduardo Tasso",

@@ -26,7 +26,7 @@ Um terminal ligado a outro terminal por um cabo `terminal ↔ terminal` dá ao a
 - **`atelier list`** — o nome, o ciclo de vida (`working` / `waiting` / `idle` / `exited`) e a responsabilidade de cada agente conectado.
 - **`atelier ask "Nome" "tarefa"`** — envia um pedido e espera até o outro agente ficar ocioso para responder.
 - **`atelier check "Nome" [linhas]`** — lê a tela do outro sem interrompê-lo; é o comando certo quando um `ask` estoura o tempo.
-- **`atelier recruit` / `atelier dismiss`** — abre ou fecha um agente ajudante, só disponível para quem está marcado como [Artesão](/docs/primeiros-passos/conceitos/).
+- **`atelier recruit` / `atelier dismiss`** — abre ou fecha um agente ajudante, só disponível para quem está marcado como [Artesão](../../primeiros-passos/conceitos/).
 - **`atelier role`** — a própria responsabilidade atribuída.
 
 Quando um terminal está parado esperando alguma coisa (`waiting`), o que exatamente ele está pedindo aparece antes do resto da tela — é a informação que evita reler o diálogo inteiro para entender o que travou.

@@ -21,6 +21,9 @@ export default defineConfig({
       customCss: ['./src/styles/atelier.css'],
       components: {
         ThemeSelect: './src/components/EmptyThemeSelect.astro',
+        Header: './src/components/DocsHeader.astro',
+        PageTitle: './src/components/DocsPageTitle.astro',
+        Footer: './src/components/DocsFooter.astro',
       },
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/br3nds0n/atelier' },

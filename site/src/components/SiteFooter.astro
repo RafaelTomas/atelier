@@ -1,0 +1,90 @@
+---
+/**
+ * Rodapé das páginas de marketing — a mesma faixa de marca que fecha a doc.
+ */
+import BrandMark from './BrandMark.astro';
+
+interface Props {
+  /** Sufixo para o id do gradiente da marca, único por página. */
+  markId?: string;
+}
+
+const { markId = 'footer' } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const badges = ['macOS', 'Windows', 'Linux', 'Electron', 'TypeScript', 'React'];
+---
+
+<footer>
+  <div class="wrap footer-inner">
+    <div class="footer-brand">
+      <BrandMark id={markId} size={30} />
+      <div class="footer-brand-text">
+        <b>Atelier</b>
+        <span>Seu ateliê de agentes de IA.</span>
+      </div>
+    </div>
+
+    <div class="badges">
+      {badges.map((badge) => <span class="badge">{badge}</span>)}
+    </div>
+
+    <div class="footer-links">
+      <a href={`${base}/docs`}>Docs</a>
+      <a href={`${base}/download`}>Download</a>
+      <a href="https://github.com/br3nds0n/atelier">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<style>
+  footer {
+    border-top: 1px solid var(--border-soft);
+    padding: 40px 0;
+  }
+  .footer-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .footer-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .footer-brand-text b {
+    display: block;
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .footer-brand-text span {
+    display: block;
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+  .badges {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .footer-links {
+    display: flex;
+    gap: 20px;
+  }
+  .footer-links a {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-decoration: none;
+  }
+  .footer-links a:hover {
+    color: var(--text);
+  }
+
+  @media (max-width: 860px) {
+    .footer-inner {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+</style>

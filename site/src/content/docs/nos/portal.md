@@ -28,6 +28,6 @@ O Portal é o nó com o contexto mais largo de todos:
 - **`atelier portal shot "Portal"`** — uma captura em PNG, com o caminho do arquivo.
 - **`atelier portal map "Portal"`** — a peça mais importante: cada elemento interativo da página numerado, com papel, rótulo, valor e estado, mais a contagem do que está fora da tela.
 - **`atelier portal click` / `type` / `key` / `scroll` / `wait`** — agir sobre os elementos mapeados.
-- **`atelier portal login`** — preenche um campo com um segredo vindo de um [cofre](/docs/nos/cofre/) conectado, sem que o valor passe pelo contexto do agente.
+- **`atelier portal login`** — preenche um campo com um segredo vindo de um [cofre](../cofre/) conectado, sem que o valor passe pelo contexto do agente.
 
 Um portal fora da viewport ou com o zoom no fundo é acordado automaticamente só para atender a leitura, e desmontado de novo em seguida — o agente não precisa se preocupar com o estado visual do nó para consultá-lo.

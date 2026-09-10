@@ -2,6 +2,11 @@
 /**
  * Cartão de terminal — mesma anatomia do `.node-card`/`.node-body` da landing:
  * cabeçalho mono com os três pontos, corpo `#101014` em fonte monoespaçada.
+ *
+ * O `not-content` no wrapper não é decorativo: sem ele o Starlight aplica o
+ * espaçamento de prosa (`* + *`) aos elementos internos do cartão e abre uma
+ * faixa entre o cabeçalho e o corpo. A classe manda o tema ignorar a subárvore,
+ * que já tem estilo próprio aqui embaixo.
  */
 interface Props {
   title?: string;
@@ -9,7 +14,7 @@ interface Props {
 const { title = 'Terminal' } = Astro.props;
 ---
 
-<div class="atelier-terminal">
+<div class="atelier-terminal not-content">
   <div class="atelier-terminal-head">
     <span class="dot" style="background:#e74c3c"></span>
     <span class="dot" style="background:#d99a2b"></span>

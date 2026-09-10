@@ -9,7 +9,7 @@ sidebar:
 
 Quando você precisa ter um PDF — uma spec, um manual, um contrato — visível ao lado dos agentes que trabalham com ele, o nó de Documento PDF abre o arquivo com o mesmo visor de PDF do Chromium: zoom, busca e impressão embutidos, dentro do próprio nó.
 
-Por trás da cara própria, não é um tipo de nó novo: é um [Portal](/docs/nos/portal/) apontando para o arquivo local, com a barra de endereço escondida. Isso significa que ele compartilha as mesmas capacidades e limitações do Portal.
+Por trás da cara própria, não é um tipo de nó novo: é um [Portal](../portal/) apontando para o arquivo local, com a barra de endereço escondida. Isso significa que ele compartilha as mesmas capacidades e limitações do Portal.
 
 ## Como criar
 

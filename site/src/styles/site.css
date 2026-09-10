@@ -1,0 +1,262 @@
+/*
+ * Primitivos das páginas de marketing (landing e download).
+ *
+ * Carregado pelo layout Marketing, NÃO pelo tema da doc: a doc tem o próprio
+ * mapeamento em atelier.css e não deve herdar `section { padding: 96px }` e
+ * companhia. O que mora aqui é o vocabulário que as duas páginas repetem —
+ * botão, kicker, escala de título, janela de código. Antes disso, a página de
+ * download redefinia `.btn`, `.kicker` e `.lede` por conta própria, e as duas
+ * cópias já estavam divergindo.
+ */
+
+/* ---------- tipografia de seção ---------- */
+
+h1 {
+  font-size: clamp(2.1rem, 1.2rem + 3.4vw, 3.4rem);
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+  margin: 18px 0 20px;
+  font-weight: 650;
+}
+
+h1 .grad {
+  background: linear-gradient(90deg, var(--grad-start), var(--grad-end));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+h2 {
+  font-size: clamp(1.6rem, 1.2rem + 1.4vw, 2.2rem);
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  margin: 0 0 18px;
+  font-weight: 650;
+}
+
+.kicker {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+
+.lede {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  max-width: 46ch;
+  margin: 0 0 32px;
+}
+
+.section-lede {
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--text-dim);
+  max-width: 62ch;
+  margin: 0 0 12px;
+}
+
+section {
+  padding: 96px 0;
+}
+.section-tight {
+  padding: 72px 0;
+}
+
+/* ---------- botões ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--r-md);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 9px 16px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: #1a86ff;
+  color: #fff;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+}
+.btn-ghost:hover {
+  border-color: #4a4a54;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.btn-lg {
+  padding: 12px 20px;
+  font-size: 14px;
+  border-radius: var(--r-md);
+}
+
+.cta-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ---------- selos ---------- */
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  padding: 6px 12px;
+}
+
+.eyebrow .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+}
+
+.pending-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--amber);
+  border: 1px solid #4a3a1f;
+  background: rgb(217 154 43 / 0.1);
+  border-radius: var(--r-pill);
+  padding: 3px 8px;
+  width: fit-content;
+}
+.pending-chip .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+.badge {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+}
+
+/* ---------- blocos de código ---------- */
+
+.code-window {
+  background: #101014;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.code-window-head {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.code-window-head span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.code-window pre {
+  margin: 0;
+  padding: 18px 20px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.95;
+  color: #dcdce2;
+  overflow-x: auto;
+}
+.code-window pre .rem {
+  color: var(--text-faint);
+}
+.code-window pre .ph {
+  color: var(--amber);
+}
+
+.term-block {
+  background: #101014;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 18px 20px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.9;
+  color: #dcdce2;
+}
+.term-block .who {
+  color: var(--green);
+}
+.term-block .who2 {
+  color: #58a6ff;
+}
+
+/* ---------- listas de requisito ---------- */
+
+.req-list {
+  list-style: none;
+  margin: 20px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* Bloco, não flex: com flex cada elemento inline do item (um `<code>`, um
+   `<b>`) virava uma coluna, e a frase se quebrava em pedaços lado a lado. */
+.req-list li {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+.req-list li b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---------- fundo de grade ---------- */
+
+/* A grade do hero, esmaecendo para baixo. Vale para as duas páginas: é o que
+   dá a leitura de "canvas" antes de qualquer texto ser lido. */
+.grid-bg {
+  position: relative;
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: center -1px;
+  -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 96%);
+  mask-image: linear-gradient(to bottom, black 55%, transparent 96%);
+}
+
+@media (max-width: 560px) {
+  section {
+    padding: 64px 0;
+  }
+}

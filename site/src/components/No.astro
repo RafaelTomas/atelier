@@ -2,6 +2,11 @@
 /**
  * Cartão de nó — mesma anatomia do `.feat-card` da landing: ícone, título,
  * descrição e, quando aplicável, o chip âmbar de "em construção".
+ *
+ * O `not-content` no wrapper não é decorativo: sem ele o Starlight aplica o
+ * espaçamento de prosa (`* + *`) aos elementos internos do cartão e abre uma
+ * faixa entre o cabeçalho e o corpo. A classe manda o tema ignorar a subárvore,
+ * que já tem estilo próprio aqui embaixo.
  */
 interface Props {
   titulo: string;
@@ -10,7 +15,7 @@ interface Props {
 const { titulo, pendente = false } = Astro.props;
 ---
 
-<div class="atelier-no">
+<div class="atelier-no not-content">
   <div class="atelier-no-icon">
     <slot name="icone">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">

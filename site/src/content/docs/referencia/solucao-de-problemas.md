@@ -47,4 +47,4 @@ para ver o que ele está fazendo agora, e decida a partir daí se vale esperar o
 
 ## Nada disso resolveu?
 
-Rode `atelier debug` de dentro de um terminal conectado para um diagnóstico da conexão. Se o problema persistir, veja a página sobre o [formato de arquivo](/docs/referencia/formato-de-arquivo/) — muitos sintomas estranhos ao abrir um workspace específico têm origem ali.
+Rode `atelier debug` de dentro de um terminal conectado para um diagnóstico da conexão. Se o problema persistir, veja a página sobre o [formato de arquivo](../formato-de-arquivo/) — muitos sintomas estranhos ao abrir um workspace específico têm origem ali.

@@ -1,5 +1,7 @@
 ---
 import Marketing from '../layouts/Marketing.astro';
+import SiteNav from '../components/SiteNav.astro';
+import SiteFooter from '../components/SiteFooter.astro';
 
 const REPO = 'br3nds0n/atelier';
 const RELEASES_LATEST_URL = `https://github.com/${REPO}/releases/latest`;
@@ -132,131 +134,185 @@ const linux: Platform | null = release
   : null;
 
 const releaseNotesUrl = release?.htmlUrl ?? RELEASES_LATEST_URL;
-const installGuideUrl = `${import.meta.env.BASE_URL}/docs/primeiros-passos/instalacao`.replace(/\/{2,}/g, '/');
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
 ---
 
 <Marketing title="Download — Atelier" description="Baixe o Atelier para macOS, Windows ou Linux.">
-  <div class="dl-hero">
+  <SiteNav markId="dl-nav" />
+
+  <!-- ============ HERO ============ -->
+  <header class="dl-hero grid-bg">
     <div class="wrap">
       <p class="kicker">Download</p>
-      <h1>Instale o Atelier.</h1>
+      <h1>Baixe o <span class="grad">Atelier</span>.</h1>
+
       {release ? (
-        <p class="lede">Versão <code>{release.version}</code> — macOS, Windows e Linux, sempre os três disponíveis.</p>
+        <>
+          <p class="lede">macOS, Windows e Linux, sempre os três na mesma release. Nada de conta, nada de telemetria: o app roda inteiro na sua máquina.</p>
+          <span class="eyebrow"><span class="dot"></span>VERSÃO {release.version}</span>
+        </>
       ) : (
-        <p class="lede lede-warn">Ainda não há uma release publicada em <a href={RELEASES_LATEST_URL}>{RELEASES_LATEST_URL}</a>. Assim que o pipeline de release publicar a primeira tag, esta página passa a listar os instaladores automaticamente.</p>
+        <>
+          <p class="lede">Os instaladores aparecem aqui automaticamente assim que a primeira release for publicada. Até lá, dois comandos rodam o Atelier a partir do código-fonte.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary btn-lg" href="#codigo-fonte">Rodar do código-fonte</a>
+            <a class="btn btn-ghost btn-lg" href={RELEASES_LATEST_URL}>Acompanhar as releases</a>
+          </div>
+        </>
       )}
     </div>
-  </div>
+  </header>
 
-  <section class="wrap">
-    <div class="dl-grid">
-      <!-- ============ macOS ============ -->
-      <div class="dl-card" data-os="mac">
-        <div class="dl-card-head">
-          <span class="dl-os-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M9 21v-4h6v4"></path></svg>
-          </span>
-          <h2>macOS</h2>
-          <span class="dl-detected-badge">Seu sistema</span>
+  <!-- ============ OS TRÊS SISTEMAS ============ -->
+  <section class="dl-platforms">
+    <div class="wrap">
+      <div class="dl-grid">
+        <!-- ============ macOS ============ -->
+        <div class="dl-card" data-os="mac">
+          <div class="dl-card-head">
+            <span class="dl-os-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M9 21v-4h6v4"></path></svg>
+            </span>
+            <h2>macOS</h2>
+            <span class="dl-detected-badge">Seu sistema</span>
+          </div>
+
+          {mac?.primary ? (
+            <>
+              <a class="btn btn-primary btn-lg dl-primary" href={mac.primary.browser_download_url}>
+                Baixar .dmg <span class="dl-size">{formatSize(mac.primary.size)}</span>
+              </a>
+              {mac.secondaries.length > 0 && (
+                <ul class="dl-secondary">
+                  {mac.secondaries.map((s) => (
+                    <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
+                  ))}
+                </ul>
+              )}
+              {mac.hash && <p class="dl-hash">SHA-256 <code>{mac.hash}</code></p>}
+            </>
+          ) : (
+            <>
+              <span class="dl-soon">Instalador ainda não publicado</span>
+              <a class="btn btn-ghost btn-lg dl-primary" href="#codigo-fonte">Rodar do código-fonte</a>
+            </>
+          )}
+
+          <div class="dl-warning">
+            <p class="dl-warning-title">O app não é assinado com um Developer ID da Apple.</p>
+            <p>No macOS 15 e mais recentes o sistema recusa abrir de primeira. Para liberar: <b>Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim</b>, depois de uma primeira tentativa. Só precisa fazer isso uma vez.</p>
+          </div>
         </div>
 
-        {mac?.primary ? (
-          <>
-            <a class="btn btn-primary btn-lg dl-primary" href={mac.primary.browser_download_url}>
-              Baixar .dmg <span class="dl-size">{formatSize(mac.primary.size)}</span>
-            </a>
-            {mac.secondaries.length > 0 && (
-              <ul class="dl-secondary">
-                {mac.secondaries.map((s) => (
-                  <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
-                ))}
-              </ul>
-            )}
-            {mac.hash && <p class="dl-hash">SHA-256 <code>{mac.hash}</code></p>}
-          </>
-        ) : (
-          <a class="btn btn-ghost btn-lg dl-primary" href={releaseNotesUrl}>Ver arquivos da release</a>
-        )}
+        <!-- ============ Windows ============ -->
+        <div class="dl-card" data-os="win">
+          <div class="dl-card-head">
+            <span class="dl-os-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6l8-1v7H3zM13 4.6L21 3.5V12h-8zM3 13h8v6l-8-1zM13 13h8v8.5L13 20.4z"></path></svg>
+            </span>
+            <h2>Windows</h2>
+            <span class="dl-detected-badge">Seu sistema</span>
+          </div>
 
-        <div class="dl-warning">
-          <p class="dl-warning-title">O app não é assinado com um Developer ID da Apple.</p>
-          <p>O Gatekeeper vai dizer que o desenvolvedor não pôde ser verificado. Para abrir: <b>botão direito no ícone → Abrir</b> → confirme na caixa de diálogo. Só precisa fazer isso na primeira vez.</p>
-        </div>
-      </div>
+          {win?.primary ? (
+            <>
+              <a class="btn btn-primary btn-lg dl-primary" href={win.primary.browser_download_url}>
+                Baixar .exe <span class="dl-size">{formatSize(win.primary.size)}</span>
+              </a>
+              {win.secondaries.length > 0 && (
+                <ul class="dl-secondary">
+                  {win.secondaries.map((s) => (
+                    <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
+                  ))}
+                </ul>
+              )}
+              {win.hash && <p class="dl-hash">SHA-256 <code>{win.hash}</code></p>}
+            </>
+          ) : (
+            <>
+              <span class="dl-soon">Instalador ainda não publicado</span>
+              <a class="btn btn-ghost btn-lg dl-primary" href="#codigo-fonte">Rodar do código-fonte</a>
+            </>
+          )}
 
-      <!-- ============ Windows ============ -->
-      <div class="dl-card" data-os="win">
-        <div class="dl-card-head">
-          <span class="dl-os-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 5.5L10.5 4.5V11.5H3V5.5Z"></path><path d="M11.5 4.4L21 3V11.5H11.5V4.4Z"></path><path d="M3 12.5H10.5V19.6L3 18.5V12.5Z"></path><path d="M11.5 12.5H21V21L11.5 19.6V12.5Z"></path></svg>
-          </span>
-          <h2>Windows</h2>
-          <span class="dl-detected-badge">Seu sistema</span>
-        </div>
-
-        {win?.primary ? (
-          <>
-            <a class="btn btn-primary btn-lg dl-primary" href={win.primary.browser_download_url}>
-              Baixar .exe <span class="dl-size">{formatSize(win.primary.size)}</span>
-            </a>
-            {win.secondaries.length > 0 && (
-              <ul class="dl-secondary">
-                {win.secondaries.map((s) => (
-                  <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
-                ))}
-              </ul>
-            )}
-            {win.hash && <p class="dl-hash">SHA-256 <code>{win.hash}</code></p>}
-          </>
-        ) : (
-          <a class="btn btn-ghost btn-lg dl-primary" href={releaseNotesUrl}>Ver arquivos da release</a>
-        )}
-
-        <div class="dl-warning">
-          <p class="dl-warning-title">O instalador não tem certificado de assinatura (OV/EV).</p>
-          <p>O SmartScreen vai bloquear com "O Windows protegeu o computador". Para continuar: <b>Mais informações → Executar assim mesmo</b>. A reputação do binário só se constrói com o tempo — isso é esperado num app novo, não um sinal de malware.</p>
-        </div>
-      </div>
-
-      <!-- ============ Linux ============ -->
-      <div class="dl-card" data-os="linux">
-        <div class="dl-card-head">
-          <span class="dl-os-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 18l-5-6 5-6M15 6l5 6-5 6"></path></svg>
-          </span>
-          <h2>Linux</h2>
-          <span class="dl-detected-badge">Seu sistema</span>
+          <div class="dl-warning">
+            <p class="dl-warning-title">O instalador não tem certificado de assinatura (OV/EV).</p>
+            <p>O SmartScreen vai bloquear com "O Windows protegeu o computador". Para continuar: <b>Mais informações → Executar assim mesmo</b>. A reputação do binário só se constrói com o tempo, isso é esperado num app novo, não um sinal de malware.</p>
+          </div>
         </div>
 
-        {linux?.primary ? (
-          <>
-            <a class="btn btn-primary btn-lg dl-primary" href={linux.primary.browser_download_url}>
-              Baixar .AppImage <span class="dl-size">{formatSize(linux.primary.size)}</span>
-            </a>
-            {linux.secondaries.length > 0 && (
-              <ul class="dl-secondary">
-                {linux.secondaries.map((s) => (
-                  <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
-                ))}
-              </ul>
-            )}
-            {linux.hash && <p class="dl-hash">SHA-256 <code>{linux.hash}</code></p>}
-          </>
-        ) : (
-          <a class="btn btn-ghost btn-lg dl-primary" href={releaseNotesUrl}>Ver arquivos da release</a>
-        )}
+        <!-- ============ Linux ============ -->
+        <div class="dl-card" data-os="linux">
+          <div class="dl-card-head">
+            <span class="dl-os-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 18l-5-6 5-6M15 6l5 6-5 6"></path></svg>
+            </span>
+            <h2>Linux</h2>
+            <span class="dl-detected-badge">Seu sistema</span>
+          </div>
 
-        <div class="dl-warning">
-          <p class="dl-warning-title">O AppImage não vem com permissão de execução.</p>
-          <p>Depois de baixar: <b>botão direito → Propriedades → Permissões → Permitir execução</b>, ou <code>chmod +x *.AppImage</code> no terminal. O <code>.deb</code> já resolve isso na instalação.</p>
+          {linux?.primary ? (
+            <>
+              <a class="btn btn-primary btn-lg dl-primary" href={linux.primary.browser_download_url}>
+                Baixar .AppImage <span class="dl-size">{formatSize(linux.primary.size)}</span>
+              </a>
+              {linux.secondaries.length > 0 && (
+                <ul class="dl-secondary">
+                  {linux.secondaries.map((s) => (
+                    <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
+                  ))}
+                </ul>
+              )}
+              {linux.hash && <p class="dl-hash">SHA-256 <code>{linux.hash}</code></p>}
+            </>
+          ) : (
+            <>
+              <span class="dl-soon">Instalador ainda não publicado</span>
+              <a class="btn btn-ghost btn-lg dl-primary" href="#codigo-fonte">Rodar do código-fonte</a>
+            </>
+          )}
+
+          <div class="dl-warning">
+            <p class="dl-warning-title">O AppImage não vem com permissão de execução.</p>
+            <p>Depois de baixar: <b>botão direito → Propriedades → Permissões → Permitir execução</b>, ou <code>chmod +x *.AppImage</code> no terminal. O <code>.deb</code> já resolve isso na instalação.</p>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ============ RODAPÉ DA PÁGINA ============ -->
-  <section class="dl-footer wrap">
-    <div class="dl-footer-grid">
+  <!-- ============ CÓDIGO-FONTE ============ -->
+  <section id="codigo-fonte" class="dl-source">
+    <div class="wrap dl-source-grid">
+      <div>
+        <p class="kicker">Código-fonte</p>
+        <h2>{release ? 'Ou rode direto do repositório' : 'Rode direto do repositório'}</h2>
+        <p class="section-lede">Do canvas vazio até dois agentes conversando entre si, em dois comandos. É o mesmo app: o instalador só empacota isto.</p>
+        <ul class="req-list">
+          <li><b>Node 22+</b> — e no macOS, as Command Line Tools.</li>
+          <li><b>npm run dev</b> — isola os dados em <code>~/.atelier-dev</code>; não encosta no seu workspace real.</li>
+          <li><a href={installGuideUrl}>Guia de instalação completo →</a></li>
+        </ul>
+      </div>
+      <div class="code-window">
+        <div class="code-window-head">
+          <span style="background:#e74c3c"></span><span style="background:#d99a2b"></span><span style="background:#2ecc71"></span>
+        </div>
+        <pre><span class="rem"># clone e instale</span>
+git clone https://github.com/br3nds0n/atelier.git
+cd atelier
+npm install
+
+<span class="rem"># rode</span>
+npm run dev</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ REQUISITOS E LINKS ============ -->
+  <section class="dl-more">
+    <div class="wrap dl-more-grid">
       <div>
         <p class="kicker">Requisitos mínimos</p>
         <ul class="req-list">
@@ -269,11 +325,14 @@ const installGuideUrl = `${import.meta.env.BASE_URL}/docs/primeiros-passos/insta
         <p class="kicker">Mais</p>
         <ul class="req-list">
           <li><a href={releaseNotesUrl}>Notas da versão →</a></li>
-          <li><a href={installGuideUrl}>Guia de instalação →</a></li>
+          <li><a href={`${base}/docs`}>Documentação →</a></li>
+          <li><a href={`${base}/docs/primeiros-passos/primeiro-canvas`}>Seu primeiro canvas →</a></li>
         </ul>
       </div>
     </div>
   </section>
+
+  <SiteFooter markId="dl-footer" />
 </Marketing>
 
 <script>
@@ -292,57 +351,24 @@ const installGuideUrl = `${import.meta.env.BASE_URL}/docs/primeiros-passos/insta
 </script>
 
 <style>
+  /* Botão, kicker, escala de título, `.code-window` e `.req-list` vêm de
+     site.css — o mesmo vocabulário da landing. Aqui só o que é desta página. */
+
   .dl-hero {
-    position: relative;
-    padding: 72px 0 48px;
-    background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-    background-size: 40px 40px;
-    background-position: center -1px;
-    -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 96%);
-    mask-image: linear-gradient(to bottom, black 55%, transparent 96%);
+    padding: 72px 0 56px;
+  }
+  .dl-hero .lede {
+    max-width: 56ch;
+    margin-bottom: 24px;
   }
 
-  .kicker {
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--accent);
-    font-weight: 600;
-    margin: 0 0 14px;
+  .dl-platforms {
+    padding-top: 8px;
   }
 
-  h1 {
-    font-size: clamp(2rem, 1.3rem + 2.6vw, 3rem);
-    line-height: 1.08;
-    letter-spacing: -0.02em;
-    margin: 0 0 16px;
-    font-weight: 650;
-  }
-
-  .lede {
-    font-size: 16px;
-    line-height: 1.6;
-    color: var(--text-dim);
-    max-width: 60ch;
-    margin: 0;
-  }
-  .lede code {
-    font-family: var(--mono);
-    color: var(--text);
-  }
-  .lede-warn {
-    color: var(--amber);
-  }
-  .lede-warn a {
-    color: var(--amber);
-    text-decoration: underline;
-  }
-
-  section {
-    padding: 0 0 96px;
-  }
-
+  /* Sem `align-items: start`: os cartões esticam para a mesma altura, e é isso
+     que faz o aviso do rodapé (com `margin-top: auto`) alinhar nas três colunas
+     mesmo quando um texto é mais longo que o outro. */
   .dl-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -351,17 +377,18 @@ const installGuideUrl = `${import.meta.env.BASE_URL}/docs/primeiros-passos/insta
 
   .dl-card {
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--r-xl);
     padding: 24px 22px;
     display: flex;
     flex-direction: column;
     gap: 14px;
+    height: 100%;
   }
 
   .dl-card-detected {
     border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 16px 40px rgb(0 0 0 / 0.35);
   }
 
   .dl-card-head {
@@ -387,6 +414,7 @@ const installGuideUrl = `${import.meta.env.BASE_URL}/docs/primeiros-passos/insta
     font-size: 16px;
     margin: 0;
     font-weight: 650;
+    letter-spacing: -0.005em;
     flex: 1;
   }
 
@@ -401,50 +429,21 @@ const installGuideUrl = `${import.meta.env.BASE_URL}/docs/primeiros-passos/insta
     border-radius: var(--r-pill);
     padding: 2px 8px;
   }
-
   .dl-card-detected .dl-detected-badge {
     display: inline-block;
   }
 
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    border-radius: var(--r-md);
-    font-weight: 600;
-    font-size: 13px;
-    padding: 9px 16px;
-    border: 1px solid transparent;
-    cursor: pointer;
-    white-space: nowrap;
-    text-decoration: none;
-  }
-  .btn-primary {
-    background: var(--accent);
-    color: #fff;
-  }
-  .btn-primary:hover {
-    background: #1a86ff;
-    color: #fff;
-  }
-  .btn-ghost {
-    background: transparent;
-    border-color: var(--border);
-    color: var(--text);
-  }
-  .btn-ghost:hover {
-    border-color: #4a4a54;
-    background: var(--surface-2);
-    color: var(--text);
-  }
-  .btn-lg {
-    padding: 11px 18px;
-    font-size: 13.5px;
-  }
-
+  /* O botão ocupa a largura do cartão; o texto fica centrado. */
   .dl-primary {
     width: 100%;
+    justify-content: center;
+  }
+
+  .dl-soon {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--text-faint);
   }
 
   .dl-size {
@@ -480,9 +479,11 @@ const installGuideUrl = `${import.meta.env.BASE_URL}/docs/primeiros-passos/insta
     color: var(--text-dim);
   }
 
+  /* Empurrado para a base do cartão: as três colunas terminam alinhadas mesmo
+     com avisos de tamanhos diferentes. */
   .dl-warning {
-    margin-top: 4px;
-    padding-top: 14px;
+    margin-top: auto;
+    padding-top: 16px;
     border-top: 1px solid var(--border-soft);
   }
   .dl-warning-title {
@@ -509,43 +510,60 @@ const installGuideUrl = `${import.meta.env.BASE_URL}/docs/primeiros-passos/insta
     font-size: 11.5px;
   }
 
-  .dl-footer {
+  /* ---------- código-fonte ---------- */
+
+  .dl-source {
+    background: var(--surface);
     border-top: 1px solid var(--border-soft);
-    padding-top: 48px;
+    border-bottom: 1px solid var(--border-soft);
+    padding: 72px 0;
   }
-  .dl-footer-grid {
+  .dl-source-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.05fr;
+    gap: 48px;
+    align-items: center;
+  }
+  .dl-source .req-list {
+    margin-top: 20px;
+  }
+  .dl-source code {
+    font-family: var(--mono);
+    color: var(--text);
+  }
+
+  /* ---------- requisitos e links ---------- */
+
+  .dl-more {
+    padding: 64px 0 88px;
+  }
+  .dl-more-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 48px;
   }
-  .req-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  .dl-more .req-list {
+    margin-top: 0;
   }
-  .req-list li {
-    font-size: 13.5px;
+  .dl-more .req-list a {
     color: var(--text-dim);
   }
-  .req-list li b {
-    color: var(--text);
-    font-weight: 600;
-  }
-  .req-list a {
-    color: var(--text-dim);
-  }
-  .req-list a:hover {
+  .dl-more .req-list a:hover {
     color: var(--text);
   }
 
-  @media (max-width: 860px) {
+  @media (max-width: 980px) {
     .dl-grid {
       grid-template-columns: 1fr;
     }
-    .dl-footer-grid {
+    .dl-source-grid {
+      grid-template-columns: 1fr;
+      gap: 28px;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .dl-more-grid {
       grid-template-columns: 1fr;
       gap: 28px;
     }

@@ -9,7 +9,7 @@ sidebar:
 
 O widget Relógio é uma única ferramenta com cinco modos, trocáveis no próprio nó: **relógio** (a hora atual), **cronômetro**, **timer** (contagem regressiva), **pomodoro** (foco/pausa alternados) e **alarme** (um horário do dia, com dias da semana em que repete — o modo pensado para automação recorrente, tipo "todo dia às 08:00").
 
-O que faz o alarme interessante não é só marcar a hora: ligado por cabo a um [Botão](/docs/nos/widget-botao/), ele dispara aquele botão sozinho no horário configurado — sem ninguém precisar clicar. Sem nenhum dia marcado, o alarme é de uma vez só: a próxima ocorrência daquele horário, e depois disso ele se desarma sozinho.
+O que faz o alarme interessante não é só marcar a hora: ligado por cabo a um [Botão](../widget-botao/), ele dispara aquele botão sozinho no horário configurado — sem ninguém precisar clicar. Sem nenhum dia marcado, o alarme é de uma vez só: a próxima ocorrência daquele horário, e depois disso ele se desarma sozinho.
 
 Com o app fechado, nada dispara — um alarme vencido enquanto o Atelier estava fechado não roda retroativamente ao reabrir; o nó só registra que perdeu aquela ocorrência, em vez de deixar você achando que algo quebrou.
 

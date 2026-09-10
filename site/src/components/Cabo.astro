@@ -2,6 +2,11 @@
 /**
  * Diagrama nó → cabo → nó, o motivo gráfico central do produto — mesma
  * curva e gradiente azul→verde do `.cable-visual` da landing.
+ *
+ * O `not-content` no wrapper não é decorativo: sem ele o Starlight aplica o
+ * espaçamento de prosa (`* + *`) aos elementos internos do cartão e abre uma
+ * faixa entre o cabeçalho e o corpo. A classe manda o tema ignorar a subárvore,
+ * que já tem estilo próprio aqui embaixo.
  */
 interface Props {
   de?: string;
@@ -11,7 +16,7 @@ const { de = 'Editor', para = 'Claude' } = Astro.props;
 const gradId = `cabo-${Math.random().toString(36).slice(2, 8)}`;
 ---
 
-<div class="atelier-cabo">
+<div class="atelier-cabo not-content">
   <svg viewBox="0 0 300 300" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
     <defs>
       <linearGradient id={gradId} x1="60" y1="70" x2="240" y2="230" gradientUnits="userSpaceOnUse">

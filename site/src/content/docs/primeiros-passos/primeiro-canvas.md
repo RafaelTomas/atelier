@@ -48,4 +48,4 @@ Ele não precisa que você explique o CLI `atelier` — o comando já está no `
 
 A partir deste ponto, a regra que vale para todo o resto do app é simples: **um agente só enxerga aquilo em que está ligado por um cabo**. Se você quiser que um terceiro agente entre na conversa, ou que um deles pare de ver a nota, a mudança é sempre no cabo — desenhar um novo ou apagar um existente.
 
-A página de [conceitos](/docs/primeiros-passos/conceitos/) detalha o vocabulário — nó, cabo, workspace, Artesão — que você vai usar para descrever o que monta no canvas.
+A página de [conceitos](../conceitos/) detalha o vocabulário — nó, cabo, workspace, Artesão — que você vai usar para descrever o que monta no canvas.

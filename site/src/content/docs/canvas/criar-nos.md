@@ -29,4 +29,4 @@ Botão direito no vazio do canvas cria uma nota rápida — o atalho mais curto 
 
 Criar nós não é só um gesto seu: um agente cabeado a você pode criar a maioria dos tipos de nó pelo CLI `atelier`, e o nó nasce já ligado por um cabo a quem pediu. Isso é o que permite um agente publicar o resultado de uma consulta como uma tabela, ou abrir um navegador para conferir algo, sem que você precise desenhar a área para ele.
 
-As páginas do bloco [Os nós](/docs/nos/terminal/) detalham, tipo por tipo, o que cada um entrega a um agente conectado a ele.
+As páginas do bloco [Os nós](../../nos/terminal/) detalham, tipo por tipo, o que cada um entrega a um agente conectado a ele.

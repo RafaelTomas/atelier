@@ -1,0 +1,120 @@
+---
+/**
+ * Barra superior das páginas de marketing.
+ *
+ * A mesma barra vale para a landing e para o download; o cabeçalho da doc é
+ * outro componente (DocsHeader), porque lá ele divide espaço com a busca e o
+ * menu do Starlight. Os links de âncora só existem na landing, então a página
+ * de download recebe `sections={false}` e fica só com Docs e Download.
+ */
+import BrandMark from './BrandMark.astro';
+
+interface Props {
+  /** Mostra os links de âncora da landing (#problema, #nos, …). */
+  sections?: boolean;
+  /** Sufixo para o id do gradiente da marca, único por página. */
+  markId?: string;
+}
+
+const { sections = false, markId = 'nav' } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+<div class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href={`${base}/`}>
+      <BrandMark id={markId} size={26} />
+      Atelier
+    </a>
+
+    <div class="nav-links">
+      {sections && (
+        <>
+          <a class="nav-anchor" href="#problema">O problema</a>
+          <a class="nav-anchor" href="#nos">Nós</a>
+          <a class="nav-anchor" href="#artesao">O Artesão</a>
+        </>
+      )}
+      <a href={`${base}/docs`}>Docs</a>
+      <a href="https://github.com/br3nds0n/atelier">GitHub</a>
+    </div>
+
+    <a class="btn btn-primary" href={`${base}/download`}>Baixar</a>
+  </div>
+</div>
+
+<style>
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgb(23 23 26 / 0.82);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 64px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: -0.01em;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+  }
+
+  .nav-links a {
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+  }
+
+  .nav-links a:hover {
+    color: var(--text);
+  }
+
+  /* A barra existe em toda largura: o que encolhe é o conteúdo, não a barra.
+     Primeiro somem as âncoras da própria landing (elas rolam a página e têm
+     substituto no corpo dela); Docs e GitHub, que levam para outro lugar,
+     ficam até o fim. */
+  @media (max-width: 900px) {
+    .nav-anchor {
+      display: none;
+    }
+    .nav-links {
+      gap: 20px;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .nav-inner {
+      gap: 12px;
+    }
+    .nav-links {
+      gap: 14px;
+    }
+    .nav-links a {
+      font-size: 12.5px;
+    }
+    /* O rótulo da marca sai antes do símbolo: o símbolo já identifica. */
+    .brand {
+      font-size: 0;
+      gap: 0;
+    }
+  }
+</style>

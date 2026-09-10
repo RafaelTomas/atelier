@@ -9,7 +9,7 @@ sidebar:
 
 O nó de árvore de arquivos coloca uma pasta do seu sistema no canvas, navegável — expansão preguiçosa (só lê o que você abre), filtro automático de `.gitignore`, e o mesmo menu de contexto da aba Arquivos: renomear inline, duplicar no primeiro nome livre, mover para a lixeira do sistema (nunca apagar direto) e arrastar entre pastas.
 
-Arrastar um arquivo da árvore **para dentro de um terminal** cola o caminho na linha de comando, sem apertar Enter — é o gesto para completar um comando que o agente já está digitando. Soltar o arquivo no canvas, em vez disso, abre um [Editor de código](/docs/nos/editor-de-codigo/).
+Arrastar um arquivo da árvore **para dentro de um terminal** cola o caminho na linha de comando, sem apertar Enter — é o gesto para completar um comando que o agente já está digitando. Soltar o arquivo no canvas, em vez disso, abre um [Editor de código](../editor-de-codigo/).
 
 ## Como criar
 

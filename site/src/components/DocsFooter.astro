@@ -1,0 +1,127 @@
+---
+/**
+ * Rodapé da doc — override do Footer do Starlight.
+ *
+ * Mantém a paginação (prev/next) do tema e fecha a página com a mesma faixa de
+ * marca da landing: logo, uma linha de assinatura e os selos de plataforma.
+ */
+import EditLink from 'virtual:starlight/components/EditLink';
+import LastUpdated from 'virtual:starlight/components/LastUpdated';
+import Pagination from 'virtual:starlight/components/Pagination';
+import BrandMark from './BrandMark.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const badges = ['macOS', 'Windows', 'Linux', 'Electron', 'TypeScript', 'React'];
+---
+
+<footer class="sl-flex">
+  {/* Não renderizam nada hoje (nem `editLink` nem `lastUpdated` estão ligados
+      no astro.config), mas ficam aqui para não sumirem no dia em que ligarem. */}
+  <div class="meta sl-flex">
+    <EditLink />
+    <LastUpdated />
+  </div>
+
+  <Pagination />
+
+  <div class="site-footer">
+    <div class="site-footer-brand">
+      <BrandMark id="docs-footer" size={30} />
+      <div class="site-footer-text">
+        <b>Atelier</b>
+        <span>Seu ateliê de agentes de IA.</span>
+      </div>
+    </div>
+
+    <div class="site-footer-badges">
+      {badges.map((badge) => <span class="badge">{badge}</span>)}
+    </div>
+
+    <div class="site-footer-links">
+      <a href={`${base}/`}>Site</a>
+      <a href={`${base}/download`}>Download</a>
+      <a href="https://github.com/br3nds0n/atelier">GitHub</a>
+    </div>
+  </div>
+</footer>
+
+<style>
+  footer {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .meta {
+    gap: 0.75rem 3rem;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--text-faint);
+  }
+  /* Vazio (o caso de hoje) não deve abrir espaço no rodapé. */
+  .meta:empty {
+    display: none;
+  }
+
+  .site-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-top: 40px;
+    padding-top: 28px;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .site-footer-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .site-footer-text b {
+    display: block;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .site-footer-text span {
+    display: block;
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+
+  .site-footer-badges {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 4px 8px;
+  }
+
+  .site-footer-links {
+    display: flex;
+    gap: 20px;
+  }
+  .site-footer-links a {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-decoration: none;
+  }
+  .site-footer-links a:hover {
+    color: var(--text);
+  }
+
+  /* Em tela estreita os selos são ruído: a marca e os links bastam. */
+  @media (max-width: 50rem) {
+    .site-footer-badges {
+      display: none;
+    }
+  }
+</style>

@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-O Atelier ainda não tem instalador pronto para baixar — hoje você roda o projeto a partir do código-fonte. É rápido: dois comandos e uma espera do `npm install`. Quando sair a primeira versão publicada, ela vai estar em [/download](/download).
+O Atelier ainda não tem instalador pronto para baixar — hoje você roda o projeto a partir do código-fonte. É rápido: dois comandos e uma espera do `npm install`. Quando sair a primeira versão publicada, ela vai estar em [/download](../../../download/).
 
 ## Requisitos
 

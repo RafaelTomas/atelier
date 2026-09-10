@@ -1,7 +1,11 @@
 /*
- * Tokens extraídos de site/landing.html (:root) — nada de cor nova aqui.
- * Este arquivo é consumido tanto pela landing/download (páginas comuns)
- * quanto pelo tema do Starlight (mapeamento logo abaixo).
+ * Tema do site — landing, download e documentação.
+ *
+ * Os tokens de :root são os mesmos da landing (nada de cor nova aqui). O bloco
+ * seguinte traduz esses tokens para as variáveis do Starlight, e o resto do
+ * arquivo ajusta o tema de docs para ter a mesma cara da landing: barra de
+ * 64px com vidro fosco, tipografia apertada, superfícies escuras e o azul
+ * usado com parcimônia — só em acento, nunca em bloco.
  */
 :root {
   --bg: #17171a;
@@ -39,6 +43,7 @@
   --sl-color-gray-4: var(--border);
   --sl-color-gray-5: var(--border-soft);
   --sl-color-gray-6: var(--surface-2);
+  --sl-color-gray-7: var(--surface-3);
   --sl-color-black: var(--bg);
 
   --sl-color-accent-low: #0d2a4a;
@@ -50,15 +55,35 @@
   --sl-color-text-invert: var(--bg);
 
   --sl-color-bg: var(--bg);
-  --sl-color-bg-nav: var(--surface);
-  --sl-color-bg-sidebar: var(--surface);
+  --sl-color-bg-nav: rgb(23 23 26 / 0.82);
+  --sl-color-bg-sidebar: var(--bg);
   --sl-color-bg-inline-code: var(--surface-2);
   --sl-color-bg-accent: var(--accent);
 
   --sl-color-border: var(--border);
+  --sl-color-hairline: var(--border-soft);
+  --sl-color-hairline-light: var(--border-soft);
+  --sl-color-hairline-shade: var(--border-soft);
 
   --sl-font: var(--sans);
   --sl-font-mono: var(--mono);
+
+  /* Mesma altura da barra da landing, e a doc respira mais que o padrão. */
+  --sl-nav-height: 64px;
+  --sl-sidebar-width: 17.5rem;
+  --sl-content-width: 47rem;
+  --sl-line-height: 1.7;
+  --sl-line-height-headings: 1.2;
+  --sl-text-body: 15.5px;
+  --sl-text-code: 13.5px;
+
+  /* Escala de títulos apertada como a da landing. Vai por variável (e não por
+     regra em cada tag) porque o ícone de âncora do Starlight é dimensionado em
+     `em` — mexer no font-size solto desalinharia o elo ao lado do título. */
+  --sl-text-h2: 1.35rem;
+  --sl-text-h3: 1.08rem;
+  --sl-text-h4: 0.98rem;
+  --sl-text-h5: 0.92rem;
 }
 
 /* Site dark-only: mesmo bloco vale se o navegador força prefers-color-scheme */
@@ -68,25 +93,320 @@
 
 body {
   background: var(--sl-color-bg);
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Kicker mono maiúsculo, igual ao .kicker da landing, no topo do conteúdo de docs */
-.sl-markdown-content > h1:first-child::before {
-  content: 'DOCUMENTAÇÃO';
-  display: block;
+/* ---------- barra superior ---------- */
+
+/* Vidro fosco igual ao `.nav` da landing — a cor sai de --sl-color-bg-nav. */
+.header {
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+/* Busca no formato da `.eyebrow`: pílula de superfície com borda fina. */
+site-search button[data-open-modal] {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text-faint);
+  font-size: 13px;
+  height: 34px;
+}
+site-search button[data-open-modal]:hover {
+  border-color: #4a4a54;
+  color: var(--text-dim);
+}
+site-search kbd {
+  background: transparent;
+  color: var(--text-faint);
   font-family: var(--mono);
   font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent);
-  font-weight: 600;
-  margin: 0 0 14px;
 }
 
-/* Badge "Em construção" — reaproveita o .pending-chip âmbar da landing */
+/* Botão do menu em tela estreita: o padrão é um círculo branco sólido, que num
+   tema escuro vira o elemento mais berrante da tela. Aqui ele é só mais um
+   controle de superfície, como o botão de busca ao lado. */
+.sl-menu-button {
+  background-color: var(--surface-2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: none;
+}
+.sl-menu-button:hover {
+  color: var(--text);
+  border-color: #4a4a54;
+}
+.sl-menu-button:has(~ :popover-open) {
+  background-color: var(--surface-3);
+  color: var(--text);
+}
+
+/* ---------- barra lateral ---------- */
+
+.sidebar-pane {
+  border-inline-end: 1px solid var(--border-soft);
+}
+
+/* Rótulo de grupo no formato do `.kicker` da landing, mas apagado: quem
+   precisa saltar é o item atual, não o título da seção. */
+.sidebar-content .top-level > li > details > summary > .group-label > .large,
+.sidebar-content .top-level > li > .group-label > .large,
+.sidebar-content summary .large {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sidebar-content ul.top-level > li + li {
+  margin-top: 1.5rem;
+}
+
+/* Os links: dim por padrão, claros no hover — nada de bloco de cor. */
+.sidebar-content a {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  border-radius: var(--r-sm);
+  padding-block: 0.35em;
+}
+.sidebar-content a:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+/* Página atual: azul no texto e uma barra fina na margem, no lugar do bloco
+   azul cheio do tema padrão — que gritava mais alto que o próprio conteúdo. */
+.sidebar-content a[aria-current='page'],
+.sidebar-content a[aria-current='page']:hover {
+  color: var(--accent);
+  background: transparent;
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* A árvore usa uma guia fina em vez da borda grossa padrão. */
+.sidebar-content ul ul {
+  border-inline-start: 1px solid var(--border-soft);
+}
+
+/* ---------- título e conteúdo ---------- */
+
+.content-panel + .content-panel {
+  border-top: 1px solid var(--border-soft);
+}
+
+.sl-markdown-content {
+  color: var(--text-dim);
+}
+
+.sl-markdown-content p,
+.sl-markdown-content li {
+  font-size: var(--sl-text-body);
+  line-height: 1.7;
+}
+
+.sl-markdown-content strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Hierarquia apertada como a da landing (peso 650, tracking negativo). */
+.sl-markdown-content :is(h2, h3, h4) {
+  color: var(--text);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+/* Hairline acima de cada h2: separa as seções sem pedir uma cor nova — é o
+   mesmo recurso da `.rules-list` da landing.
+
+   A linha vai no WRAPPER, não no h2: o Starlight deixa o título `inline` para
+   o link-âncora caber ao lado, então uma borda no próprio h2 teria a largura
+   do texto em vez da coluna inteira. */
+.sl-markdown-content .sl-heading-wrapper.level-h2 {
+  margin-top: 2.75rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border-soft);
+}
+/* Sem borda dupla quando o h2 abre a página logo abaixo do título. */
+.sl-markdown-content > .sl-heading-wrapper.level-h2:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.sl-markdown-content .sl-heading-wrapper.level-h3 {
+  margin-top: 2rem;
+}
+.sl-markdown-content .sl-heading-wrapper.level-h4 {
+  margin-top: 1.75rem;
+}
+
+.sl-markdown-content a:not(:where(.not-content *)) {
+  color: var(--accent);
+  text-decoration: none;
+}
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  color: #3d94ff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Código inline: mesma pastilha discreta usada nos textos da landing. */
+.sl-markdown-content code:not(:where(.not-content *)) {
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-sm);
+  padding: 0.15em 0.4em;
+  font-size: 0.88em;
+  color: var(--text);
+}
+
+/* ---------- blocos de código ---------- */
+
+/* O visual da `.code-window` da landing: fundo #101014, borda fina, canto 10px.
+ *
+ * Por variável, e NÃO pela opção `expressiveCode` do astro.config: nesta
+ * combinação de versões (astro 7.3 + starlight 0.42 + expressive-code 0.44),
+ * qualquer config ali faz a página apontar para um `ec.<hash>.css` diferente do
+ * arquivo que o build emite — o CSS dá 404 e o bloco de código sai sem moldura
+ * nenhuma. As variáveis abaixo são o caminho suportado e ficam no
+ * `.expressive-code` de propósito: como ele é ancestral mais próximo que o
+ * `:root` do tema, ganha por proximidade sem depender da ordem dos arquivos.
+ */
+.expressive-code {
+  --ec-brdRad: var(--r-lg);
+  --ec-brdCol: var(--border);
+  --ec-codeBg: #101014;
+  --ec-codeFontFml: var(--mono);
+  --ec-codeFontSize: 13px;
+  --ec-codeLineHt: 1.75;
+  --ec-frm-edBg: #101014;
+  --ec-frm-trmBg: #101014;
+  --ec-frm-edTabBarBg: var(--bg);
+  --ec-frm-edActTabBg: var(--surface);
+  --ec-frm-edActTabIndTopCol: var(--accent);
+  --ec-frm-edTabBarBrdBtmCol: var(--border-soft);
+  --ec-frm-trmTtbBg: var(--bg);
+  --ec-frm-trmTtbBrdBtmCol: var(--border-soft);
+  --ec-frm-trmTtbDotsFg: var(--border);
+  --ec-frm-frameBoxShdCssVal: none;
+}
+
+/* ---------- avisos, citações e tabelas ---------- */
+
+.sl-markdown-content .starlight-aside {
+  border-inline-start-width: 2px;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: var(--surface);
+  padding: 1rem 1.25rem;
+}
+.sl-markdown-content .starlight-aside__title {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sl-markdown-content blockquote:not(:where(.not-content *)) {
+  border-inline-start: 2px solid var(--border);
+  color: var(--text-dim);
+  font-style: normal;
+}
+
+.sl-markdown-content table:not(:where(.not-content *)) {
+  font-size: 14px;
+  border-collapse: collapse;
+}
+.sl-markdown-content :is(th, td):not(:where(.not-content *)) {
+  border-bottom: 1px solid var(--border-soft);
+  border-inline: none;
+  padding: 10px 14px 10px 0;
+}
+.sl-markdown-content th:not(:where(.not-content *)) {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sl-markdown-content hr:not(:where(.not-content *)) {
+  border-color: var(--border-soft);
+}
+
+/* ---------- sumário da direita ---------- */
+
+.right-sidebar-panel h2 {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.right-sidebar-panel a {
+  font-size: 13px;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+.right-sidebar-panel a:hover {
+  color: var(--text);
+}
+.right-sidebar-panel a[aria-current='true'] {
+  color: var(--accent);
+  font-weight: 600;
+}
+.right-sidebar {
+  border-inline-start: 1px solid var(--border-soft);
+}
+
+/* ---------- paginação ---------- */
+
+.pagination-links > a {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  box-shadow: none;
+  padding: 14px 18px;
+}
+.pagination-links > a:hover {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+.pagination-links svg {
+  color: var(--text-faint);
+}
+.pagination-links span {
+  font-size: 14.5px;
+  color: var(--text);
+}
+.pagination-links a > span > span:first-child {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* ---------- selos ---------- */
+
+/* Badge "Em construção" — reaproveita o `.pending-chip` âmbar da landing */
 .sl-badge.pending,
 .sl-badge[data-variant='caution'] {
   color: var(--amber);
   background: rgb(217 154 43 / 0.1);
   border-color: #4a3a1f;
+}
+.sl-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  border-radius: var(--r-pill);
+  padding: 2px 8px;
 }

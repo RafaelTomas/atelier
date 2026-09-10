@@ -1,51 +1,24 @@
 ---
 import Marketing from '../layouts/Marketing.astro';
+import SiteNav from '../components/SiteNav.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+
+/** Base com uma barra só — `BASE_URL` varia com a config de deploy. */
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 
 <Marketing>
-  <!-- ============ NAV ============ -->
-  <div class="nav">
-    <div class="wrap nav-inner">
-      <div class="brand">
-        <svg width="26" height="26" viewBox="0 0 1024 1024" fill="none">
-          <defs>
-            <linearGradient id="navg" x1="24" y1="100" x2="100" y2="20" gradientUnits="userSpaceOnUse">
-              <stop offset="0" stop-color="#2E7BF6"></stop>
-              <stop offset="1" stop-color="#3BD44A"></stop>
-            </linearGradient>
-          </defs>
-          <rect x="100" y="100" width="824" height="824" rx="184" fill="#0e0f12"></rect>
-          <rect x="101.5" y="101.5" width="821" height="821" rx="182.5" fill="none" stroke="#2A3341" stroke-width="3"></rect>
-          <g transform="translate(236 216) scale(4.9)" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <g stroke="url(#navg)" stroke-width="11">
-              <path d="M28 94 L60 28 L92 94"></path>
-              <path d="M42 68 L78 68"></path>
-            </g>
-            <circle cx="28" cy="94" r="5.5" fill="#2E7BF6"></circle>
-            <circle cx="92" cy="94" r="5.5" fill="#3BD44A"></circle>
-          </g>
-        </svg>
-        Atelier
-      </div>
-      <div class="nav-links">
-        <a href="#problema">O problema</a>
-        <a href="#nos">Nós</a>
-        <a href="#artesao">O Artesão</a>
-        <a href="#instalacao">Instalação</a>
-      </div>
-      <a class="btn btn-primary" href="#instalacao">Ver instalação</a>
-    </div>
-  </div>
+  <SiteNav sections markId="landing-nav" />
 
   <!-- ============ HERO ============ -->
-  <div class="hero">
+  <div class="hero grid-bg">
     <div class="wrap hero-inner">
       <div>
-        <span class="eyebrow"><span class="dot"></span>CANVAS MULTI-AGENTE &middot; LOCAL-FIRST &middot; CÓDIGO ABERTO</span>
+        <span class="eyebrow"><span class="dot"></span>CANVAS MULTI-AGENTE &middot; LOCAL-FIRST &middot; MULTIPLATAFORMA</span>
         <h1>Seu <span class="grad">ateliê</span> de agentes de IA.</h1>
         <p class="lede">Um canvas infinito onde Claude, Codex e qualquer CLI de agente trabalham lado a lado — e conversam entre si sem você precisar copiar e colar contexto de uma janela pra outra.</p>
         <div class="cta-row">
-          <a class="btn btn-primary btn-lg" href="#instalacao">Ver a instalação</a>
+          <a class="btn btn-primary btn-lg" href={`${base}/download`}>Baixar o Atelier</a>
           <a class="btn btn-ghost btn-lg" href="#como-funciona">Como funciona</a>
         </div>
       </div>
@@ -97,7 +70,7 @@ import Marketing from '../layouts/Marketing.astro';
       </div>
       <div class="proof-item">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4-8 4-8-4z"></path><path d="M4 12l8 4 8-4M4 16l8 4 8-4"></path></svg>
-        GPL-3.0 — código aberto
+        Seus dados em ~/.atelier, no seu disco
       </div>
     </div>
   </div>
@@ -278,94 +251,22 @@ import Marketing from '../layouts/Marketing.astro';
     </div>
   </section>
 
-  <!-- ============ INSTALAÇÃO ============ -->
-  <section id="instalacao">
-    <div class="wrap">
-      <div class="install-panel">
-        <div>
-          <p class="kicker">Instalação</p>
-          <h2>Comece em dois minutos</h2>
-          <p class="section-lede">Do canvas vazio até dois agentes conversando entre si.</p>
-          <ul class="req-list">
-            <li><b>Node 22+</b> — e no macOS, as Command Line Tools.</li>
-            <li><b>npm run dev</b> — isola os dados em <code style="font-family:var(--mono)">~/.atelier-dev</code>; não encosta no seu workspace real.</li>
-          </ul>
-        </div>
-        <div class="code-window">
-          <div class="code-window-head">
-            <span style="background:#e74c3c"></span><span style="background:#d99a2b"></span><span style="background:#2ecc71"></span>
-          </div>
-          <pre><span class="rem"># clone e instale</span>
-git clone <span class="ph">&lt;url-do-repo&gt;</span> atelier
-cd atelier
-npm install
-
-<span class="rem"># rode</span>
-npm run dev</pre>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <!-- ============ FINAL CTA ============ -->
   <div class="final-cta">
     <div class="wrap">
       <h2>Tire o roteador humano do meio.</h2>
       <div class="cta-row">
-        <a class="btn btn-primary btn-lg" href="#instalacao">Ver a instalação</a>
-        <a class="btn btn-ghost btn-lg" href="#nos">Explorar os nós</a>
+        <a class="btn btn-primary btn-lg" href={`${base}/download`}>Baixar o Atelier</a>
+        <a class="btn btn-ghost btn-lg" href={`${base}/docs`}>Ler a documentação</a>
       </div>
     </div>
   </div>
 
-  <!-- ============ FOOTER ============ -->
-  <footer>
-    <div class="wrap footer-inner">
-      <div class="footer-brand">
-        <svg width="30" height="30" viewBox="0 0 1024 1024" fill="none">
-          <defs>
-            <linearGradient id="fg" x1="24" y1="100" x2="100" y2="20" gradientUnits="userSpaceOnUse">
-              <stop offset="0" stop-color="#2E7BF6"></stop>
-              <stop offset="1" stop-color="#3BD44A"></stop>
-            </linearGradient>
-          </defs>
-          <rect x="100" y="100" width="824" height="824" rx="184" fill="#0e0f12"></rect>
-          <rect x="101.5" y="101.5" width="821" height="821" rx="182.5" fill="none" stroke="#2A3341" stroke-width="3"></rect>
-          <g transform="translate(236 216) scale(4.9)" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <g stroke="url(#fg)" stroke-width="11">
-              <path d="M28 94 L60 28 L92 94"></path>
-              <path d="M42 68 L78 68"></path>
-            </g>
-            <circle cx="28" cy="94" r="5.5" fill="#2E7BF6"></circle>
-            <circle cx="92" cy="94" r="5.5" fill="#3BD44A"></circle>
-          </g>
-        </svg>
-        <div class="footer-brand-text">
-          <b>Atelier</b>
-          <span>Seu ateliê de agentes de IA.</span>
-        </div>
-      </div>
-      <div class="badges">
-        <span class="badge">macOS</span>
-        <span class="badge">Windows</span>
-        <span class="badge">Linux</span>
-        <span class="badge">Electron</span>
-        <span class="badge">TypeScript</span>
-        <span class="badge">React</span>
-        <span class="badge">GPL-3.0</span>
-      </div>
-      <div class="footer-links">
-        <a href="#como-funciona">Como funciona</a>
-        <a href="#instalacao">Instalação</a>
-      </div>
-    </div>
-  </footer>
+  <SiteFooter markId="landing-footer" />
 </Marketing>
 
 <style>
-  /* ---------- nav ---------- */
-
-  .nav {
+    .nav {
     position: sticky;
     top: 0;
     z-index: 20;
@@ -373,110 +274,11 @@ npm run dev</pre>
     backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--border-soft);
   }
+    /* ---------- hero ---------- */
 
-  .nav-inner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    height: 64px;
-  }
-
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-weight: 600;
-    font-size: 15px;
-    letter-spacing: -0.01em;
-  }
-
-  .brand svg {
-    display: block;
-  }
-
-  .nav-links {
-    display: flex;
-    align-items: center;
-    gap: 28px;
-  }
-
-  .nav-links a {
-    color: var(--text-dim);
-    font-size: 13px;
-    font-weight: 500;
-  }
-
-  .nav-links a:hover {
-    color: var(--text);
-  }
-
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    border-radius: var(--r-md);
-    font-weight: 600;
-    font-size: 13px;
-    padding: 9px 16px;
-    border: 1px solid transparent;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: #fff;
-  }
-  .btn-primary:hover {
-    background: #1a86ff;
-    color: #fff;
-  }
-
-  .btn-ghost {
-    background: transparent;
-    border-color: var(--border);
-    color: var(--text);
-  }
-  .btn-ghost:hover {
-    border-color: #4a4a54;
-    background: var(--surface-2);
-    color: var(--text);
-  }
-
-  /* ---------- eyebrow / badges ---------- */
-
-  .eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    color: var(--text-dim);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--r-pill);
-    padding: 6px 12px;
-  }
-
-  .eyebrow .dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--green);
-    box-shadow: 0 0 6px var(--green);
-  }
-
-  /* ---------- hero ---------- */
-
+  /* Fundo de grade vem do `.grid-bg` compartilhado (site.css). */
   .hero {
-    position: relative;
     padding: 88px 0 64px;
-    background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-    background-size: 40px 40px;
-    background-position: center -1px;
-    -webkit-mask-image: linear-gradient(to bottom, black 55%, transparent 96%);
-    mask-image: linear-gradient(to bottom, black 55%, transparent 96%);
   }
 
   .hero-inner {
@@ -485,41 +287,6 @@ npm run dev</pre>
     gap: 48px;
     align-items: center;
   }
-
-  h1 {
-    font-size: clamp(2.1rem, 1.2rem + 3.4vw, 3.4rem);
-    line-height: 1.06;
-    letter-spacing: -0.02em;
-    margin: 18px 0 20px;
-    font-weight: 650;
-  }
-
-  h1 .grad {
-    background: linear-gradient(90deg, var(--grad-start), var(--grad-end));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-
-  .lede {
-    font-size: 17px;
-    line-height: 1.6;
-    color: var(--text-dim);
-    max-width: 46ch;
-    margin: 0 0 32px;
-  }
-
-  .cta-row {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  .btn-lg {
-    padding: 12px 20px;
-    font-size: 14px;
-    border-radius: var(--r-md);
-  }
-
   /* ---------- hero visual: nodes + cable ---------- */
 
   .hero-visual {
@@ -643,40 +410,6 @@ npm run dev</pre>
   }
 
   /* ---------- sections generic ---------- */
-
-  section {
-    padding: 96px 0;
-  }
-  .section-tight {
-    padding: 72px 0;
-  }
-
-  .kicker {
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--accent);
-    font-weight: 600;
-    margin: 0 0 14px;
-  }
-
-  h2 {
-    font-size: clamp(1.6rem, 1.2rem + 1.4vw, 2.2rem);
-    letter-spacing: -0.015em;
-    line-height: 1.15;
-    margin: 0 0 18px;
-    font-weight: 650;
-  }
-
-  .section-lede {
-    font-size: 16px;
-    line-height: 1.65;
-    color: var(--text-dim);
-    max-width: 62ch;
-    margin: 0 0 12px;
-  }
-
   /* ---------- problem section ---------- */
 
   .problem-grid {
@@ -685,24 +418,6 @@ npm run dev</pre>
     gap: 56px;
     align-items: start;
   }
-
-  .term-block {
-    background: #101014;
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    padding: 18px 20px;
-    font-family: var(--mono);
-    font-size: 13px;
-    line-height: 1.9;
-    color: #dcdce2;
-  }
-  .term-block .who {
-    color: var(--green);
-  }
-  .term-block .who2 {
-    color: #58a6ff;
-  }
-
   /* ---------- cable feature ---------- */
 
   .cable-feature {
@@ -803,27 +518,6 @@ npm run dev</pre>
     color: var(--text-dim);
     margin: 0;
   }
-
-  .pending-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--amber);
-    border: 1px solid #4a3a1f;
-    background: rgb(217 154 43 / 0.1);
-    border-radius: var(--r-pill);
-    padding: 3px 8px;
-    width: fit-content;
-  }
-  .pending-chip .dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--amber);
-  }
-
   /* ---------- artisan section ---------- */
 
   .artisan {
@@ -954,72 +648,7 @@ npm run dev</pre>
     color: var(--text-dim);
   }
 
-  /* ---------- install section ---------- */
-
-  .install-panel {
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--r-xl);
-    padding: 40px;
-    display: grid;
-    grid-template-columns: 1fr 1.1fr;
-    gap: 48px;
-    align-items: center;
-  }
-
-  .code-window {
-    background: #101014;
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    overflow: hidden;
-  }
-  .code-window-head {
-    display: flex;
-    gap: 6px;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border-soft);
-  }
-  .code-window-head span {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-  }
-  .code-window pre {
-    margin: 0;
-    padding: 18px 20px;
-    font-family: var(--mono);
-    font-size: 13px;
-    line-height: 1.95;
-    color: #dcdce2;
-    overflow-x: auto;
-  }
-  .code-window pre .rem {
-    color: var(--text-faint);
-  }
-  .code-window pre .ph {
-    color: var(--amber);
-  }
-
-  .req-list {
-    list-style: none;
-    margin: 20px 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .req-list li {
-    font-size: 13.5px;
-    color: var(--text-dim);
-    display: flex;
-    gap: 8px;
-  }
-  .req-list li b {
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  /* ---------- final cta ---------- */
+    /* ---------- final cta ---------- */
 
   .final-cta {
     text-align: center;
@@ -1036,65 +665,13 @@ npm run dev</pre>
     margin-top: 28px;
   }
 
-  /* ---------- footer ---------- */
-
-  footer {
-    border-top: 1px solid var(--border-soft);
-    padding: 40px 0;
-  }
-  .footer-inner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 20px;
-  }
-  .footer-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .footer-brand-text b {
-    display: block;
-    font-size: 13.5px;
-    font-weight: 600;
-  }
-  .footer-brand-text span {
-    display: block;
-    font-size: 12px;
-    color: var(--text-faint);
-  }
-  .badges {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .badge {
-    font-family: var(--mono);
-    font-size: 10.5px;
-    color: var(--text-dim);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    padding: 4px 8px;
-  }
-  .footer-links {
-    display: flex;
-    gap: 20px;
-  }
-  .footer-links a {
-    font-size: 13px;
-    color: var(--text-dim);
-  }
-  .footer-links a:hover {
+    .footer-links a:hover {
     color: var(--text);
   }
 
   /* ---------- responsive ---------- */
 
   @media (max-width: 860px) {
-    .nav-links {
-      display: none;
-    }
     .hero-inner {
       grid-template-columns: 1fr;
     }
@@ -1118,10 +695,6 @@ npm run dev</pre>
     .feat-grid {
       grid-template-columns: repeat(2, 1fr);
     }
-    .install-panel {
-      grid-template-columns: 1fr;
-      padding: 28px;
-    }
     .proof-inner {
       grid-template-columns: repeat(2, 1fr);
       row-gap: 16px;
@@ -1129,21 +702,11 @@ npm run dev</pre>
     .proof-item:nth-child(3) {
       border-left: none;
     }
-    .footer-inner {
-      flex-direction: column;
-      align-items: flex-start;
-    }
   }
 
   @media (max-width: 560px) {
     .feat-grid {
       grid-template-columns: 1fr;
-    }
-    section {
-      padding: 64px 0;
-    }
-    .install-panel {
-      padding: 20px;
     }
   }
 </style>

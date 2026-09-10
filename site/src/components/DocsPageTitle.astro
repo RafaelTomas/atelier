@@ -1,0 +1,50 @@
+---
+/**
+ * Título da página com o "kicker" da seção acima — o mesmo `.kicker` que
+ * rotula cada seção da landing (mono, maiúsculo, azul).
+ *
+ * O rótulo sai da própria barra lateral (o grupo que contém a página atual),
+ * então acompanha o `sidebar` do astro.config sem ninguém precisar repetir a
+ * lista aqui.
+ */
+type SidebarEntry = {
+  type: 'link' | 'group';
+  label: string;
+  isCurrent?: boolean;
+  entries?: SidebarEntry[];
+};
+
+function hasCurrent(entry: SidebarEntry): boolean {
+  if (entry.type === 'link') return entry.isCurrent === true;
+  return (entry.entries ?? []).some(hasCurrent);
+}
+
+const { sidebar, entry } = Astro.locals.starlightRoute;
+const section = (sidebar as SidebarEntry[]).find(
+  (item) => item.type === 'group' && hasCurrent(item)
+);
+---
+
+{section && <p class="kicker">{section.label}</p>}
+<h1 id="_top">{entry.data.title}</h1>
+
+<style>
+  .kicker {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin: 0 0 10px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(1.75rem, 1.4rem + 1.1vw, 2.15rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    font-weight: 650;
+    color: var(--text);
+  }
+</style>

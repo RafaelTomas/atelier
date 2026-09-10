@@ -1,0 +1,30 @@
+# A doc fica em site/ — um projeto npm SEPARADO do Electron da raiz. Um
+# `npm install` na raiz compila o app (node-pty, electron-builder) e não gera
+# uma única página.
+#
+# Node 22, e não `lts`: é o que site/package.json exige (>=22.12), e `lts` troca
+# de major sozinho.
+image: node:22
+
+create-pages:
+  stage: deploy
+  rules:
+    # `CI_COMMIT_BRANCH`, e não `CI_COMMIT_REF_NAME`: o segundo também casa com
+    # tags, então uma tag homônima da branch padrão publicaria sozinha.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  before_script:
+    - cd site
+  script:
+    - npm ci
+    # O astro.config.mjs aponta para o GitHub Pages (br3nds0n.github.io/atelier)
+    # e aqui a URL é outra. Um `base` errado não degrada: quebra todo link
+    # interno e todo asset de uma vez, e a página sobe sem CSS. As flags
+    # sobrescrevem o config sem tocar no arquivo, e `CI_PAGES_URL` é a URL final
+    # deste site, dada pelo próprio GitLab.
+    - ORIGIN=$(node -p 'new URL(process.env.CI_PAGES_URL).origin')
+    - BASE=$(node -p 'new URL(process.env.CI_PAGES_URL).pathname')
+    - npm run build -- --site "$ORIGIN" --base "$BASE"
+  pages:
+    # `site/dist`, e não `site`: é onde o Astro gera. Publicar `site` sobe o
+    # CÓDIGO-FONTE da doc, sem nenhum index.html servível.
+    publish: site/dist

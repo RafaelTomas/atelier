@@ -1,17 +1,69 @@
-# A doc fica em site/ — um projeto npm SEPARADO do Electron da raiz. Um
-# `npm install` na raiz compila o app (node-pty, electron-builder) e não gera
-# uma única página.
+# Duas coisas saem daqui: a doc em GitLab Pages (a cada push na branch padrão) e
+# a release com os instaladores (a cada tag `v*`).
 #
 # Node 22, e não `lts`: é o que site/package.json exige (>=22.12), e `lts` troca
 # de major sozinho.
 image: node:22
 
+# A ordem importa: a página de download resolve os assets da release em tempo de
+# build. Publicar o site ANTES da release existir imprimiria "ainda não
+# publicado" para a versão que acabou de sair.
+stages:
+  - build
+  - release
+  - deploy
+
+# ---------------------------------------------------------------- instaladores
+
+# Só Linux, e não é escolha: node-pty é módulo nativo, não cross-compila, e um
+# .dmg ou .exe exige runner macOS e Windows. Enquanto a instância só tiver
+# runners Docker/Linux, os outros dois sistemas continuam saindo pelo GitHub
+# Actions (.github/workflows/release.yml), que tem a matriz das três máquinas.
+package:linux:
+  stage: build
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+  before_script:
+    # O empacotamento .deb chama `fakeroot`, que não vem na imagem do Node. O
+    # resto (appimagetool, 7za) o electron-builder baixa para o cache dele.
+    - apt-get update && apt-get install -y --no-install-recommends fakeroot
+  script:
+    - npm ci
+    - npm run typecheck
+    # Não se publica release que não passa no smoke — mesma regra do GitHub.
+    - npm run test:smoke
+    - npx electron-vite build
+    - npx electron-builder --linux --publish never
+  artifacts:
+    # Só os instaláveis: `dist/linux-unpacked` é enorme e não se distribui.
+    paths:
+      - dist/*.AppImage
+      - dist/*.deb
+      - dist/*.zip
+    expire_in: 1 day
+
+publish:release:
+  stage: release
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/
+  needs:
+    - package:linux
+  variables:
+    # As notas saem do `git log` desde a tag anterior, e o clone raso padrão
+    # (profundidade 20) frequentemente não alcança essa tag.
+    GIT_DEPTH: 0
+  script:
+    - node scripts/gitlab-release.mjs
+
+# ------------------------------------------------------------------ documentação
+
 create-pages:
   stage: deploy
   rules:
-    # `CI_COMMIT_BRANCH`, e não `CI_COMMIT_REF_NAME`: o segundo também casa com
-    # tags, então uma tag homônima da branch padrão publicaria sozinha.
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    # Também na tag, e depois da release por causa das etapas: é o que faz a
+    # versão nova aparecer na página de download.
+    - if: $CI_COMMIT_TAG =~ /^v/
   before_script:
     - cd site
   script:

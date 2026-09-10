@@ -49,26 +49,25 @@ stages:
     - npm run test:smoke
     - npx electron-vite build
   artifacts:
-    # Só os instaláveis: `dist/*-unpacked` é enorme e não se distribui, e o
-    # `.blockmap` só serve para updater diferencial, que este app não usa. Cada
-    # job casa apenas com os próprios formatos; os outros padrões ficam vazios.
+    # O manifesto, e não os binários: o artefato de job tem teto de tamanho na
+    # instância, e os ~280 MB de instaladores de Linux voltaram 413. Quem hospeda
+    # é o Package Registry, para onde o próprio job já subiu tudo; o que passa
+    # daqui para o `publish:release` são algumas centenas de bytes de JSON.
     paths:
-      - dist/*.AppImage
-      - dist/*.deb
-      - dist/*.exe
-      - dist/*.dmg
-      - dist/*.zip
+      - dist/links-*.json
     expire_in: 1 day
 
 package:linux:
   extends: .empacota
   script:
     - npx electron-builder --linux --publish never
+    - node scripts/gitlab-release.mjs --upload linux
 
 package:windows:
   extends: .empacota
   script:
     - npx electron-builder --win --publish never
+    - node scripts/gitlab-release.mjs --upload windows
 
 # macOS é o único que NÃO sai de um contêiner Linux: o .dmg precisa do `hdiutil`,
 # e node-pty é módulo nativo que teria de ser compilado para darwin. Exige um
@@ -87,6 +86,7 @@ package:mac:
     - if: $CI_COMMIT_TAG =~ /^v/ && $MACOS_RUNNER == "true"
   script:
     - npx electron-builder --mac --publish never
+    - node scripts/gitlab-release.mjs --upload mac
 
 publish:release:
   stage: release

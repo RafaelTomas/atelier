@@ -1,33 +1,39 @@
 /**
- * Publica a release no GitLab a partir dos instaladores já empacotados em dist/.
+ * Publica a release no GitLab. Roda em dois modos, e a divisão não é estética.
  *
- * Três diferenças em relação ao release.yml do GitHub mudam o desenho, e nenhuma
- * é cosmética:
+ *   --upload <plataforma>   sobe o que está em dist/ para o Package Registry e
+ *                           deixa um dist/links-<plataforma>.json com nome, URL
+ *                           e sha256 de cada arquivo.
+ *   (sem argumento)         junta os links-*.json de todas as plataformas, sobe
+ *                           o checksums.txt somado e cria a release.
  *
- * 1. A release do GitLab NÃO hospeda arquivo. Ela guarda uma lista de links, e o
- *    binário precisa existir em outro lugar antes — aqui, no Package Registry
- *    genérico do próprio projeto. Por isso o upload vem primeiro, e a release
- *    depois, apontando para as URLs que o upload devolveu.
+ * Por que dois modos: o artefato de job tem teto de tamanho na instância (o
+ * upload de ~280 MB de instaladores de Linux voltou 413), e passar binário de um
+ * job para o outro por lá era desperdício mesmo antes do limite — o Package
+ * Registry é quem hospeda de verdade, e é para onde os links da release apontam.
+ * O que trafega entre os jobs agora são algumas centenas de bytes de JSON.
  *
- * 2. A API de releases não devolve o TAMANHO do asset; a do GitHub devolvia, e a
- *    página de download imprimia "12,4 MB" a partir dela. Quem resolve agora é um
- *    HEAD em tempo de build (ver site/src/pages/download.astro), e ele só funciona
- *    porque o Package Registry responde `Content-Length` — é mais uma razão para
- *    o binário morar lá, e não num artefato de job.
+ * Três diferenças em relação ao release.yml do GitHub explicam o resto:
+ *
+ * 1. A release do GitLab NÃO hospeda arquivo — ela guarda uma lista de links.
+ *    Por isso o upload vem primeiro e a release depois.
+ *
+ * 2. A API não devolve o TAMANHO do asset; a do GitHub devolvia, e era dela que
+ *    saía o "12,4 MB" na página de download. Quem resolve agora é um HEAD em
+ *    tempo de build (ver site/src/pages/download.astro), e ele só funciona
+ *    porque o Package Registry responde `Content-Length`.
  *
  * 3. Não existe `generate_release_notes`. As notas saem do `git log` desde a tag
  *    anterior, o que exige clone completo — ver `GIT_DEPTH: 0` no .gitlab-ci.yml.
- *    Sem tag anterior (a primeira release), sai só o cabeçalho.
  *
  * Autentica com `CI_JOB_TOKEN`, a mesma credencial que o `release-cli` usaria.
  * Node 22 tem `fetch` e `crypto` nativos: nada a instalar no runner.
  *
- * `--dry-run` monta tudo e imprime, sem subir nada. É como isto é verificado
- * fora do CI.
+ * `--dry-run` monta tudo e imprime, sem subir nada.
  */
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
-import { readdir, stat, writeFile } from 'node:fs/promises'
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import { Readable } from 'node:stream'
 import { join } from 'node:path'
@@ -35,12 +41,18 @@ import { join } from 'node:path'
 const DIST = 'dist'
 const PACKAGE = 'atelier'
 
-// O que é instalável. O diretório `linux-unpacked` e os `.blockmap` do
-// electron-builder ficam de fora: o primeiro é enorme e não se distribui, o
-// segundo só serve para o updater diferencial, que este app não usa.
+// O que é instalável. `dist/*-unpacked` e os `.blockmap` ficam de fora: o
+// primeiro é enorme e não se distribui, o segundo só serve para updater
+// diferencial, que este app não usa.
 const INSTALLERS = /\.(AppImage|deb|zip|dmg|exe)$/i
 
 const dryRun = process.argv.includes('--dry-run')
+const uploadIndex = process.argv.indexOf('--upload')
+const platform = uploadIndex === -1 ? null : process.argv[uploadIndex + 1]
+
+if (uploadIndex !== -1 && !platform) {
+  throw new Error('--upload exige o nome da plataforma (ex.: --upload linux)')
+}
 
 const env = (name) => {
   const value = process.env[name]
@@ -57,29 +69,6 @@ const jobToken = process.env.CI_JOB_TOKEN
 // uma URL com `v` duplicaria o prefixo no nome do arquivo baixado.
 const version = tag.replace(/^v/, '')
 const packageBase = `${apiUrl}/projects/${projectId}/packages/generic/${PACKAGE}/${version}`
-
-const installers = (await readdir(DIST, { withFileTypes: true }))
-  .filter((entry) => entry.isFile() && INSTALLERS.test(entry.name))
-  .map((entry) => entry.name)
-  .sort()
-
-if (installers.length === 0) {
-  throw new Error(`nenhum instalador em ${DIST}/ — o job de empacotamento não deixou o que publicar`)
-}
-
-// O checksums.txt sai daqui, e não de um `sha256sum` no shell, porque é ele que
-// a página de download lê para imprimir o SHA-256 de cada binário: o formato
-// (`<hash>  <nome>`) precisa bater com o que ela espera, e o arquivo precisa
-// subir junto dos outros. Ver o parser em site/src/pages/download.astro.
-const checksums = []
-for (const name of installers) {
-  const hash = createHash('sha256')
-  for await (const chunk of createReadStream(join(DIST, name))) hash.update(chunk)
-  checksums.push(`${hash.digest('hex')}  ${name}`)
-}
-await writeFile(join(DIST, 'checksums.txt'), `${checksums.join('\n')}\n`)
-
-const assets = [...installers, 'checksums.txt']
 
 /**
  * Sobe um arquivo por streaming.
@@ -109,6 +98,61 @@ async function upload(name) {
   return url
 }
 
+async function sha256(name) {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(join(DIST, name))) hash.update(chunk)
+  return hash.digest('hex')
+}
+
+// ------------------------------------------------------------------ modo upload
+
+if (platform) {
+  const installers = (await readdir(DIST, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && INSTALLERS.test(entry.name))
+    .map((entry) => entry.name)
+    .sort()
+
+  if (installers.length === 0) {
+    throw new Error(`nenhum instalador em ${DIST}/ — o empacotamento de ${platform} não deixou o que publicar`)
+  }
+
+  console.log(`${platform}: ${installers.length} instaladores`)
+  const assets = []
+  for (const name of installers) {
+    assets.push({ name, sha256: await sha256(name), url: await upload(name) })
+  }
+
+  const manifest = join(DIST, `links-${platform}.json`)
+  await writeFile(manifest, `${JSON.stringify({ platform, assets }, null, 2)}\n`)
+  console.log(`manifesto: ${manifest}`)
+  process.exit(0)
+}
+
+// ----------------------------------------------------------------- modo release
+
+const manifests = (await readdir(DIST, { withFileTypes: true }))
+  .filter((entry) => entry.isFile() && /^links-.+\.json$/.test(entry.name))
+  .map((entry) => entry.name)
+  .sort()
+
+if (manifests.length === 0) {
+  throw new Error(`nenhum links-*.json em ${DIST}/ — nenhum job de empacotamento chegou a subir arquivo`)
+}
+
+const assets = []
+for (const name of manifests) {
+  const { assets: doPlataforma } = JSON.parse(await readFile(join(DIST, name), 'utf8'))
+  assets.push(...doPlataforma)
+}
+
+// O checksums.txt é somado aqui, e não em cada job, porque é um arquivo só com
+// os hashes de TODOS os sistemas — e é ele que a página de download lê para
+// imprimir o SHA-256 de cada binário. O formato (`<hash>  <nome>`) precisa bater
+// com o parser em site/src/pages/download.astro.
+const checksums = assets.map((a) => `${a.sha256}  ${a.name}`).join('\n')
+await writeFile(join(DIST, 'checksums.txt'), `${checksums}\n`)
+const checksumsUrl = await upload('checksums.txt')
+
 /**
  * As notas da release, a partir dos commits desde a tag anterior.
  *
@@ -123,13 +167,15 @@ function releaseNotes() {
   // vermelho um log de job que deu certo.
   const git = (args) =>
     execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+
   // Quais sistemas realmente saíram: o job de macOS só roda se a instância tiver
   // um runner macOS, então a lista é do que foi empacotado, não do que se
   // pretendia empacotar.
+  const nomes = assets.map((a) => a.name)
   const sistemas = [
-    installers.some((n) => /\.(dmg)$/i.test(n)) && 'macOS',
-    installers.some((n) => /\.exe$/i.test(n)) && 'Windows',
-    installers.some((n) => /\.(AppImage|deb)$/i.test(n)) && 'Linux'
+    nomes.some((n) => /\.dmg$/i.test(n)) && 'macOS',
+    nomes.some((n) => /\.exe$/i.test(n)) && 'Windows',
+    nomes.some((n) => /\.(AppImage|deb)$/i.test(n)) && 'Linux'
   ].filter(Boolean)
   const cabecalho = `Instaladores para ${sistemas.join(', ') || 'nenhum sistema'} — \`${tag}\`.`
 
@@ -142,9 +188,11 @@ function releaseNotes() {
   }
 }
 
-console.log(`Release ${tag} — ${assets.length} assets`)
-const links = []
-for (const name of assets) links.push({ name, url: await upload(name), link_type: 'package' })
+const links = [...assets, { name: 'checksums.txt', url: checksumsUrl }].map(({ name, url }) => ({
+  name,
+  url,
+  link_type: 'package'
+}))
 
 const body = {
   name: `Atelier ${tag}`,

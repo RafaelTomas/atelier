@@ -23,31 +23,34 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         </div>
       </div>
 
-      <div class="hero-visual">
-        <svg class="hv-svg" viewBox="0 0 400 300" preserveAspectRatio="none">
+      <div class="hero-visual" id="hero-visual">
+        <svg class="hv-svg" id="hero-svg">
           <defs>
-            <linearGradient id="cablegrad" x1="60" y1="90" x2="290" y2="190" gradientUnits="userSpaceOnUse">
+            <linearGradient id="cablegrad" x1="0%" y1="0%" x2="100%" y2="100%" gradientUnits="objectBoundingBox">
               <stop offset="0" stop-color="#2E7BF6"></stop>
               <stop offset="1" stop-color="#3BD44A"></stop>
             </linearGradient>
           </defs>
-          <path d="M235,95 C 300,120 190,150 265,182" fill="none" stroke="url(#cablegrad)" stroke-width="2.5" stroke-linecap="round"></path>
-          <path d="M155,120 C 140,135 145,150 165,158" fill="none" stroke="#4a4a54" stroke-width="1.4" stroke-dasharray="3 4"></path>
-          <path d="M245,182 C 235,172 230,160 220,150" fill="none" stroke="#4a4a54" stroke-width="1.4" stroke-dasharray="3 4"></path>
-          <circle cx="235" cy="95" r="4.5" fill="#2E7BF6"></circle>
-          <circle cx="265" cy="182" r="4.5" fill="#3BD44A"></circle>
+          <path id="cable-main" fill="none" stroke="url(#cablegrad)" stroke-width="2.5" stroke-linecap="round"></path>
+          <path id="cable-main-pulse" class="hero-cable-pulse hero-cable-pulse-1" pathLength="100" fill="none" stroke="#8fd0ff" stroke-width="2.5" stroke-linecap="round"></path>
+          <path id="cable-in" fill="none" stroke="#4a4a54" stroke-width="1.4" stroke-dasharray="3 4"></path>
+          <path id="cable-in-pulse" class="hero-cable-pulse hero-cable-pulse-2" pathLength="100" fill="none" stroke="#8fd0ff" stroke-width="1.4"></path>
+          <path id="cable-out" fill="none" stroke="#4a4a54" stroke-width="1.4" stroke-dasharray="3 4"></path>
+          <path id="cable-out-pulse" class="hero-cable-pulse hero-cable-pulse-3" pathLength="100" fill="none" stroke="#8fd0ff" stroke-width="1.4"></path>
+          <circle id="cable-dot-a" r="4.5" fill="#2E7BF6"></circle>
+          <circle id="cable-dot-b" r="4.5" fill="#3BD44A"></circle>
         </svg>
 
-        <div class="node-card node-a">
+        <div class="node-card node-a hero-float hero-float-1" id="hero-node-claude">
           <div class="node-head"><span class="dot" style="background:#e74c3c"></span><span class="dot" style="background:#d99a2b"></span><span class="dot" style="background:#2ecc71"></span>&nbsp;Claude</div>
-          <div class="node-body"><span class="prompt">$</span> <span class="cmd">atelier ask "Codex" \</span><br><span class="dim">&nbsp;&nbsp;"revisa o diff em src/auth"</span></div>
+          <div class="node-body" data-type-on-view><span class="prompt">$</span> <span class="cmd">atelier ask "Codex" \</span><br><span class="dim">&nbsp;&nbsp;"revisa o diff em src/auth"</span></div>
         </div>
 
-        <div class="note-card">📝 <b>Spec.md</b><br>## Requisitos<br>- login por token</div>
+        <div class="note-card hero-float hero-float-2" id="hero-node-spec">📝 <b>Spec.md</b><br>## Requisitos<br>- login por token</div>
 
-        <div class="node-card node-b">
+        <div class="node-card node-b hero-float hero-float-3" id="hero-node-codex">
           <div class="node-head"><span class="dot" style="background:#e74c3c"></span><span class="dot" style="background:#d99a2b"></span><span class="dot" style="background:#2ecc71"></span>&nbsp;Codex</div>
-          <div class="node-body"><span class="prompt">$</span> <span class="cmd">atelier note read "Spec"</span><br><span class="dim">&nbsp;&nbsp;lendo requisitos…</span></div>
+          <div class="node-body" data-type-on-view data-type-delay="900"><span class="prompt">$</span> <span class="cmd">atelier note read "Spec"</span><br><span class="dim">&nbsp;&nbsp;lendo requisitos…</span></div>
         </div>
       </div>
     </div>
@@ -84,7 +87,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         <p class="section-lede">Rodar Claude, Codex e mais um agente hoje significa três terminais separados, e você virando o roteador humano: lê a saída de um, resume, cola no outro, espera, traz de volta. O trabalho de coordenação cresce mais rápido que o trabalho em si.</p>
         <p class="section-lede">O Atelier tira você desse caminho. Os agentes ficam num canvas espacial, você liga um no outro com um cabo, e eles passam a se falar direto, sem você no meio.</p>
       </div>
-      <div class="term-block">
+      <div class="term-block" data-type-on-view>
         <div><span class="who">Claude</span> $ atelier ask "Codex" "revisa o diff em src/auth"</div>
         <div><span class="who2">Codex</span>&nbsp; $ atelier note read "Spec"</div>
         <div style="color:#6b6b74;margin-top:10px">&gt; cada nó é um processo de verdade:<br>&nbsp;&nbsp;terminais são PTYs, notas são arquivos<br>&nbsp;&nbsp;.md em disco. nada é simulado.</div>
@@ -105,6 +108,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
           </defs>
           <path d="M0 60 H300 M0 120 H300 M0 180 H300 M0 240 H300 M60 0 V300 M120 0 V300 M180 0 V300 M240 0 V300" stroke="#26262c" stroke-width="1"></path>
           <path d="M70,80 C 140,60 150,220 235,220" fill="none" stroke="url(#cg2)" stroke-width="3" stroke-linecap="round"></path>
+          <!-- Pulso: mesma curva por cima, com um traço curto que "corre" pelo
+               caminho via stroke-dasharray/dashoffset animados em CSS — mais
+               barato que remontar isso em JS, e para de gastar CPU sozinho
+               quando a aba não está visível (a engine de animação do
+               navegador já pausa @keyframes fora da viewport/tab). -->
+          <path class="cable-pulse" d="M70,80 C 140,60 150,220 235,220" pathLength="100" fill="none" stroke="#8fd0ff" stroke-width="3" stroke-linecap="round"></path>
           <circle cx="70" cy="80" r="7" fill="#1b1b1f" stroke="#2E7BF6" stroke-width="2.5"></circle>
           <circle cx="235" cy="220" r="7" fill="#1b1b1f" stroke="#3BD44A" stroke-width="2.5"></circle>
           <rect x="30" y="55" width="90" height="50" rx="8" fill="#232328" stroke="#3a3a42"></rect>
@@ -133,7 +142,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       <h2 style="text-align:center;max-width:36ch;margin-left:auto;margin-right:auto">Um nó para cada coisa que um agente precisa tocar</h2>
       <p class="section-lede" style="text-align:center;margin-left:auto;margin-right:auto">Nada é simulado: cada nó é um recurso de verdade (um processo, um arquivo, uma sessão de navegador) que o agente lê pelo CLI <code style="font-family:var(--mono);color:var(--text)">atelier</code>.</p>
 
-      <div class="feat-grid">
+      <div class="feat-grid" data-stagger-fade-in>
         <div class="feat-card">
           <div class="feat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 9l3 3-3 3M13 15h4"></path></svg></div>
           <h3>Terminal</h3>
@@ -208,7 +217,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
         </div>
       </div>
       <div>
-        <div class="term-block" style="background:#101014">
+        <div class="term-block" style="background:#101014" data-type-on-view>
           <div style="color:#6b6b74">$ atelier list</div>
           <div style="margin-top:8px">→ <span class="who">Claude</span> <span style="color:#6b6b74">(você, Artesão)</span></div>
           <div>→ <span class="who2">Frontend</span> <span style="color:#6b6b74">recrutado, sonnet</span></div>
@@ -265,6 +274,168 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   <SiteFooter markId="landing-footer" />
 </Marketing>
 
+<script>
+  /**
+   * Duas animações disparadas por scroll, ambas via IntersectionObserver e
+   * ambas respeitando prefers-reduced-motion (mostra o resultado final direto,
+   * sem espera nem movimento):
+   *
+   * 1. [data-type-on-view]: digita o próprio conteúdo (HTML já presente,
+   *    guardado antes de esvaziar — nunca sai do DOM, então cópia de texto e
+   *    leitor de tela não dependem da animação já ter rodado).
+   * 2. [data-stagger-fade-in]: os filhos diretos sobem com fade em cascata,
+   *    um leve atraso entre cada um.
+   */
+  const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /**
+   * Cabo do hero (Claude ⇄ Spec.md ⇄ Codex): os 3 traços são desenhados a
+   * partir da posição REAL dos cartões (getBoundingClientRect), não de
+   * coordenadas fixas no SVG. Coordenadas fixas quebram todo santa vez que o
+   * texto de um cartão muda de tamanho (fonte, largura de coluna, tradução) e
+   * os cartões — que crescem com o próprio conteúdo — deixam de coincidir com
+   * os pontos hardcoded. Recalcula no load, no resize, e diretamente após
+   * cada digitação (data-type-on-view muda o texto no meio, potencialmente a
+   * altura do node-body).
+   */
+  function layoutHeroCable() {
+    const container = document.getElementById('hero-visual');
+    const svg = document.getElementById('hero-svg') as SVGSVGElement | null;
+    const claude = document.getElementById('hero-node-claude');
+    const spec = document.getElementById('hero-node-spec');
+    const codex = document.getElementById('hero-node-codex');
+    if (!container || !svg || !claude || !spec || !codex) return;
+
+    const box = container.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return;
+
+    svg.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
+
+    const rel = (el: Element) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left - box.left, top: r.top - box.top, right: r.right - box.left, bottom: r.bottom - box.top, width: r.width, height: r.height };
+    };
+
+    const c = rel(claude);
+    const s = rel(spec);
+    const x = rel(codex);
+
+    // Ponto de saída do Claude: canto inferior direito do cartão.
+    const p1 = { x: c.right - 6, y: c.bottom - 4 };
+    // Ponto de entrada no Spec.md: canto superior, um pouco à esquerda do topo.
+    const p2 = { x: s.left + s.width * 0.55, y: s.top + 2 };
+    // Saída do Spec.md até a entrada do Codex (cabo curto tracejado).
+    const p3 = { x: s.left + 12, y: s.bottom - 2 };
+    const p4 = { x: x.left + 20, y: x.top + 6 };
+    const p5 = { x: s.right - 10, y: s.bottom - 6 };
+    const p6 = { x: x.left + x.width * 0.35, y: x.top + 2 };
+
+    const bend = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+      const mx = (a.x + b.x) / 2;
+      return `M${a.x},${a.y} C ${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+    };
+
+    const mainPath = bend(p1, p2);
+    const inPath = bend(p3, p4);
+    const outPath = bend(p5, p6);
+
+    for (const id of ['cable-main', 'cable-main-pulse']) {
+      document.getElementById(id)?.setAttribute('d', mainPath);
+    }
+    for (const id of ['cable-in', 'cable-in-pulse']) {
+      document.getElementById(id)?.setAttribute('d', inPath);
+    }
+    for (const id of ['cable-out', 'cable-out-pulse']) {
+      document.getElementById(id)?.setAttribute('d', outPath);
+    }
+    document.getElementById('cable-dot-a')?.setAttribute('cx', String(p1.x));
+    document.getElementById('cable-dot-a')?.setAttribute('cy', String(p1.y));
+    document.getElementById('cable-dot-b')?.setAttribute('cx', String(p6.x));
+    document.getElementById('cable-dot-b')?.setAttribute('cy', String(p6.y));
+  }
+
+  if (document.getElementById('hero-visual')) {
+    layoutHeroCable();
+    window.addEventListener('resize', layoutHeroCable);
+    // Reajusta durante a digitação (o node-body pode crescer de altura
+    // conforme o texto aparece) e de novo ao final, quando o HTML completo
+    // (com <br>) volta a entrar.
+    const heroBodies = document.querySelectorAll('#hero-node-claude [data-type-on-view], #hero-node-codex [data-type-on-view]');
+    if (heroBodies.length && 'ResizeObserver' in window) {
+      const ro = new ResizeObserver(() => layoutHeroCable());
+      heroBodies.forEach((el) => ro.observe(el));
+    }
+  }
+
+  function typeOnView(el: HTMLElement) {
+    const full = el.innerHTML;
+    const text = el.textContent ?? '';
+    const delay = Number(el.dataset.typeDelay ?? 0);
+
+    if (REDUCED_MOTION) return;
+
+    el.innerHTML = '';
+    el.classList.add('is-typing');
+
+    const start = () => {
+      let shown = 0;
+      const timer = setInterval(() => {
+        shown += 1;
+        if (shown >= text.length) {
+          clearInterval(timer);
+          el.innerHTML = full;
+          el.classList.remove('is-typing');
+          return;
+        }
+        el.textContent = text.slice(0, shown);
+      }, 40);
+    };
+
+    delay > 0 ? setTimeout(start, delay) : start();
+  }
+
+  function staggerFadeIn(container: HTMLElement) {
+    if (REDUCED_MOTION) return;
+    const items = Array.from(container.children) as HTMLElement[];
+    items.forEach((item, i) => {
+      item.classList.add('stagger-item');
+      item.style.transitionDelay = `${i * 60}ms`;
+      requestAnimationFrame(() => item.classList.add('stagger-in'));
+    });
+  }
+
+  const typeTargets = document.querySelectorAll<HTMLElement>('[data-type-on-view]');
+  const staggerTargets = document.querySelectorAll<HTMLElement>('[data-stagger-fade-in]');
+
+  if (REDUCED_MOTION || !('IntersectionObserver' in window)) {
+    // sem observer: mostra tudo já formatado, sem animação
+  } else {
+    const typeObserver = new IntersectionObserver(
+      (entries, obs) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          typeOnView(entry.target as HTMLElement);
+          obs.unobserve(entry.target);
+        }
+      },
+      { threshold: 0.5 }
+    );
+    typeTargets.forEach((el) => typeObserver.observe(el));
+
+    const staggerObserver = new IntersectionObserver(
+      (entries, obs) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          staggerFadeIn(entry.target as HTMLElement);
+          obs.unobserve(entry.target);
+        }
+      },
+      { threshold: 0.15 }
+    );
+    staggerTargets.forEach((el) => staggerObserver.observe(el));
+  }
+</script>
+
 <style>
     .nav {
     position: sticky;
@@ -301,6 +472,43 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     width: 100%;
     height: 100%;
     overflow: visible;
+  }
+
+  /* Pulso nos 3 cabos do hero, mesma técnica do diagrama de "Como funciona":
+     um segundo <path> por cima da curva original, com stroke-dasharray/
+     dashoffset animados (pathLength="100" normaliza para porcentagem,
+     independente do comprimento real de cada cabo). Atrasos diferentes dão
+     a leitura de "Claude fala, a nota entrega, Codex recebe" em vez de tudo
+     pulsando junto. */
+  .hero-cable-pulse {
+    opacity: 0.85;
+    filter: drop-shadow(0 0 3px #8fd0ff);
+    stroke-dasharray: 22 78;
+    animation: hero-cable-pulse-run 2.4s ease-in-out infinite;
+  }
+  .hero-cable-pulse-2 {
+    animation-delay: 0.8s;
+  }
+  .hero-cable-pulse-3 {
+    animation-delay: 1.6s;
+  }
+  @keyframes hero-cable-pulse-run {
+    0% {
+      stroke-dashoffset: 100;
+    }
+    45%,
+    55% {
+      stroke-dashoffset: 0;
+    }
+    100% {
+      stroke-dashoffset: -100;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero-cable-pulse {
+      animation: none;
+      opacity: 0;
+    }
   }
 
   .node-card {
@@ -375,6 +583,51 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   .note-card b {
     color: var(--text);
     font-weight: 600;
+  }
+
+  /* Flutuação leve e dessincronizada: cada cartão tem sua própria duração e
+     atraso, para não subir/descer todos juntos como um bloco só. Cada
+     keyframe já inclui o transform-base do cartão (a rotação do note-card)
+     para não pisar na declaração estática de `transform` acima. */
+  .hero-float {
+    animation-timing-function: ease-in-out;
+    animation-iteration-count: infinite;
+    animation-direction: alternate;
+  }
+  .hero-float-1 {
+    animation-name: float-plain;
+    animation-duration: 5.2s;
+  }
+  .hero-float-2 {
+    animation-name: float-rotated;
+    animation-duration: 6.4s;
+    animation-delay: -1.4s;
+  }
+  .hero-float-3 {
+    animation-name: float-plain;
+    animation-duration: 5.8s;
+    animation-delay: -2.6s;
+  }
+  @keyframes float-plain {
+    from {
+      transform: translateY(-4px);
+    }
+    to {
+      transform: translateY(4px);
+    }
+  }
+  @keyframes float-rotated {
+    from {
+      transform: translateY(-4px) rotate(-2deg);
+    }
+    to {
+      transform: translateY(4px) rotate(-2deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero-float {
+      animation: none;
+    }
   }
 
   /* ---------- proof strip ---------- */
@@ -471,6 +724,35 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     background: var(--surface);
     border: 1px solid var(--border-soft);
     border-radius: var(--r-xl);
+  }
+
+  /* Traço curto (~40 de 231 de comprimento total da curva) que percorre o
+     cabo Editor↔Claude num loop suave, ida e volta. `pathLength="100"`
+     normaliza o dasharray para porcentagem, independente do comprimento
+     real do path. */
+  .cable-pulse {
+    opacity: 0.9;
+    filter: drop-shadow(0 0 4px #8fd0ff);
+    stroke-dasharray: 18 82;
+    animation: cable-pulse-run 2.6s ease-in-out infinite;
+  }
+  @keyframes cable-pulse-run {
+    0% {
+      stroke-dashoffset: 100;
+    }
+    45%,
+    55% {
+      stroke-dashoffset: 0;
+    }
+    100% {
+      stroke-dashoffset: -100;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cable-pulse {
+      animation: none;
+      opacity: 0;
+    }
   }
 
   /* ---------- feature grid (nós) ---------- */
@@ -708,5 +990,34 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     .feat-grid {
       grid-template-columns: 1fr;
     }
+  }
+
+  /* ---------- animações de scroll (ver <script> acima) ---------- */
+
+  /* Cursor piscando enquanto [data-type-on-view] ainda está "digitando". */
+  .is-typing::after {
+    content: '';
+    display: inline-block;
+    width: 7px;
+    height: 1em;
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    background: currentColor;
+    animation: cursor-blink 0.9s step-end infinite;
+  }
+  @keyframes cursor-blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  .stagger-item {
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .stagger-item.stagger-in {
+    opacity: 1;
+    transform: translateY(0);
   }
 </style>

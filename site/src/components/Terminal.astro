@@ -20,11 +20,60 @@ const { title = 'Terminal' } = Astro.props;
     <span class="dot" style="background:#d99a2b"></span>
     <span class="dot" style="background:#2ecc71"></span>
     <span class="title">{title}</span>
+    <button type="button" class="copy-btn" data-copy-btn aria-label="Copiar comando">
+      <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </svg>
+      <svg class="icon-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden>
+        <path d="M20 6 9 17l-5-5"></path>
+      </svg>
+    </button>
   </div>
   <div class="atelier-terminal-body">
     <slot />
   </div>
 </div>
+
+<script>
+  /**
+   * Copia só as linhas de comando (.prompt), sem os comentários (.dim) — um
+   * cartão de Terminal mistura narrativa com comando, e colar a explicação
+   * junto quebraria o comando quando executado. Cada botão sobe seu próprio
+   * listener (o componente pode aparecer várias vezes numa mesma página).
+   */
+  document.querySelectorAll<HTMLButtonElement>('.atelier-terminal [data-copy-btn]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const body = btn.closest('.atelier-terminal')?.querySelector('.atelier-terminal-body');
+      if (!body) return;
+
+      const clone = body.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('.dim').forEach((el) => el.remove());
+      const text = (clone.textContent ?? '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join('\n');
+
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        return;
+      }
+
+      const copyIcon = btn.querySelector('.icon-copy');
+      const checkIcon = btn.querySelector('.icon-check');
+      copyIcon?.setAttribute('hidden', '');
+      checkIcon?.removeAttribute('hidden');
+      btn.classList.add('is-copied');
+      setTimeout(() => {
+        copyIcon?.removeAttribute('hidden');
+        checkIcon?.setAttribute('hidden', '');
+        btn.classList.remove('is-copied');
+      }, 1500);
+    });
+  });
+</script>
 
 <style>
   .atelier-terminal {
@@ -54,6 +103,28 @@ const { title = 'Terminal' } = Astro.props;
 
   .atelier-terminal-head .title {
     margin-left: 4px;
+  }
+
+  .copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+  }
+  .copy-btn:hover {
+    background: var(--surface-3);
+    color: var(--text);
+  }
+  .copy-btn.is-copied {
+    color: var(--green);
   }
 
   .atelier-terminal-body {

@@ -2,6 +2,7 @@
 import Marketing from '../layouts/Marketing.astro';
 import SiteNav from '../components/SiteNav.astro';
 import SiteFooter from '../components/SiteFooter.astro';
+import Terminal from '../components/Terminal.astro';
 
 const GITLAB = 'https://gitlab.fcxlabs.com';
 const PROJECT = 'platform/tools/fcx-atelier-ai-agents-orquestrator';
@@ -186,7 +187,7 @@ const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
         <div class="dl-card" data-os="mac">
           <div class="dl-card-head">
             <span class="dl-os-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M9 21v-4h6v4"></path></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.19-1.64 3.334-1.68.01.13.03.28.03.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.902 1.32-1.84 2.64-3.32 2.66-1.45.03-1.92-.86-3.577-.86-1.656 0-2.174.84-3.55.89-1.417.05-2.502-1.42-3.415-2.74-1.86-2.7-3.28-7.64-1.37-10.98.95-1.66 2.65-2.71 4.49-2.74 1.39-.03 2.7.94 3.55.94.84 0 2.44-1.16 4.12-.99.7.03 2.67.28 3.93 2.13-.1.06-2.35 1.37-2.33 4.09.03 3.25 2.85 4.33 2.89 4.35-.03.07-.45 1.55-1.5 3.06z"></path></svg>
             </span>
             <h2>macOS</h2>
             <span class="dl-detected-badge">Seu sistema</span>
@@ -246,7 +247,7 @@ const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
         <div class="dl-card" data-os="linux">
           <div class="dl-card-head">
             <span class="dl-os-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 18l-5-6 5-6M15 6l5 6-5 6"></path></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12.5 1.4c-1.3 0-2.4.9-2.8 2.2-.3.9-.2 2.1-.6 2.8-.4.8-1.3 1.4-1.9 2.3-.6.9-.9 2.1-.9 3.2 0 .6.1 1.2.3 1.7-.5.3-.9.7-1.1 1.2-.3.7-.2 1.5.1 2.1.3.6.8 1 1.1 1.6.3.5.4 1.1.8 1.5.5.6 1.3.9 2.1.9.5 0 1-.1 1.4-.3.4.4 1 .7 1.7.7h.4c.7 0 1.3-.3 1.7-.7.4.2.9.3 1.4.3.8 0 1.6-.3 2.1-.9.4-.4.5-1 .8-1.5.3-.6.8-1 1.1-1.6.3-.6.4-1.4.1-2.1-.2-.5-.6-.9-1.1-1.2.2-.5.3-1.1.3-1.7 0-1.1-.3-2.3-.9-3.2-.6-.9-1.5-1.5-1.9-2.3-.4-.7-.3-1.9-.6-2.8-.4-1.3-1.5-2.2-2.8-2.2h-1zM10 7.4c.5 0 .9.6.9 1.3s-.4 1.3-.9 1.3-.9-.6-.9-1.3.4-1.3.9-1.3zm4 0c.5 0 .9.6.9 1.3s-.4 1.3-.9 1.3-.9-.6-.9-1.3.4-1.3.9-1.3zm-2.3 2.9c.4.5 1 .9 1.5 1.2.3.2.6.5.6.9 0 .5-.5.8-1 1-.4.1-.8.2-.8.5s.3.4.6.5c.4.1.9.1 1.3.4.3.2.5.6.4 1-.1.4-.5.6-.9.7-.7.1-1.4-.1-1.9-.5-.3-.3-.6-.6-1-.6s-.7.3-1 .6c-.5.4-1.2.6-1.9.5-.4-.1-.8-.3-.9-.7-.1-.4.1-.8.4-1 .4-.3.9-.3 1.3-.4.3-.1.6-.2.6-.5s-.4-.4-.8-.5c-.5-.2-1-.5-1-1 0-.4.3-.7.6-.9.5-.3 1.1-.7 1.5-1.2.2-.2.5-.4.7-.4s.5.2.7.4z"></path></svg>
             </span>
             <h2>Linux</h2>
             <span class="dl-detected-badge">Seu sistema</span>
@@ -282,65 +283,74 @@ const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
       <h2>Do zip até o app aberto, pelo terminal</h2>
       <p class="section-lede">Não há instalador em nenhum dos três sistemas — o zip já traz o app pronto. As sequências abaixo não baixam nada: elas assumem o zip já na sua pasta de downloads, colocam o app onde aquele sistema espera encontrá-lo, e abrem. O passo do meio, em cada uma, é o que desarma o aviso de segurança que todo binário sem assinatura recebe.</p>
 
-      <div class="dl-install-grid">
+      <div class="dl-install-tabs" role="tablist" aria-label="Sistema operacional">
+        <button type="button" class="dl-tab" data-tab="mac" role="tab" aria-selected="true">macOS</button>
+        <button type="button" class="dl-tab" data-tab="win" role="tab" aria-selected="false">Windows</button>
+        <button type="button" class="dl-tab" data-tab="linux" role="tab" aria-selected="false">Linux</button>
+      </div>
+
+      <div class="dl-install-panels">
         <!-- ============ macOS ============ -->
-        <article class="dl-steps">
+        <article class="dl-steps dl-panel" data-panel="mac" role="tabpanel">
           <h3>macOS</h3>
-          <pre>cd ~/Downloads
-unzip -q atelier-*-mac-*.zip -d /Applications
-
-<span class="rem"># tira a quarentena do download</span>
-xattr -dr com.apple.quarantine /Applications/Atelier.app
-
-open -a Atelier</pre>
+          <Terminal title="zsh">
+<span class="prompt">$</span> cd ~/Downloads{"\n"}
+<span class="prompt">$</span> unzip -q atelier-*-mac-*.zip -d /Applications{"\n"}
+<span class="dim"># tira a quarentena do download</span>{"\n"}
+<span class="prompt">$</span> xattr -dr com.apple.quarantine /Applications/Atelier.app{"\n"}
+<span class="prompt">$</span> open -a Atelier
+          </Terminal>
           <p class="dl-steps-note">Sem o <code>xattr</code>, o Gatekeeper recusa abrir — às vezes dizendo que o app "está danificado", o que não é verdade: é a marca de arquivo baixado, não corrupção. Removê-la é o equivalente em terminal ao <b>botão direito → Abrir</b>.</p>
           <p class="dl-steps-note">Atualizar é repetir os mesmos comandos. Seus dados ficam em <code>~/.atelier</code> e não são tocados.</p>
         </article>
 
         <!-- ============ Windows ============ -->
-        <article class="dl-steps">
+        <article class="dl-steps dl-panel" data-panel="win" role="tabpanel" hidden>
           <h3>Windows <span class="dl-shell">PowerShell</span></h3>
-          <pre>cd $env:USERPROFILE\Downloads
-
-<span class="rem"># remove a marca de "baixado da internet"</span>
-Unblock-File .\atelier-*-win-*.zip
-
-Expand-Archive .\atelier-*-win-*.zip `
-  -DestinationPath $env:LOCALAPPDATA\Atelier -Force
-
-& $env:LOCALAPPDATA\Atelier\Atelier.exe</pre>
+          <Terminal title="PowerShell">
+<span class="prompt">$</span> cd $env:USERPROFILE\Downloads{"\n"}
+<span class="dim"># remove a marca de "baixado da internet"</span>{"\n"}
+<span class="prompt">$</span> Unblock-File .\atelier-*-win-*.zip{"\n"}
+<span class="prompt">$</span> Expand-Archive .\atelier-*-win-*.zip -DestinationPath $env:LOCALAPPDATA\Atelier -Force{"\n"}
+<span class="prompt">$</span> & $env:LOCALAPPDATA\Atelier\Atelier.exe
+          </Terminal>
           <p class="dl-steps-note">O <code>Unblock-File</code> vai no <b>zip</b>, antes de extrair: feito depois, cada arquivo extraído já herdou o bloqueio e o SmartScreen aparece assim mesmo.</p>
           <p class="dl-steps-note">Sem instalador não existe atalho. Para criar um no menu Iniciar:</p>
-          <pre>$link = (New-Object -ComObject WScript.Shell).CreateShortcut(
-  "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Atelier.lnk")
-$link.TargetPath = "$env:LOCALAPPDATA\Atelier\Atelier.exe"
-$link.Save()</pre>
+          <Terminal title="PowerShell">
+<span class="prompt">$</span> $link = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Atelier.lnk"){"\n"}
+<span class="prompt">$</span> $link.TargetPath = "$env:LOCALAPPDATA\Atelier\Atelier.exe"{"\n"}
+<span class="prompt">$</span> $link.Save()
+          </Terminal>
         </article>
 
         <!-- ============ Linux ============ -->
-        <article class="dl-steps">
+        <article class="dl-steps dl-panel" data-panel="linux" role="tabpanel" hidden>
           <h3>Linux</h3>
-          <pre>cd ~/Downloads
-unzip -q atelier-*-linux-x64.zip -d ~/.local/share/atelier
-
-~/.local/share/atelier/atelier</pre>
+          <Terminal title="bash">
+<span class="prompt">$</span> cd ~/Downloads{"\n"}
+<span class="prompt">$</span> unzip -q atelier-*-linux-x64.zip -d ~/.local/share/atelier{"\n"}
+<span class="prompt">$</span> ~/.local/share/atelier/atelier
+          </Terminal>
           <p class="dl-steps-note">A pasta de destino não é opcional: o zip guarda os arquivos na raiz, então extrair sem <code>-d</code> espalha 17 itens onde você estiver.</p>
           <p class="dl-steps-note">Para o app aparecer no menu de aplicativos:</p>
-          <pre>mkdir -p ~/.local/share/applications
-cat &gt; ~/.local/share/applications/atelier.desktop &lt;&lt;EOF
-[Desktop Entry]
-Type=Application
-Name=Atelier
-Exec=$HOME/.local/share/atelier/atelier
-Categories=Development;
-EOF</pre>
+          <Terminal title="bash">
+<span class="prompt">$</span> mkdir -p ~/.local/share/applications{"\n"}
+<span class="prompt">$</span> cat &gt; ~/.local/share/applications/atelier.desktop &lt;&lt;EOF{"\n"}
+<span class="dim">[Desktop Entry]</span>{"\n"}
+<span class="dim">Type=Application</span>{"\n"}
+<span class="dim">Name=Atelier</span>{"\n"}
+<span class="dim">Exec=$HOME/.local/share/atelier/atelier</span>{"\n"}
+<span class="dim">Categories=Development;</span>{"\n"}
+<span class="dim">EOF</span>
+          </Terminal>
           <p class="dl-steps-note">Se aparecer <i>"The SUID sandbox helper binary was found, but is not configured correctly"</i>, sua distribuição não permite namespaces de usuário sem privilégio:</p>
-          <pre>cd ~/.local/share/atelier
-sudo chown root:root chrome-sandbox
-sudo chmod 4755 chrome-sandbox
-
-<span class="rem"># ou, sem sudo:</span>
-./atelier --no-sandbox</pre>
+          <Terminal title="bash">
+<span class="prompt">$</span> cd ~/.local/share/atelier{"\n"}
+<span class="prompt">$</span> sudo chown root:root chrome-sandbox{"\n"}
+<span class="prompt">$</span> sudo chmod 4755 chrome-sandbox{"\n"}
+<span class="dim"># ou, sem sudo:</span>{"\n"}
+<span class="prompt">$</span> ./atelier --no-sandbox
+          </Terminal>
         </article>
       </div>
     </div>
@@ -372,7 +382,8 @@ sudo chmod 4755 chrome-sandbox
 </Marketing>
 
 <script>
-  // Detecção de SO só para destacar o cartão provável — os três continuam
+  // Detecção de SO só para destacar o cartão provável e pré-selecionar a
+  // aba de instalação correspondente — os três cartões de download continuam
   // sempre visíveis e clicáveis. Ninguém é redirecionado nem escondido.
   const ua = navigator.userAgent;
   let os: 'mac' | 'win' | 'linux' | null = null;
@@ -384,6 +395,25 @@ sudo chmod 4755 chrome-sandbox
     const card = document.querySelector(`.dl-card[data-os="${os}"]`);
     card?.classList.add('dl-card-detected');
   }
+
+  // Abas de "Como instalar": um painel por sistema, um visível por vez.
+  const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.dl-tab'));
+  const panels = Array.from(document.querySelectorAll<HTMLElement>('.dl-panel'));
+
+  function selectTab(name: string) {
+    for (const tab of tabs) {
+      tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
+    }
+    for (const panel of panels) {
+      panel.hidden = panel.dataset.panel !== name;
+    }
+  }
+
+  for (const tab of tabs) {
+    tab.addEventListener('click', () => selectTab(tab.dataset.tab!));
+  }
+
+  if (os) selectTab(os);
 </script>
 
 <style>
@@ -558,12 +588,38 @@ sudo chmod 4755 chrome-sandbox
     max-width: 68ch;
   }
 
-  /* As três colunas na mesma linha do cartão de download correspondente acima. */
-  .dl-install-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 20px;
+  /* Abas: uma linha de botões, um painel visível por vez abaixo. */
+  .dl-install-tabs {
+    display: flex;
+    gap: 6px;
     margin-top: 32px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .dl-tab {
+    appearance: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 10px 16px;
+    margin-bottom: -1px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-faint);
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .dl-tab:hover {
+    color: var(--text-dim);
+  }
+  .dl-tab[aria-selected='true'] {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+
+  .dl-install-panels {
+    margin-top: 24px;
   }
 
   .dl-steps h3 {
@@ -618,14 +674,6 @@ sudo chmod 4755 chrome-sandbox
     font-size: 11.5px;
   }
 
-  /* `overflow-x` e não quebra de linha: um comando quebrado no meio vira um
-     comando errado quando alguém copia. */
-  /* O `.rem` existe em site.css só sob `.code-window`, e estes <pre> não estão
-     dentro de um. Sem isto o comentário sai com a mesma cor do comando. */
-  .dl-steps pre .rem {
-    color: var(--text-faint);
-  }
-
   /* Qual shell interpreta o bloco. Só o Windows ganha o rótulo: `cd` e `unzip`
      são os mesmos em qualquer terminal do macOS e do Linux, mas
      `Expand-Archive` só existe no PowerShell — colar no cmd.exe não funciona. */
@@ -641,19 +689,6 @@ sudo chmod 4755 chrome-sandbox
     border-radius: var(--r-pill);
     padding: 2px 7px;
     vertical-align: middle;
-  }
-
-  .dl-steps pre {
-    margin: 0 0 4px;
-    padding: 12px 14px;
-    background: var(--bg);
-    border: 1px solid var(--border-soft);
-    border-radius: var(--r-md);
-    font-family: var(--mono);
-    font-size: 11.5px;
-    line-height: 1.65;
-    color: var(--text);
-    overflow-x: auto;
   }
 
   /* ---------- requisitos e links ---------- */
@@ -679,10 +714,6 @@ sudo chmod 4755 chrome-sandbox
   @media (max-width: 980px) {
     .dl-grid {
       grid-template-columns: 1fr;
-    }
-    .dl-install-grid {
-      grid-template-columns: 1fr;
-      gap: 28px;
     }
   }
 

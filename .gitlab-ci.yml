@@ -15,32 +15,73 @@ stages:
 
 # ---------------------------------------------------------------- instaladores
 
-# Só Linux, e não é escolha: node-pty é módulo nativo, não cross-compila, e um
-# .dmg ou .exe exige runner macOS e Windows. Enquanto a instância só tiver
-# runners Docker/Linux, os outros dois sistemas continuam saindo pelo GitHub
-# Actions (.github/workflows/release.yml), que tem a matriz das três máquinas.
-package:linux:
+# Base dos três empacotamentos. A imagem oficial do electron-builder traz wine e
+# nsis, que o Windows exige (`signAndEditExecutable: true` no
+# electron-builder.yml grava ícone e metadados dentro do .exe), e fakeroot, que o
+# .deb exige. É a mesma imagem que scripts/pack-win-docker.mjs já usa em máquina
+# local — nada novo sendo estreado no CI.
+.empacota:
   stage: build
+  image: electronuserland/builder:wine
   rules:
     - if: $CI_COMMIT_TAG =~ /^v/
+  variables:
+    # Dentro do projeto para o cache do GitLab alcançar: o padrão fica em ~/.cache,
+    # que morre com o contêiner, e baixar o Electron inteiro a cada job é minuto
+    # de runner jogado fora.
+    ELECTRON_CACHE: .cache/electron
+    ELECTRON_BUILDER_CACHE: .cache/electron-builder
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .cache/
   before_script:
-    # O empacotamento .deb chama `fakeroot`, que não vem na imagem do Node. O
-    # resto (appimagetool, 7za) o electron-builder baixa para o cache dele.
-    - apt-get update && apt-get install -y --no-install-recommends fakeroot
-  script:
     - npm ci
     - npm run typecheck
     # Não se publica release que não passa no smoke — mesma regra do GitHub.
     - npm run test:smoke
     - npx electron-vite build
-    - npx electron-builder --linux --publish never
   artifacts:
-    # Só os instaláveis: `dist/linux-unpacked` é enorme e não se distribui.
+    # Só os instaláveis: `dist/*-unpacked` é enorme e não se distribui, e o
+    # `.blockmap` só serve para updater diferencial, que este app não usa. Cada
+    # job casa apenas com os próprios formatos; os outros padrões ficam vazios.
     paths:
       - dist/*.AppImage
       - dist/*.deb
+      - dist/*.exe
+      - dist/*.dmg
       - dist/*.zip
     expire_in: 1 day
+
+package:linux:
+  extends: .empacota
+  script:
+    - npx electron-builder --linux --publish never
+
+package:windows:
+  extends: .empacota
+  script:
+    - npx electron-builder --win --publish never
+
+# macOS é o único que NÃO sai de um contêiner Linux: o .dmg precisa do `hdiutil`,
+# e node-pty é módulo nativo que teria de ser compilado para darwin. Exige um
+# runner macOS registrado na instância.
+#
+# Por isso o job é opcional em dois níveis: a variável `MACOS_RUNNER` (defina
+# como "true" nas variáveis do projeto quando o runner existir) e a tag `macos`,
+# que escolhe a máquina. Sem a variável ele nem entra no pipeline — um job sem
+# runner ficaria pendente até o timeout e seguraria a release atrás dele.
+package:mac:
+  extends: .empacota
+  image: null
+  tags:
+    - macos
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v/ && $MACOS_RUNNER == "true"
+  script:
+    - npx electron-builder --mac --publish never
 
 publish:release:
   stage: release
@@ -48,6 +89,11 @@ publish:release:
     - if: $CI_COMMIT_TAG =~ /^v/
   needs:
     - package:linux
+    - package:windows
+    # `optional`: sem runner macOS o job acima não existe, e a release sai com o
+    # que foi empacotado em vez de falhar.
+    - job: package:mac
+      optional: true
   variables:
     # As notas saem do `git log` desde a tag anterior, e o clone raso padrão
     # (profundidade 20) frequentemente não alcança essa tag.

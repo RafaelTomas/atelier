@@ -123,12 +123,22 @@ function releaseNotes() {
   // vermelho um log de job que deu certo.
   const git = (args) =>
     execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  // Quais sistemas realmente saíram: o job de macOS só roda se a instância tiver
+  // um runner macOS, então a lista é do que foi empacotado, não do que se
+  // pretendia empacotar.
+  const sistemas = [
+    installers.some((n) => /\.(dmg)$/i.test(n)) && 'macOS',
+    installers.some((n) => /\.exe$/i.test(n)) && 'Windows',
+    installers.some((n) => /\.(AppImage|deb)$/i.test(n)) && 'Linux'
+  ].filter(Boolean)
+  const cabecalho = `Instaladores para ${sistemas.join(', ') || 'nenhum sistema'} — \`${tag}\`.`
+
   try {
     const previous = git(['describe', '--tags', '--abbrev=0', `${tag}^`])
     const log = git(['log', '--no-merges', '--pretty=- %s', `${previous}..${tag}`])
-    return `Instaladores de Linux para \`${tag}\`.\n\n## Mudanças desde ${previous}\n\n${log}`
+    return `${cabecalho}\n\n## Mudanças desde ${previous}\n\n${log}`
   } catch {
-    return `Instaladores de Linux para \`${tag}\`.`
+    return cabecalho
   }
 }
 

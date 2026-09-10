@@ -13,10 +13,10 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'Atelier',
-      description: 'Documentação do Atelier — seu ateliê de agentes de IA.',
-      // O padrão do Starlight é `/favicon.svg`; aqui o ícone é o mesmo do app,
-      // gerado de build/icon.png — ver o <head> de layouts/Marketing.astro.
-      favicon: '/favicon.ico',
+      // O SVG é a marca sem a margem que o ícone do app carrega (a arte ocupa
+      // 828 de 1024): com ela, o favicon aparece menor que os vizinhos na aba.
+      // Ver o <head> de layouts/Marketing.astro.
+      favicon: '/favicon.svg',
       defaultLocale: 'root',
       locales: {
         root: { label: 'Português', lang: 'pt-BR' },

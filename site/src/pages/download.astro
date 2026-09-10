@@ -28,11 +28,21 @@ interface ReleaseData {
 // build sem rede), a página cai para um estado degradado em vez de quebrar.
 let release: ReleaseData | null = null;
 
+// O projeto é privado: sem token a API responde 404 (o GitLab não distingue
+// "não existe" de "você não pode ver"), e a página inteira cai no estado
+// degradado. Dentro do CI o `CI_JOB_TOKEN` existe e resolve; fora dele —
+// `npm run dev`, ou o build no GitHub Actions, que nem alcança o host interno —
+// a ausência é esperada e o estado degradado é a resposta certa.
+//
+// O token só vive aqui, no frontmatter, que roda em tempo de build. Nada dele
+// entra no HTML.
+const jobToken = process.env.CI_JOB_TOKEN;
+
 try {
   // `permalink/latest` resolve a release mais recente sem precisar saber a tag.
   const res = await fetch(
     `${GITLAB}/api/v4/projects/${encodeURIComponent(PROJECT)}/releases/permalink/latest`,
-    { headers: { 'User-Agent': 'atelier-site-build' } },
+    { headers: { 'User-Agent': 'atelier-site-build', ...(jobToken ? { 'JOB-TOKEN': jobToken } : {}) } },
   );
 
   if (res.ok) {
@@ -55,7 +65,9 @@ try {
     const checksumsAsset = assets.find((a) => a.name === 'checksums.txt');
     if (checksumsAsset) {
       try {
-        const txt = await fetch(checksumsAsset.url).then((r) => r.text());
+        const txt = await fetch(checksumsAsset.url, {
+          headers: jobToken ? { 'JOB-TOKEN': jobToken } : {},
+        }).then((r) => r.text());
         for (const line of txt.split('\n')) {
           const match = line.trim().match(/^([a-f0-9]{64})\s+\*?(.+)$/i);
           if (match) checksums[match[2]] = match[1];
@@ -87,7 +99,11 @@ try {
  */
 async function probeSize(url: string): Promise<number | undefined> {
   try {
-    const res = await fetch(url, { method: 'HEAD', redirect: 'follow' });
+    const res = await fetch(url, {
+      method: 'HEAD',
+      redirect: 'follow',
+      headers: jobToken ? { 'JOB-TOKEN': jobToken } : {},
+    });
     const len = res.headers.get('content-length');
     return len ? Number(len) : undefined;
   } catch {

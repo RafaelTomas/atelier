@@ -201,9 +201,21 @@ function releaseNotes() {
   }
 }
 
+/**
+ * Cada link ganha um `direct_asset_path`, e é ele que torna o botão de download
+ * clicável para uma pessoa.
+ *
+ * A `url` aponta para a API do Package Registry, que num projeto privado só
+ * responde a quem manda token — um visitante logado no GitLab clicando nela
+ * recebe 404. Com o `direct_asset_path`, a release passa a expor também
+ * `<projeto>/-/releases/<tag>/downloads/<arquivo>`, que é rota da aplicação web
+ * e portanto aceita a sessão do navegador. É essa URL que a API devolve como
+ * `direct_asset_url`, e é a que a página de download prefere.
+ */
 const links = [...assets, { name: 'checksums.txt', url: checksumsUrl }].map(({ name, url }) => ({
   name,
   url,
+  direct_asset_path: `/${name}`,
   link_type: 'package'
 }))
 

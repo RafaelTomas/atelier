@@ -3,13 +3,16 @@ import Marketing from '../layouts/Marketing.astro';
 import SiteNav from '../components/SiteNav.astro';
 import SiteFooter from '../components/SiteFooter.astro';
 
-const REPO = 'br3nds0n/atelier';
-const RELEASES_LATEST_URL = `https://github.com/${REPO}/releases/latest`;
+const GITLAB = 'https://gitlab.fcxlabs.com';
+const PROJECT = 'platform/tools/fcx-atelier-ai-agents-orquestrator';
+const REPO_URL = `${GITLAB}/${PROJECT}`;
+const RELEASES_LATEST_URL = `${REPO_URL}/-/releases/permalink/latest`;
 
 interface Asset {
   name: string;
-  size: number;
-  browser_download_url: string;
+  /** Opcional: a API do GitLab não devolve tamanho — ver `probeSize`. */
+  size?: number;
+  url: string;
 }
 
 interface ReleaseData {
@@ -26,20 +29,25 @@ interface ReleaseData {
 let release: ReleaseData | null = null;
 
 try {
-  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'atelier-site-build',
-    },
-  });
+  // `permalink/latest` resolve a release mais recente sem precisar saber a tag.
+  const res = await fetch(
+    `${GITLAB}/api/v4/projects/${encodeURIComponent(PROJECT)}/releases/permalink/latest`,
+    { headers: { 'User-Agent': 'atelier-site-build' } },
+  );
 
   if (res.ok) {
     const data = await res.json();
-    const assets: Asset[] = (data.assets ?? []).map((a: { name: string; size: number; browser_download_url: string }) => ({
-      name: a.name,
-      size: a.size,
-      browser_download_url: a.browser_download_url,
-    }));
+
+    // `assets.links` são os binários anexados à release. O irmão
+    // `assets.sources` é o tarball do código-fonte que o GitLab gera sozinho:
+    // não é instalador e ficaria fingindo ser um.
+    const links: { name: string; url: string; direct_asset_url?: string }[] = data.assets?.links ?? [];
+    const assets: Asset[] = await Promise.all(
+      links.map(async (l) => {
+        const url = l.direct_asset_url ?? l.url;
+        return { name: l.name, url, size: await probeSize(url) };
+      }),
+    );
 
     // O release.yml gera um checksums.txt (saída de `sha256sum *`) e publica
     // junto dos binários. Usamos os hashes de lá — nunca inventamos um.
@@ -47,7 +55,7 @@ try {
     const checksumsAsset = assets.find((a) => a.name === 'checksums.txt');
     if (checksumsAsset) {
       try {
-        const txt = await fetch(checksumsAsset.browser_download_url).then((r) => r.text());
+        const txt = await fetch(checksumsAsset.url).then((r) => r.text());
         for (const line of txt.split('\n')) {
           const match = line.trim().match(/^([a-f0-9]{64})\s+\*?(.+)$/i);
           if (match) checksums[match[2]] = match[1];
@@ -59,13 +67,32 @@ try {
 
     release = {
       version: data.tag_name ?? data.name ?? '',
-      htmlUrl: data.html_url ?? RELEASES_LATEST_URL,
+      htmlUrl: data._links?.self ?? RELEASES_LATEST_URL,
       assets,
       checksums,
     };
   }
 } catch {
   release = null;
+}
+
+/**
+ * A API de releases do GitLab devolve nome e URL do asset, e nenhum tamanho —
+ * ao contrário da do GitHub, que trazia `size`. O número na página vem daqui,
+ * de um HEAD em tempo de build.
+ *
+ * Falhou, redirecionou para quem não declara `Content-Length`, ou o asset está
+ * atrás de autenticação? O rótulo simplesmente não aparece. Um tamanho
+ * inventado seria pior que tamanho nenhum numa página de download.
+ */
+async function probeSize(url: string): Promise<number | undefined> {
+  try {
+    const res = await fetch(url, { method: 'HEAD', redirect: 'follow' });
+    const len = res.headers.get('content-length');
+    return len ? Number(len) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function formatSize(bytes: number): string {
@@ -180,13 +207,13 @@ const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
 
           {mac?.primary ? (
             <>
-              <a class="btn btn-primary btn-lg dl-primary" href={mac.primary.browser_download_url}>
-                Baixar .dmg <span class="dl-size">{formatSize(mac.primary.size)}</span>
+              <a class="btn btn-primary btn-lg dl-primary" href={mac.primary.url}>
+                Baixar .dmg {mac.primary.size && <span class="dl-size">{formatSize(mac.primary.size)}</span>}
               </a>
               {mac.secondaries.length > 0 && (
                 <ul class="dl-secondary">
                   {mac.secondaries.map((s) => (
-                    <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
+                    <li><a href={s.asset.url}>{s.label} {s.asset.size && <span class="dl-size">{formatSize(s.asset.size)}</span>}</a></li>
                   ))}
                 </ul>
               )}
@@ -217,13 +244,13 @@ const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
 
           {win?.primary ? (
             <>
-              <a class="btn btn-primary btn-lg dl-primary" href={win.primary.browser_download_url}>
-                Baixar .exe <span class="dl-size">{formatSize(win.primary.size)}</span>
+              <a class="btn btn-primary btn-lg dl-primary" href={win.primary.url}>
+                Baixar .exe {win.primary.size && <span class="dl-size">{formatSize(win.primary.size)}</span>}
               </a>
               {win.secondaries.length > 0 && (
                 <ul class="dl-secondary">
                   {win.secondaries.map((s) => (
-                    <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
+                    <li><a href={s.asset.url}>{s.label} {s.asset.size && <span class="dl-size">{formatSize(s.asset.size)}</span>}</a></li>
                   ))}
                 </ul>
               )}
@@ -254,13 +281,13 @@ const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
 
           {linux?.primary ? (
             <>
-              <a class="btn btn-primary btn-lg dl-primary" href={linux.primary.browser_download_url}>
-                Baixar .AppImage <span class="dl-size">{formatSize(linux.primary.size)}</span>
+              <a class="btn btn-primary btn-lg dl-primary" href={linux.primary.url}>
+                Baixar .AppImage {linux.primary.size && <span class="dl-size">{formatSize(linux.primary.size)}</span>}
               </a>
               {linux.secondaries.length > 0 && (
                 <ul class="dl-secondary">
                   {linux.secondaries.map((s) => (
-                    <li><a href={s.asset.browser_download_url}>{s.label} <span class="dl-size">{formatSize(s.asset.size)}</span></a></li>
+                    <li><a href={s.asset.url}>{s.label} {s.asset.size && <span class="dl-size">{formatSize(s.asset.size)}</span>}</a></li>
                   ))}
                 </ul>
               )}
@@ -300,7 +327,7 @@ const installGuideUrl = `${base}/docs/primeiros-passos/instalacao`;
           <span style="background:#e74c3c"></span><span style="background:#d99a2b"></span><span style="background:#2ecc71"></span>
         </div>
         <pre><span class="rem"># clone e instale</span>
-git clone https://github.com/br3nds0n/atelier.git
+git clone https://gitlab.fcxlabs.com/platform/tools/fcx-atelier-ai-agents-orquestrator.git atelier
 cd atelier
 npm install
 

@@ -26,7 +26,7 @@ export default defineConfig({
         Footer: './src/components/DocsFooter.astro',
       },
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/br3nds0n/atelier' },
+        { icon: 'gitlab', label: 'GitLab', href: 'https://gitlab.fcxlabs.com/platform/tools/fcx-atelier-ai-agents-orquestrator' },
       ],
       sidebar: [
         {
